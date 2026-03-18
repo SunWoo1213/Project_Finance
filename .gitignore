@@ -1,0 +1,21 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Python / Backend
+__pycache__/
+*.pyc
+.pytest_cache/
+alembic/versions/*
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.npm/
+
+# OS Files
+.DS_Store
+Thumbs.db

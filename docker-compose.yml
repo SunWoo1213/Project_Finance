@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine  # 가볍고 빠른 alpine 버전 사용
+    container_name: finance_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: sunwoolee1213         # DB 접속 아이디
+      POSTGRES_PASSWORD: yujinkim1026 # DB 접속 비밀번호
+      POSTGRES_DB: finance_db       # 생성할 데이터베이스 이름
+      TZ: Asia/Seoul                # 한국 시간대 설정
+    ports:
+      - "5432:5432"                 # 로컬 5432 포트와 컨테이너 5432 포트 연결
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # 컨테이너를 껐다 켜도 데이터가 날아가지 않도록 볼륨 지정
+
+volumes:
+  postgres_data:
