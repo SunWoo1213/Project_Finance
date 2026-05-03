@@ -170,6 +170,7 @@ async def get_market_history(ticker: str, period: str = Query("1y", pattern="^(1
             "KTB_5Y",
             "KTB_10Y",
             "KTB_20Y",
+            "KTB_30Y",
             "0101500",
             "0102000",
         ]:

@@ -27,13 +27,10 @@ export const ASSET_NAMES = {
   "^TNX": "미국 10년물 국채",
   "^TYX": "미국 30년물 국채",
   "DGS2MO": "미국 2개월물 국채",
-  "DGS1": "미국 1년물 국채",
+  "DGS3MO": "미국 3개월물 국채",
   "DGS10": "미국 10년물 국채",
-  "DGS30": "미국 30년물 국채",
-  "US 2M Treasury": "미국 2개월물 국채",
-  "US 1Y Treasury": "미국 1년물 국채",
+  "US 3M Treasury": "미국 3개월물 국채",
   "US 10Y Treasury": "미국 10년물 국채",
-  "US 30Y Treasury": "미국 30년물 국채",
 
   // KR bonds (ECOS item code)
   "0101500": "한국 1년물 국채",
@@ -45,9 +42,11 @@ export const ASSET_NAMES = {
   "KTB_3Y": "한국 3년물 국고채 수익률",
   "KTB_5Y": "한국 5년물 국고채 수익률",
   "KTB_10Y": "한국 10년물 국고채 수익률",
+  "KTB_30Y": "한국 30년물 국고채 수익률",
   "KTB_20Y": "한국 20년물 국고채 수익률",
   "KR 1Y Treasury": "한국 1년물 국채",
   "KR 10Y Treasury": "한국 10년물 국채",
+  "KR 30Y Treasury": "한국 30년물 국채",
 
   // US stocks
   "AAPL": "애플",

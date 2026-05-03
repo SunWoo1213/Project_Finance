@@ -20,18 +20,14 @@ INDICES = {
 }
 
 BONDS = {
-    "US 2M Treasury": "DGS2MO",
-    "US 1Y Treasury": "DGS1",
+    "US 3M Treasury": "DGS3MO",
     "US 10Y Treasury": "DGS10",
-    "US 30Y Treasury": "DGS30",
 }
 
 KR_BONDS = {
     "KR 1Y Treasury": "KTB_1Y",
-    "KR 3Y Treasury": "KTB_3Y",
-    "KR 5Y Treasury": "KTB_5Y",
     "KR 10Y Treasury": "KTB_10Y",
-    "KR 20Y Treasury": "KTB_20Y",
+    "KR 30Y Treasury": "KTB_30Y",
 }
 
 COMMODITIES = {
