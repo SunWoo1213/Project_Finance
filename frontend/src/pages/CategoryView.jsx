@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { Star } from 'lucide-react';
 import SparklineChart from '../components/SparklineChart';
+import useFavoriteStore from '../store/favoriteStore';
 import { formatChangeBadge, formatMarketCap, formatPrice, formatTicker } from '../utils/formatters';
 import { resolveAssetName } from '../utils/constants';
 
@@ -9,6 +11,7 @@ export default function CategoryView({ categoryKey, title }) {
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
+  const { favorites, isFavorite, toggleFavorite, removeFavorite } = useFavoriteStore();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -37,63 +40,130 @@ export default function CategoryView({ categoryKey, title }) {
     return <div className="text-center py-20 text-slate-400">Loading {title}...</div>;
   }
 
-  const uiCategory =
-    categoryKey === 'kr_top10'
-      ? 'KR_STOCK'
-      : categoryKey === 'bonds'
-      ? 'US_BOND'
-      : categoryKey === 'commodities'
-      ? 'COMMODITY'
-      : 'US_STOCK';
+  const getUiCategory = (symbol) => {
+    if (categoryKey === 'kr_top10') return 'KR_STOCK';
+    if (categoryKey === 'bonds') return String(symbol || '').startsWith('KTB_') ? 'KR_BOND' : 'US_BOND';
+    if (categoryKey === 'commodities') return 'COMMODITY';
+    if (categoryKey === 'macro' && symbol === 'KRW=X') return 'FX';
+    if (categoryKey === 'macro' && symbol === '^KS11') return 'KR_STOCK';
+    return 'US_STOCK';
+  };
 
   return (
     <div className="max-w-screen-xl mx-auto py-8 px-4">
       <h2 className="text-2xl font-bold mb-6">{title}</h2>
-      <div className="flex flex-col gap-3">
-        {items.map((data) => {
-          const changeValue = data.changePercent ?? data.change_pct ?? 0;
-          const badge = formatChangeBadge(changeValue);
-          const strokeColor = changeValue >= 0 ? '#ef4444' : '#3b82f6';
-          const marketCap = Number(data.marketCap ?? 0);
-          const isMacro = marketCap <= 0 || uiCategory === 'US_BOND' || uiCategory === 'COMMODITY';
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="flex flex-col gap-3">
+          {items.map((data) => {
+            const uiCategory = getUiCategory(data.symbol);
+            const changeValue = data.changePercent ?? data.change_pct ?? 0;
+            const badge = formatChangeBadge(changeValue);
+            const strokeColor = changeValue >= 0 ? '#ef4444' : '#3b82f6';
+            const marketCap = Number(data.marketCap ?? 0);
+            const isMacro = marketCap <= 0 || uiCategory === 'US_BOND' || uiCategory === 'COMMODITY';
+            const displayName = resolveAssetName(data.symbol, data.label);
+            const favorited = isFavorite(data.symbol);
 
-          return (
-            <div 
-              key={data.symbol}
-              onClick={() => navigate(`/detail/${data.symbol}`)}
-              className="bg-slate-800 rounded-xl p-4 hover:bg-slate-700 cursor-pointer transition shadow-md flex items-center justify-between"
-            >
-              <div className="flex flex-col w-1/4">
-                <h3 className="text-lg font-bold text-slate-200">
-                  {resolveAssetName(data.symbol, data.label)}
-                </h3>
-                <span className="text-sm text-slate-400">{formatTicker(data.symbol)}</span>
-              </div>
-              
-              <div className="h-12 w-1/3">
-                <SparklineChart data={data.history_prices} color={strokeColor} />
-              </div>
+            return (
+              <div 
+                key={data.symbol}
+                onClick={() => navigate(`/detail/${encodeURIComponent(data.symbol)}`)}
+                className="flex cursor-pointer items-center gap-4 rounded-xl bg-slate-800 p-4 shadow-md transition hover:bg-slate-700"
+              >
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <h3 className="truncate text-lg font-bold text-slate-200">
+                    {displayName}
+                  </h3>
+                  <span className="text-sm text-slate-400">{formatTicker(data.symbol)}</span>
+                </div>
+                
+                <div className="hidden h-12 min-w-40 flex-[1.4] sm:block">
+                  <SparklineChart data={data.history_prices} color={strokeColor} category={uiCategory} />
+                </div>
 
-              <div className="flex flex-col items-end w-1/4">
-                <div className="text-lg font-bold">
-                  {formatPrice(data.price, uiCategory)}
-                </div>
-                <div className={`text-sm font-semibold ${badge.className}`}>
-                  {badge.text}
-                </div>
-                {isMacro ? (
-                  <div className="mt-1 rounded-full bg-slate-700 px-2 py-0.5 text-[11px] text-slate-300">
-                    거시 지표
+                <div className="flex min-w-32 flex-col items-end">
+                  <div className="text-lg font-bold">
+                    {formatPrice(data.price, uiCategory)}
                   </div>
-                ) : (
-                  <div className="text-xs text-slate-400 mt-1">
-                    {formatMarketCap(marketCap, uiCategory)}
+                  <div className={`text-sm font-semibold ${badge.className}`}>
+                    {badge.text}
                   </div>
-                )}
+                  {isMacro ? (
+                    <div className="mt-1 rounded-full bg-slate-700 px-2 py-0.5 text-[11px] text-slate-300">
+                      거시 지표
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-xs text-slate-400">
+                      {formatMarketCap(marketCap, uiCategory)}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  aria-pressed={favorited}
+                  title={favorited ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleFavorite({
+                      symbol: data.symbol,
+                      name: displayName,
+                      categoryKey,
+                    });
+                  }}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                    favorited
+                      ? 'border-amber-300/60 bg-amber-300/10 text-amber-300'
+                      : 'border-slate-600 text-slate-400 hover:border-amber-300/60 hover:text-amber-300'
+                  }`}
+                >
+                  <Star size={19} fill={favorited ? 'currentColor' : 'none'} />
+                </button>
               </div>
+            );
+          })}
+        </div>
+
+        <aside className="self-start rounded-xl border border-slate-700 bg-slate-800/70 p-4 lg:sticky lg:top-6">
+          <div className="mb-3 flex items-center gap-2">
+            <Star size={18} className="text-amber-300" fill="currentColor" />
+            <h3 className="text-base font-bold text-slate-100">즐겨찾기</h3>
+          </div>
+
+          {favorites.length === 0 ? (
+            <p className="py-6 text-sm leading-6 text-slate-400">
+              자산 오른쪽 별을 눌러 관심 자산을 모아보세요.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {favorites.map((favorite) => (
+                <div
+                  key={favorite.symbol}
+                  className="group flex items-center gap-2 rounded-lg border border-slate-700/70 bg-slate-900/35 p-3 transition-colors hover:border-emerald-400/60"
+                >
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/detail/${encodeURIComponent(favorite.symbol)}`)}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <div className="truncate text-sm font-semibold text-slate-100">
+                      {resolveAssetName(favorite.symbol, favorite.name)}
+                    </div>
+                    <div className="mt-0.5 text-xs text-slate-500">{formatTicker(favorite.symbol)}</div>
+                  </button>
+                  <button
+                    type="button"
+                    title="즐겨찾기 해제"
+                    onClick={() => removeFavorite(favorite.symbol)}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-amber-300 transition-colors hover:bg-slate-700"
+                  >
+                    <Star size={16} fill="currentColor" />
+                  </button>
+                </div>
+              ))}
             </div>
-          );
-        })}
+          )}
+        </aside>
       </div>
     </div>
   );

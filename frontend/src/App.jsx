@@ -5,7 +5,7 @@ import Header from "./components/Header";
 import Home from "./pages/Home";
 import CategoryView from "./pages/CategoryView";
 import AssetDetail from "./pages/AssetDetail";
-import Register from "./pages/Register";
+import MarketSnapshot from "./pages/MarketSnapshot";
 import Login from "./pages/Login";
 
 function CategoryWrapper() {
@@ -13,6 +13,7 @@ function CategoryWrapper() {
   const map = {
     us_top10: "US TOP 10",
     kr_top10: "KR TOP 10",
+    macro: "주요 지수·환율",
     bonds: "Bonds",
     commodities: "Commodities",
     cryptos: "Cryptos",
@@ -38,9 +39,9 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/category/:type" element={<CategoryWrapper />} />
+              <Route path="/market/:ticker" element={<MarketSnapshot />} />
               <Route path="/detail/:ticker" element={<AssetDetail />} />
               <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
             </Routes>
           </main>
         </div>

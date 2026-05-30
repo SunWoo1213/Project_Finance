@@ -26,3 +26,11 @@
 - 카테고리/상세 화면의 표시 규칙
 - 히스토리 API의 `series_type`, `unit`
 
+## 하네스 문서 연계
+
+서비스 변경은 사용자 화면과 API 계약까지 이어지는 경우가 많으므로 기능 문서 갱신을 함께 합니다.
+
+- `market_service.py`, `macro_service.py`, `external_api_service.py`의 시장 데이터 관련 변경: `docs/harness/features/market-data.md`
+- `ai_service.py`, `graph/`의 리포트 생성 관련 변경: `docs/harness/features/asset-detail-ai-community.md`
+
+외부 provider, ticker 매핑, 캐시 shape, 리포트 생성 조건, LLM 호출 조건을 바꾸면 `docs/harness/`에 변경 기록을 남기고 기능 문서의 `Data Flow`, `Contracts`, `Open Risks`를 갱신합니다.

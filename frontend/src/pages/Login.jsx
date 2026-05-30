@@ -1,120 +1,146 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 
-import InputField from "../components/ui/InputField";
-import Button from "../components/ui/Button";
 import useAuthStore from "../store/authStore";
-import { loginSchema } from "../utils/validationSchemas";
+
+const GOOGLE_SCRIPT_ID = "google-identity-services";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 const TEXT = {
-  title: "\uB85C\uADF8\uC778",
-  email: "\uC774\uBA54\uC77C",
-  password: "\uBE44\uBC00\uBC88\uD638",
-  submit: "\uB85C\uADF8\uC778",
-  noAccount: "\uACC4\uC815\uC774 \uC5C6\uC73C\uC2E0\uAC00\uC694?",
-  register: "\uD68C\uC6D0\uAC00\uC785",
-  success: "\uD658\uC601\uD569\uB2C8\uB2E4!",
-  genericError: "\uB85C\uADF8\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  title: "로그인",
+  subtitle: "Google 계정으로 계속 진행하세요.",
+  missingConfig: "Google 로그인 설정이 필요합니다.",
+  success: "환영합니다!",
+  genericError: "Google 로그인에 실패했습니다.",
   networkError:
-    "\uC11C\uBC84\uC640 \uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.",
+    "서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.",
 };
+
+function loadGoogleScript() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.accounts?.id) {
+      resolve();
+      return;
+    }
+
+    const existingScript = document.getElementById(GOOGLE_SCRIPT_ID);
+    if (existingScript) {
+      existingScript.addEventListener("load", resolve, { once: true });
+      existingScript.addEventListener("error", reject, { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = GOOGLE_SCRIPT_ID;
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
 
 export default function Login() {
   const navigate = useNavigate();
   const login = useAuthStore((state) => state.login);
-  const [isLoading, setIsLoading] = useState(false);
+  const googleButtonRef = useRef(null);
+  const [errorMessage, setErrorMessage] = useState("");
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-    setError,
-  } = useForm({
-    resolver: zodResolver(loginSchema),
-  });
+  useEffect(() => {
+    let isMounted = true;
 
-  const onSubmit = async (data) => {
-    try {
-      setIsLoading(true);
+    async function initializeGoogleLogin() {
+      if (!GOOGLE_CLIENT_ID) {
+        setErrorMessage(TEXT.missingConfig);
+        return;
+      }
 
-      const formData = new URLSearchParams();
-      formData.append("username", data.email);
-      formData.append("password", data.password);
+      try {
+        await loadGoogleScript();
 
-      const response = await axios.post(
-        "http://localhost:8000/api/auth/login",
-        formData,
-        {
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
+        if (!isMounted || !googleButtonRef.current) {
+          return;
         }
-      );
 
-      const token = response.data?.access_token;
-      const nickname = response.data?.nickname ?? "";
+        googleButtonRef.current.innerHTML = "";
 
-      if (!token) {
-        setError("password", { type: "server", message: TEXT.genericError });
-        return;
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: async (response) => {
+            try {
+              setErrorMessage("");
+
+              const authResponse = await axios.post(
+                "http://localhost:8000/api/auth/google",
+                { credential: response.credential }
+              );
+
+              const token = authResponse.data?.access_token;
+              const id = authResponse.data?.id;
+              const email = authResponse.data?.email;
+              const nickname = authResponse.data?.nickname ?? "";
+
+              if (!token) {
+                setErrorMessage(TEXT.genericError);
+                return;
+              }
+
+              login(token, { id, email, nickname });
+              toast.success(TEXT.success);
+              navigate("/");
+            } catch (error) {
+              if (!error?.response) {
+                toast.error(TEXT.networkError);
+                return;
+              }
+
+              const backendMessage =
+                error?.response?.data?.detail ||
+                error?.response?.data?.message ||
+                TEXT.genericError;
+              setErrorMessage(String(backendMessage));
+            }
+          },
+        });
+
+        window.google.accounts.id.renderButton(googleButtonRef.current, {
+          theme: "outline",
+          size: "large",
+          type: "standard",
+          text: "continue_with",
+          shape: "rectangular",
+          width: 320,
+        });
+      } catch {
+        setErrorMessage(TEXT.genericError);
       }
-
-      login(token, { email: data.email, nickname });
-      toast.success(TEXT.success);
-      navigate("/");
-    } catch (error) {
-      if (!error?.response) {
-        toast.error(TEXT.networkError);
-        return;
-      }
-      const backendMessage =
-        error?.response?.data?.detail ||
-        error?.response?.data?.message ||
-        TEXT.genericError;
-
-      setError("password", { type: "server", message: String(backendMessage) });
-    } finally {
-      setIsLoading(false);
     }
-  };
+
+    initializeGoogleLogin();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [login, navigate]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-900 px-4">
       <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-7 shadow-xl sm:p-8">
-        <h1 className="mb-6 text-center text-2xl font-bold text-white">{TEXT.title}</h1>
+        <h1 className="text-center text-2xl font-bold text-white">{TEXT.title}</h1>
+        <p className="mt-2 text-center text-sm text-slate-400">{TEXT.subtitle}</p>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <InputField
-            label={TEXT.email}
-            type="email"
-            placeholder="이메일을 입력해주세요"
-            error={errors.email?.message}
-            {...register("email")}
-          />
+        <div className="mt-8 flex justify-center">
+          <div ref={googleButtonRef} />
+        </div>
 
-          <InputField
-            label={TEXT.password}
-            type="password"
-            placeholder="비밀번호를 입력해주세요"
-            error={errors.password?.message}
-            {...register("password")}
-          />
-
-          <Button type="submit" isLoading={isLoading}>
-            {TEXT.submit}
-          </Button>
-        </form>
-
-        <p className="mt-5 text-center text-sm text-slate-400">
-          {TEXT.noAccount}{" "}
-          <Link to="/register" className="font-medium text-blue-400 hover:text-blue-300">
-            {TEXT.register}
-          </Link>
-        </p>
+        {errorMessage ? (
+          <p className="mt-5 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {errorMessage}
+          </p>
+        ) : null}
       </div>
     </div>
   );

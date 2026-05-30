@@ -11,6 +11,13 @@ export const formatPrice = (value, category = "US_STOCK") => {
     return `$${num.toFixed(2)}`;
   }
 
+  if (category === "FX") {
+    return `₩${num.toLocaleString("ko-KR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }
+
   return new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

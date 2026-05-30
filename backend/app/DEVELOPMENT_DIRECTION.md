@@ -26,3 +26,12 @@
 4. 실제 처리 로직은 `services`에 둡니다.
 5. 공통 설정이나 보안 처리는 `core`에 둡니다.
 
+## 하네스 문서 연계
+
+`backend/app` 아래 파일을 수정하면 기능 문서도 함께 확인합니다.
+
+- `api/auth.py`, `api/deps.py`, `core/security.py`, `models.py`의 사용자 필드: `docs/harness/features/authentication.md`
+- `main.py`의 시장 엔드포인트, `services/market_service.py`, `services/macro_service.py`, `core/cache.py`: `docs/harness/features/market-data.md`
+- `main.py`의 리포트 엔드포인트, `services/ai_service.py`, `services/graph/`, `api/community.py`: `docs/harness/features/asset-detail-ai-community.md`
+
+변경이 끝나면 `docs/harness/`에 변경 기록을 남기고 기능 문서의 `Change Records`에 링크를 추가합니다.

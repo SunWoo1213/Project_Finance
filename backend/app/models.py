@@ -3,7 +3,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship, Mapped, mapped_column
-from typing import List
+from typing import List, Optional
 
 from .db.base import Base  # Assuming this exists at backend/app/db/base.py
 
@@ -32,13 +32,14 @@ class User(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
-    hashed_password: Mapped[str] = mapped_column(String, nullable=False)
+    google_sub: Mapped[Optional[str]] = mapped_column(String, unique=True, index=True, nullable=True)
     nickname: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # 양방향 관계 맵핑
     comments: Mapped[List["Comment"]] = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
     liked_comments: Mapped[List["CommentLike"]] = relationship("CommentLike", back_populates="user", cascade="all, delete-orphan")
+    reported_comments: Mapped[List["CommentReport"]] = relationship("CommentReport", back_populates="user", cascade="all, delete-orphan")
 
 
 class Asset(Base):
@@ -83,7 +84,7 @@ class Comment(Base):
     Comment 테이블.
     사용자가 특정 자산(종목)의 토론방(종토방)에 작성하는 댓글(게시글) 정보를 담는 모델.
     - 관계(N:1): Comment 생성자는 특정 User이며, 대상 종목은 특정 Asset입니다.
-    - 관계(1:N): 하나의 Comment는 여러 명의 사용자가 남긴 CommentLike들을 가집니다.
+    - 관계(1:N): 하나의 Comment는 여러 명의 사용자가 남긴 CommentLike/CommentReport들을 가집니다.
     """
     __tablename__ = "comments"
 
@@ -97,6 +98,7 @@ class Comment(Base):
     user: Mapped["User"] = relationship("User", back_populates="comments")
     asset: Mapped["Asset"] = relationship("Asset", back_populates="comments")
     likes: Mapped[List["CommentLike"]] = relationship("CommentLike", back_populates="comment", cascade="all, delete-orphan")
+    reports: Mapped[List["CommentReport"]] = relationship("CommentReport", back_populates="comment", cascade="all, delete-orphan")
 
 
 class CommentLike(Base):
@@ -113,3 +115,18 @@ class CommentLike(Base):
     # 양방향 관계 맵핑
     user: Mapped["User"] = relationship("User", back_populates="liked_comments")
     comment: Mapped["Comment"] = relationship("Comment", back_populates="likes")
+
+
+class CommentReport(Base):
+    """
+    CommentReport 테이블.
+    어떤 사용자가 어떤 댓글을 신고했는지 관리합니다. 동일 사용자의 중복 신고는 복합 키로 차단합니다.
+    """
+    __tablename__ = "comment_reports"
+
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), primary_key=True)
+    comment_id: Mapped[int] = mapped_column(Integer, ForeignKey("comments.id"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=get_kst_now)
+
+    user: Mapped["User"] = relationship("User", back_populates="reported_comments")
+    comment: Mapped["Comment"] = relationship("Comment", back_populates="reports")

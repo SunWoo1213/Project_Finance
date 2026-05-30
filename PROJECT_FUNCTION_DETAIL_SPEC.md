@@ -1,5 +1,7 @@
 # Project Finance 기능 상세 명세서
 
+> Harness note (2026-05-30): 이 문서는 제품 기능을 넓게 설명하는 기존 명세입니다. 현재 코드 기준의 하네스 작업 문서는 `docs/harness/feature-index.md`와 `docs/harness/features/`를 우선합니다. 특히 인증은 현재 Google-only 흐름이므로 `docs/harness/features/authentication.md`와 `docs/harness/google-login-only.md`를 기준으로 판단합니다.
+
 문서 목적 : 이 문서는 Project Finance의 전체 구조와 기능을 PPT 상세설명란에 바로 옮겨 적을 수 있도록 `Key : value` 형식으로 정리한 기능 상세 명세서이다.
 
 작성 기준 : 실제 프로젝트 소스 코드 기준으로 프론트엔드 화면, 백엔드 API, 데이터베이스 모델, 외부 데이터 연동, AI 리포트 생성 흐름을 분석하여 작성하였다.

@@ -1,15 +1,12 @@
-from pydantic import BaseModel, EmailStr, ConfigDict
 from datetime import datetime
+
+from pydantic import BaseModel, EmailStr, ConfigDict
+
 from .models import AssetCategory
 
 # -----------------
 # User Schemas
 # -----------------
-class UserCreate(BaseModel):
-    email: EmailStr
-    password: str
-    nickname: str
-
 class UserResponse(BaseModel):
     id: int
     email: EmailStr
@@ -18,6 +15,16 @@ class UserResponse(BaseModel):
     
     # ORM 모델의 객체 인스턴스를 Pydantic 모델로 변환할 수 있도록 설정
     model_config = ConfigDict(from_attributes=True)
+
+class GoogleLoginRequest(BaseModel):
+    credential: str
+
+class AuthTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    id: int
+    email: EmailStr
+    nickname: str
 
 # -----------------
 # Asset Schemas
@@ -47,6 +54,7 @@ class CommentResponse(BaseModel):
     content: str
     created_at: datetime
     likes_count: int = 0
+    reports_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 

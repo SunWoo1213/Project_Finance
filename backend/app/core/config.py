@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     ALPHA_VANTAGE_API_KEY: str | None = None
     FRED_API_KEY: str | None = None
     ECOS_API_KEY: str | None = None
+    GOOGLE_CLIENT_ID: str | None = None
     
     # JWT Authentication
     SECRET_KEY: str = "a_very_secure_randomly_generated_string_like_9b0d2a8"

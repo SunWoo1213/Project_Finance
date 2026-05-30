@@ -210,6 +210,137 @@ NEWS_ASSETS = {
     **COMMODITIES_NEWS_SYMBOLS,
 }
 
+LATEST_CONTEXT_TTL_SECONDS = 10 * 60
+
+
+def _resolve_yfinance_news_symbol(ticker: str) -> str:
+    normalized = (ticker or "").strip().upper()
+    if normalized == "XAU":
+        return "GC=F"
+    if normalized == "XAG":
+        return "SI=F"
+    return ticker
+
+
+def _parse_yfinance_news_item(item: dict[str, Any]) -> dict[str, Any] | None:
+    content = item.get("content") if isinstance(item.get("content"), dict) else {}
+    canonical_url = content.get("canonicalUrl") if isinstance(content.get("canonicalUrl"), dict) else {}
+    provider = content.get("provider") if isinstance(content.get("provider"), dict) else {}
+
+    title = item.get("title") or content.get("title") or ""
+    link = item.get("link") or item.get("url") or canonical_url.get("url") or ""
+    source = item.get("publisher") or item.get("provider") or provider.get("displayName") or "unknown"
+    published_at = (
+        item.get("providerPublishTime")
+        or item.get("pubDate")
+        or content.get("pubDate")
+        or content.get("displayTime")
+        or ""
+    )
+    summary = item.get("summary") or content.get("summary") or content.get("description") or ""
+
+    if not title and not link:
+        return None
+
+    return {
+        "title": str(title),
+        "link": str(link),
+        "source": str(source),
+        "published_at": str(published_at),
+        "summary": str(summary),
+        "type": "news",
+    }
+
+
+def _fetch_latest_context_sync(symbol: str, limit: int = 8) -> dict[str, Any]:
+    ticker = yf.Ticker(symbol)
+    raw_news = ticker.news or []
+    news_items: list[dict[str, Any]] = []
+    for item in raw_news[:limit]:
+        if not isinstance(item, dict):
+            continue
+        parsed = _parse_yfinance_news_item(item)
+        if parsed:
+            news_items.append(parsed)
+
+    events: list[dict[str, Any]] = []
+    try:
+        calendar = ticker.calendar
+        if isinstance(calendar, dict):
+            calendar_items = calendar.items()
+        elif hasattr(calendar, "to_dict"):
+            calendar_items = calendar.to_dict().items()
+        else:
+            calendar_items = []
+
+        for label, value in calendar_items:
+            if value in (None, "", [], {}):
+                continue
+            events.append(
+                {
+                    "title": str(label),
+                    "value": str(value),
+                    "source": "yfinance calendar",
+                    "type": "event",
+                }
+            )
+    except Exception:
+        events = []
+
+    return {
+        "news": news_items,
+        "events": events[:8],
+    }
+
+
+def _is_latest_context_fresh(payload: dict[str, Any] | None, now: datetime) -> bool:
+    if not payload:
+        return False
+    fetched_at_raw = payload.get("fetched_at")
+    if not fetched_at_raw:
+        return False
+    try:
+        fetched_at = datetime.fromisoformat(str(fetched_at_raw))
+    except ValueError:
+        return False
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    return (now - fetched_at).total_seconds() < LATEST_CONTEXT_TTL_SECONDS
+
+
+async def fetch_latest_asset_context(ticker: str, *, force_refresh: bool = False) -> dict[str, Any]:
+    asset_ticker = (ticker or "").strip()
+    now = datetime.now(timezone.utc)
+    cache_bucket = market_cache.setdefault("latest_context", {})
+    cached = cache_bucket.get(asset_ticker)
+    if not force_refresh and _is_latest_context_fresh(cached, now):
+        return cached
+
+    symbol = _resolve_yfinance_news_symbol(asset_ticker)
+    try:
+        fetched = await asyncio.wait_for(
+            asyncio.to_thread(_fetch_latest_context_sync, symbol),
+            timeout=8,
+        )
+        source_status = "fresh"
+    except Exception as exc:
+        fetched = {"news": [], "events": []}
+        source_status = f"failed: {exc}"
+
+    payload = {
+        "ticker": asset_ticker,
+        "symbol": symbol,
+        "fetched_at": now.isoformat(),
+        "ttl_seconds": LATEST_CONTEXT_TTL_SECONDS,
+        "source": "yfinance",
+        "source_status": source_status,
+        "news": fetched.get("news", []),
+        "events": fetched.get("events", []),
+    }
+    cache_bucket[asset_ticker] = payload
+    market_cache.setdefault("last_updated", {}).setdefault("latest_context", {})[asset_ticker] = now.isoformat()
+    return payload
+
 
 async def _collect_prices_group(
     group_name: str, assets: dict[str, dict[str, str]]

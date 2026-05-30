@@ -6,7 +6,6 @@
 
 - `constants.js`: ticker와 표시 이름 매핑
 - `formatters.js`: 가격, 변화율, 시가총액 등 표시 포맷
-- `validationSchemas.js`: 폼 검증 스키마
 
 ## 개발 원칙
 
@@ -16,3 +15,8 @@
 
 포맷터는 화면별 임시 문자열 처리보다 우선 사용합니다. 가격 단위, 채권 수익률, 원화/달러 표시 규칙이 화면마다 달라지지 않도록 이곳에 모읍니다.
 
+## 하네스 문서 연계
+
+자산 이름, ticker 매핑, 가격/수익률 포맷을 수정할 때는 `docs/harness/features/market-data.md`를 함께 갱신합니다.
+
+유틸 함수의 호출 범위나 전역 표시 규칙이 바뀌면 `docs/harness/features/frontend-routing-shell.md`에도 영향을 확인하고, 변경 기록에 어떤 화면의 표시가 달라지는지 적습니다.

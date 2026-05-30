@@ -33,3 +33,13 @@ API 주소는 장기적으로 환경변수와 공통 API 클라이언트로 모�
 
 백엔드 응답 구조가 바뀔 때는 프론트 표시 로직뿐 아니라 fallback 처리도 함께 확인합니다. 특히 `points`, `legacy`, `history_prices`, `currentPrice`, `changePercent`처럼 호환을 위해 남겨둔 필드가 있습니다.
 
+## 하네스 문서 연계
+
+프론트 기능을 수정할 때는 `docs/harness/feature-index.md`에서 대상 기능 문서를 먼저 찾습니다.
+
+- 라우트, Header, 공유 UI, Zustand auth state: `docs/harness/features/frontend-routing-shell.md`
+- 로그인 화면과 인증 상태: `docs/harness/features/authentication.md`
+- 홈, 카테고리, 가격/차트 표시: `docs/harness/features/market-data.md`
+- 상세 화면, AI 리포트, 댓글 UI: `docs/harness/features/asset-detail-ai-community.md`
+
+사용자 흐름, route, API 호출, localStorage 저장 구조, 표시 fallback이 바뀌면 기능 문서와 `docs/harness/` 변경 기록을 함께 갱신합니다.

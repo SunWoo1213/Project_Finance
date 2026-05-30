@@ -29,3 +29,12 @@
 
 DB 테이블 생성은 현재 lifespan에서 `create_all`로 처리됩니다. 운영 수준으로 확장할 때는 Alembic migration 도입을 우선 검토합니다.
 
+## 하네스 문서 연계
+
+백엔드 기능을 수정할 때는 먼저 `docs/harness/feature-index.md`에서 대상 기능 문서를 찾습니다.
+
+- 인증 라우터, JWT, 사용자 모델 변경: `docs/harness/features/authentication.md`
+- 시장 가격, 뉴스, 히스토리, 캐시, 매크로 서비스 변경: `docs/harness/features/market-data.md`
+- AI 리포트, LangGraph, 커뮤니티 댓글/좋아요 변경: `docs/harness/features/asset-detail-ai-community.md`
+
+수정 후에는 관련 기능 문서의 `Ownership Map`, `Data Flow`, `Contracts`, `Change Records`를 갱신하고, 별도 변경 기록을 `docs/harness/`에 남깁니다.

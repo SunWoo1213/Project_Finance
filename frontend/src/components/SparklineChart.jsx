@@ -2,7 +2,7 @@ import React from 'react';
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
 import { formatPrice } from '../utils/formatters';
 
-export default function SparklineChart({ data, color }) {
+export default function SparklineChart({ data, color, category = 'US_STOCK' }) {
   if (!data || data.length === 0) return null;
 
   const chartData = data.map((value, index) => ({ value, index }));
@@ -11,7 +11,7 @@ export default function SparklineChart({ data, color }) {
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={chartData}>
         <YAxis domain={['dataMin', 'dataMax']} hide />
-        <Tooltip formatter={(value) => [formatPrice(value), "Price"]} labelFormatter={() => ""} contentStyle={{ fontSize: '10px', padding: '2px 5px' }} />
+        <Tooltip formatter={(value) => [formatPrice(value, category), "Price"]} labelFormatter={() => ""} contentStyle={{ fontSize: '10px', padding: '2px 5px' }} />
         <Line 
           type="monotone" 
           dataKey="value"  

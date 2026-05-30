@@ -20,3 +20,13 @@
 
 전역 상태는 필요한 만큼만 사용합니다. 인증처럼 여러 화면이 공유하는 상태는 `store`에 두고, 특정 화면의 탭/입력/로딩 상태는 해당 컴포넌트 안에 둡니다.
 
+## 하네스 문서 연계
+
+`frontend/src`의 기능 변경은 다음 문서와 연결합니다.
+
+- 라우팅/앱 셸/공유 UI: `docs/harness/features/frontend-routing-shell.md`
+- 로그인 및 인증 상태: `docs/harness/features/authentication.md`
+- 시장 데이터 표시와 자산 매핑: `docs/harness/features/market-data.md`
+- 상세 화면, AI 리포트, 커뮤니티: `docs/harness/features/asset-detail-ai-community.md`
+
+수정 후에는 관련 기능 문서에 파일 소유권, 데이터 흐름, 검증 방법, 변경 기록 링크가 최신인지 확인합니다.

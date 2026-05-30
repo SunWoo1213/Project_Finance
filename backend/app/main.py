@@ -14,7 +14,7 @@ from .core.config import settings
 from .db.session import engine, get_db
 from .models import AIReport, Asset, Base
 from .services.ai_service import generate_daily_reports, generate_report_for_ticker
-from .services.market_service import update_news_task, update_prices_task
+from .services.market_service import fetch_latest_asset_context, update_news_task, update_prices_task
 try:
     from app.services.macro_service import (
         fetch_commodity_data,
@@ -145,6 +145,11 @@ async def get_market_prices():
 @app.get("/api/market/news")
 async def get_market_news():
     return market_cache["news"]
+
+
+@app.get("/api/market/latest-context/{ticker}")
+async def get_latest_market_context(ticker: str, force_refresh: bool = Query(False)):
+    return await fetch_latest_asset_context(ticker, force_refresh=force_refresh)
 
 
 @app.get("/api/market/history/{ticker}")

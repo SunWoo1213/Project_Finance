@@ -20,7 +20,7 @@
 
 ## 현재 라우터
 
-- `auth.py`: 회원가입, 로그인, JWT 토큰 발급
+- `auth.py`: Google 로그인, JWT 토큰 발급
 - `community.py`: 댓글 작성, 조회, 수정, 삭제, 좋아요
 - `deps.py`: 현재 사용자 인증 의존성
 
@@ -31,3 +31,12 @@
 - `market.py`: `/api/market/prices`, `/api/market/news`, `/api/market/history/{ticker}`
 - `reports.py`: `/api/reports/{ticker}`, `/api/ai/generate/{ticker}`
 
+## 하네스 문서 연계
+
+라우터를 수정할 때는 API 계약이 기능 문서와 어긋나지 않게 함께 갱신합니다.
+
+- `auth.py`, `deps.py`: `docs/harness/features/authentication.md`
+- `community.py`: `docs/harness/features/asset-detail-ai-community.md`
+- 시장 또는 리포트 라우터를 새로 분리하는 경우: `docs/harness/features/market-data.md`, `docs/harness/features/asset-detail-ai-community.md`
+
+엔드포인트 path, 인증 필요 여부, request/response shape가 바뀌면 변경 기록을 `docs/harness/`에 작성하고 기능 문서의 `Contracts`와 `Change Records`를 수정합니다.

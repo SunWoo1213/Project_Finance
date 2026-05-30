@@ -5,6 +5,7 @@
 ## 현재 책임
 
 - `authStore.js`: JWT token, user 정보, login/logout 상태를 localStorage와 동기화
+- `favoriteStore.js`: 즐겨찾기 자산 목록을 localStorage와 동기화
 
 ## 개발 원칙
 
@@ -14,3 +15,12 @@
 
 민감한 사용자 정보를 localStorage에 추가로 저장하지 않습니다. 현재처럼 UI 표시와 인증에 필요한 최소 정보만 저장하는 방향을 유지합니다.
 
+즐겨찾기는 현재 브라우저 로컬 상태입니다. 계정 간 동기화가 필요해지면 백엔드 모델/라우트와 마이그레이션 계획을 먼저 정리합니다.
+
+## 하네스 문서 연계
+
+`authStore.js` 변경 전에는 `docs/harness/features/authentication.md`와 `docs/harness/features/frontend-routing-shell.md`를 확인합니다.
+
+`favoriteStore.js` 변경 전에는 `docs/harness/features/favorites.md`와 `docs/harness/features/frontend-routing-shell.md`를 확인합니다.
+
+token 저장 키, user shape, localStorage 동기화, logout 동작이 바뀌면 두 기능 문서의 `Contracts`와 `Data Flow`를 갱신하고 `docs/harness/`에 변경 기록을 남깁니다.

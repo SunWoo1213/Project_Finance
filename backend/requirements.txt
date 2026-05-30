@@ -10,8 +10,7 @@ langchain-openai
 langchain-community
 ddgs
 langgraph
-passlib[bcrypt]
-bcrypt==4.0.1
 python-jose[cryptography]
 httpx
 email-validator
+google-auth

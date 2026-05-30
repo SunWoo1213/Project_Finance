@@ -17,3 +17,12 @@ ORM 모델은 현재 `backend/app/models.py`에 있습니다. 모델 파일이 �
 
 운영 안정성을 높이는 다음 단계는 Alembic migration 도입입니다. `create_all`은 개발 초기에는 편하지만 스키마 변경 이력을 보존하지 못합니다.
 
+## 하네스 문서 연계
+
+DB 연결 방식이나 세션 생명주기를 바꾸면 영향을 받는 기능 문서를 함께 확인합니다. ORM 필드 자체는 `backend/app/models.py`에 있으므로 모델 변경 시 다음 문서를 우선 갱신합니다.
+
+- 사용자/Google 인증 필드: `docs/harness/features/authentication.md`
+- 자산, AI 리포트, 댓글, 좋아요 모델: `docs/harness/features/asset-detail-ai-community.md`
+- 자산 카테고리와 ticker 의미 변경: `docs/harness/features/market-data.md`
+
+스키마 변경은 migration 부재 때문에 위험도가 높습니다. 변경 기록에는 기존 DB에 필요한 후속 SQL 또는 migration 계획을 반드시 적습니다.

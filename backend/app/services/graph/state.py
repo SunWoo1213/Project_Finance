@@ -6,6 +6,7 @@ class AgentState(TypedDict):
     category: str
     price_data: dict[str, Any]
     news_data: list[dict[str, Any]]
+    latest_context: dict[str, Any]
     asset_category: str
 
     # Parallel research contexts

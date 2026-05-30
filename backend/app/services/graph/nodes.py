@@ -73,17 +73,17 @@ def financial_agent(state: AgentState) -> dict[str, Any]:
     category = state.get("category", "")
     logger.info("graph_node: financial_agent start (ticker=%s)", ticker)
 
-    if category in ["US_BOND", "KR_BOND", "COMMODITY", "CRYPTO"]:
+    if category in ["INDEX", "BOND_US", "BOND_KR", "COMMODITY", "CRYPTO"]:
         logger.info("graph_node: financial_agent early-exit (ticker=%s, category=%s)", ticker, category)
         return {
             "financial_context": (
-                "해당 자산(채권/원자재/암호화폐)은 기업 재무제표가 존재하지 않는 거시/대체 자산이므로 "
+                "해당 자산(지수/채권/원자재/암호화폐)은 단일 기업 재무제표가 존재하지 않는 거시/대체 자산이므로 "
                 "재무 분석을 생략합니다."
             )
         }
 
     fmp_data = ""
-    if category in ["US_STOCK", "KR_STOCK", "INDEX"]:
+    if category == "STOCK_US":
         fmp_data = _run_async(fetch_fmp_financials(ticker))
 
     instructions = (
@@ -108,7 +108,7 @@ def news_agent(state: AgentState) -> dict[str, Any]:
     logger.info("graph_node: news_agent start (ticker=%s)", ticker)
 
     finnhub_data = ""
-    if category in ["US_STOCK", "KR_STOCK", "INDEX"]:
+    if category == "STOCK_US":
         finnhub_data = _run_async(fetch_finnhub_news(ticker))
 
     instructions = (
@@ -119,8 +119,10 @@ def news_agent(state: AgentState) -> dict[str, Any]:
         f"ticker={ticker}\n"
         f"category={category}\n"
         f"news_data={state.get('news_data')}\n"
+        f"latest_context={state.get('latest_context')}\n"
         f"[Finnhub Context]\n{finnhub_data}\n"
-        "최신 뉴스의 헤드라인/핵심내용/시장 영향 근거를 수집해라."
+        "최신 뉴스/공시/실적발표 일정의 헤드라인, 핵심내용, 시장 영향 근거를 수집해라. "
+        "latest_context의 fetched_at과 source_status를 기준으로 데이터 신선도를 함께 판단해라."
     )
     context = _run_research_agent("news_agent", instructions, query)
     logger.info("graph_node: news_agent done (ticker=%s)", ticker)
@@ -190,6 +192,7 @@ def writer_node(state: AgentState) -> dict[str, Any]:
         "과거 리포트가 없다면 일반적인 분석 리포트를 작성하세요.\n\n"
         "structured_facts와 feedback만을 기반으로 투자 리포트를 작성하라.\n"
         "서론, 본론(상승/하락 요인), 결론(투자 요약) 구조를 갖춘 Markdown으로 작성하라.\n"
+        "본문 초반에 데이터 기준 시각, 확인된 최신 뉴스/발표, 데이터 한계를 짧게 명시하라.\n"
         "넘겨받지 않은 숫자를 만들지 말라.\n"
         "{language_requirement}\n\n"
         "previous_report:\n{previous_report}\n\n"

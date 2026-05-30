@@ -6,10 +6,9 @@ from .state import AgentState
 
 
 def route_evaluation(state: AgentState) -> str:
-    feedback = state.get("feedback", "")
     revision_count = state.get("revision_count", 0)
 
-    if "PASS" in str(feedback).upper() or revision_count >= 3:
+    if state.get("is_pass") or revision_count >= 3:
         return "END"
     return "writer_node"
 

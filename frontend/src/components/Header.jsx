@@ -46,9 +46,6 @@ export default function Header() {
             <Link to="/login" className="px-3 py-1 text-sm bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-medium rounded-md transition-colors">
               로그인
             </Link>
-            <Link to="/register" className="px-3 py-1 text-sm bg-slate-800 hover:bg-slate-700 rounded-md transition-colors">
-              회원가입
-            </Link>
           </div>
         )}
       </div>

@@ -4,6 +4,8 @@ export const ASSET_NAMES = {
   "^NDX": "나스닥 100",
   "^KS11": "코스피",
   "^KQ11": "코스닥",
+  "KRW=X": "원/달러 환율",
+  "USDKRW": "원/달러 환율",
 
   // Crypto
   "BTC-USD": "비트코인",

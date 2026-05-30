@@ -9,7 +9,7 @@ from ..core.cache import market_cache
 from ..db.session import AsyncSessionLocal
 from ..models import AIReport, Asset, AssetCategory
 from .graph.graph import app as graph_app
-from .market_service import BONDS, COMMODITIES, CRYPTOS, INDICES, KR_BONDS, KR_TOP10
+from .market_service import BONDS, COMMODITIES, CRYPTOS, INDICES, KR_BONDS, KR_TOP10, fetch_latest_asset_context
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +38,27 @@ def find_cached_payload(cache_bucket: dict, ticker: str):
     return None
 
 
+def merge_news_items(*groups: list[dict]) -> list[dict]:
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group or []:
+            key = str(item.get("link") or item.get("title") or "").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+    return merged[:12]
+
+
 async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
     price_payload = find_cached_payload(market_cache["prices"], ticker)
     news_payload = find_cached_payload(market_cache["news"], ticker)
     if not price_payload:
         raise ValueError(f"No cached market data found for ticker: {ticker}")
+
+    latest_context = await fetch_latest_asset_context(ticker)
+    merged_news = merge_news_items((news_payload or {}).get("items", []), latest_context.get("news", []))
 
     last_report_result = await db.execute(
         select(AIReport.final_content)
@@ -63,7 +79,8 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
             "change_pct": price_payload.get("change_pct"),
             "symbol": price_payload.get("symbol"),
         },
-        "news_data": (news_payload or {}).get("items", []),
+        "news_data": merged_news,
+        "latest_context": latest_context,
         "asset_category": category.name,
         "financial_context": "",
         "news_context": "",

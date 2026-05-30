@@ -6,9 +6,9 @@
 
 - `Home.jsx`: 주요 시장 데이터 요약
 - `CategoryView.jsx`: 자산군별 목록
+- `MarketSnapshot.jsx`: 홈 주요 지수/환율 클릭 후 시간 단위 차트와 관련 대시보드 이동
 - `AssetDetail.jsx`: 상세 가격, 차트, AI 리포트, 댓글
-- `Login.jsx`: 로그인
-- `Register.jsx`: 회원가입
+- `Login.jsx`: Google 로그인
 
 ## 개발 원칙
 
@@ -20,3 +20,13 @@ API 호출이 많아질 경우 페이지 내부에 계속 쌓지 말고 공통 A
 
 로그인이 필요한 기능은 UI 잠금, API 인증 헤더, 실패 처리 세 가지를 함께 다룹니다.
 
+## 하네스 문서 연계
+
+페이지별 기능 변경은 해당 기능 문서와 함께 갱신합니다.
+
+- `Home.jsx`, `CategoryView.jsx`: `docs/harness/features/market-data.md`
+- `AssetDetail.jsx`: `docs/harness/features/asset-detail-ai-community.md`와, 가격/차트 변경이면 `docs/harness/features/market-data.md`
+- `Login.jsx`: `docs/harness/features/authentication.md`
+- 라우트 추가/삭제: `docs/harness/features/frontend-routing-shell.md`
+
+페이지의 API 호출, route param, 로그인 필요 여부, fallback UI가 바뀌면 변경 기록을 `docs/harness/`에 남기고 기능 문서의 `Data Flow`와 `Contracts`를 수정합니다.

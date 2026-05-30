@@ -31,3 +31,15 @@
 - 프론트 API 주소가 일부 페이지에 직접 하드코딩되어 있습니다. 추후에는 공통 API 클라이언트와 환경변수 기반 URL로 모으는 것이 좋습니다.
 - 자산 메타데이터는 프론트 `utils/constants.js`, 백엔드 `market_service.py`, DB `Asset` 모델 사이에서 중복될 수 있습니다. 새 자산을 추가할 때는 세 위치의 의미가 어긋나지 않게 확인해야 합니다.
 
+## 하네스 기능 문서 연계
+
+기능을 수정하는 하네스는 코드 수정 전 `docs/harness/feature-index.md`에서 대상 기능 문서를 찾고, 수정 후 해당 기능 문서와 `docs/harness/` 변경 기록을 함께 갱신합니다.
+
+현재 기능 문서의 중심은 다음입니다.
+
+- 인증 및 Google 로그인: `docs/harness/features/authentication.md`
+- 시장 데이터, 가격, 뉴스, 히스토리: `docs/harness/features/market-data.md`
+- 자산 상세, AI 리포트, 커뮤니티: `docs/harness/features/asset-detail-ai-community.md`
+- 프론트 라우팅, 앱 셸, 공유 UI/state: `docs/harness/features/frontend-routing-shell.md`
+
+문서 작성 규칙은 `docs/harness/feature-documentation-guide.md`를 따릅니다. 새 기능 영역이 생기면 `docs/harness/features/`에 문서를 추가하고 `docs/harness/feature-index.md`에 연결합니다.
