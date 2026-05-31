@@ -224,6 +224,80 @@ Required controls:
 7. Expand database fields after confirming migration strategy.
 8. Update frontend report rendering for richer sections and metadata.
 
+## Implementation Progress
+
+### 2026-05-30 Phase 1 Safety Gate
+
+Implemented in `docs/harness/report-quality-phase-1.md`.
+
+Completed:
+
+- Protected `POST /api/ai/generate/{ticker}` with authentication.
+- Added an explicit first authorization policy: authenticated app users may trigger manual generation until roles/admin fields exist.
+- Updated the asset detail generation call to send the authenticated bearer token.
+- Blocked failed evaluator results from being saved by raising a quality failure before DB writes.
+- Added HTTP 422 failure responses for evaluator-rejected drafts.
+- Exposed generation metadata on successful generation responses.
+- Replaced placeholder summary behavior with structured bull and bear summaries.
+- Added mocked tests for evaluator pass/fail paths.
+
+Partially completed:
+
+- Structured report facts are now built before the graph and passed into the synthesizer, but the full Bull/Bear/Risk/Fact Checker graph redesign remains future work.
+- Risk summary is exposed in generation metadata, but not persisted because database field additions need migration confirmation.
+
+Deferred:
+
+- Database schema expansion for quality fields.
+- Admin-only generation policy, unless user roles or permissions are added.
+- Independent evaluator model/provider separation.
+- Frontend rendering for persisted rich metadata.
+
+### 2026-05-30 Phase 2 Structured Facts
+
+Implemented in `docs/harness/report-quality-phase-2.md`.
+
+Completed:
+
+- Added asset-category fact requirements for US stocks, Korean stocks, indices, US/Korean bonds, commodities, and crypto.
+- Expanded `ReportFacts` with requirements, market metadata, missing required facts, source timestamps, confidence labels, and asset-specific data limitations.
+- Added structured provider payloads for FMP, Finnhub, and CoinGecko while preserving existing string helper compatibility.
+- Passed provider facts into graph state as `financial_facts`, `news_facts`, and `macro_facts`.
+- Updated synthesizer prompts to consume normalized report facts and provider facts before writing.
+- Added mocked/no-network tests for missing required facts and provider missing/unsupported states.
+
+Partially completed:
+
+- Asset requirements identify gaps, but they do not yet hard-fail generation before the LLM step.
+- Provider facts are available to the graph but not persisted to the database.
+
+Deferred:
+
+- Strong enforcement via a dedicated `data_collector_node` or `fact_checker_node`.
+- UI rendering of missing required facts and provider source metadata.
+- Database fields for source and quality metadata.
+
+### 2026-05-30 Fact Checker Node
+
+Implemented in `docs/harness/report-quality-fact-checker.md`.
+
+Completed:
+
+- Added a deterministic `fact_checker_node` between `writer_node` and `evaluator_node`.
+- Added graph routing so unsupported numeric claims return to `writer_node` with feedback before evaluator review.
+- Added revision-limit handling so repeated fact checker failure ends as `is_pass=false` and is blocked by the service quality gate.
+- Exposed `fact_check_pass` and `fact_check_feedback` in generation metadata.
+- Added node-level tests for supported numbers, unsupported numbers, and revision-limit routing.
+
+Partially completed:
+
+- The fact checker validates numeric support only. It does not yet validate unsupported qualitative claims.
+
+Deferred:
+
+- Dedicated Bull, Bear, and Risk agent nodes.
+- LLM or retrieval-backed qualitative fact checking.
+
 ## Verification Plan
 
 Use narrow verification first.

@@ -144,7 +144,11 @@ export default function AssetDetail() {
               setReport(reportRes.data);
             } catch (error) {
               if (error?.response?.status === 404) {
-                await axios.post(`http://localhost:8000/api/ai/generate/${encodeURIComponent(assetTicker)}`);
+                await axios.post(
+                  `http://localhost:8000/api/ai/generate/${encodeURIComponent(assetTicker)}`,
+                  {},
+                  { headers: authHeaders }
+                );
                 const retryRes = await axios.get(`http://localhost:8000/api/reports/${encodeURIComponent(assetTicker)}`, {
                   headers: authHeaders,
                 });

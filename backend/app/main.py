@@ -13,7 +13,7 @@ from .core.cache import market_cache
 from .core.config import settings
 from .db.session import engine, get_db
 from .models import AIReport, Asset, Base
-from .services.ai_service import generate_daily_reports, generate_report_for_ticker
+from .services.ai_service import ReportQualityError, generate_daily_reports, generate_report_for_ticker
 from .services.market_service import fetch_latest_asset_context, update_news_task, update_prices_task
 try:
     from app.services.macro_service import (
@@ -264,12 +264,37 @@ async def get_market_history(ticker: str, period: str = Query("1y", pattern="^(1
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def ensure_report_generation_allowed(user: User) -> None:
+    # Current policy: only authenticated app users may trigger manual LLM-backed generation.
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+
 @app.post("/api/ai/generate/{ticker}")
-async def generate_report(ticker: str, db: AsyncSession = Depends(get_db)):
+async def generate_report(
+    ticker: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    ensure_report_generation_allowed(current_user)
     try:
         result = await generate_report_for_ticker(ticker, db)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ReportQualityError as exc:
+        logger.warning(
+            "리포트 품질 평가 실패 (ticker=%s, revision_count=%s): %s",
+            ticker,
+            exc.revision_count,
+            exc.feedback,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "리포트가 품질 평가를 통과하지 못해 저장되지 않았습니다.",
+                "metadata": exc.metadata,
+            },
+        ) from exc
     except Exception as exc:
         logger.error("리포트 생성 API 실패 (ticker=%s): %s", ticker, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to generate report for {ticker}") from exc
@@ -278,6 +303,7 @@ async def generate_report(ticker: str, db: AsyncSession = Depends(get_db)):
         "status": "success",
         "message": "리포트 생성 및 DB 저장 완료",
         "data": result["final_report"],
+        "metadata": result.get("generation_metadata", {}),
     }
 
 

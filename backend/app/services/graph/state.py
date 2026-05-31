@@ -8,15 +8,22 @@ class AgentState(TypedDict):
     news_data: list[dict[str, Any]]
     latest_context: dict[str, Any]
     asset_category: str
+    report_facts: dict[str, Any]
+    generation_metadata: dict[str, Any]
 
     # Parallel research contexts
     financial_context: str
     news_context: str
     macro_context: str
+    financial_facts: dict[str, Any]
+    news_facts: dict[str, Any]
+    macro_facts: dict[str, Any]
 
     # Pipeline fields
     structured_facts: dict[str, Any]
     draft_report: str
+    fact_check_pass: bool
+    fact_check_feedback: str
     previous_report: str
     feedback: str
     revision_count: int

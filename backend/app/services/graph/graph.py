@@ -1,8 +1,26 @@
 from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 
-from .nodes import evaluator_node, financial_agent, macro_agent, news_agent, synthesizer_node, writer_node
+from .nodes import (
+    evaluator_node,
+    fact_checker_node,
+    financial_agent,
+    macro_agent,
+    news_agent,
+    synthesizer_node,
+    writer_node,
+)
 from .state import AgentState
+
+
+def route_fact_check(state: AgentState) -> str:
+    revision_count = state.get("revision_count", 0)
+
+    if state.get("fact_check_pass"):
+        return "evaluator_node"
+    if revision_count >= 3:
+        return "END"
+    return "writer_node"
 
 
 def route_evaluation(state: AgentState) -> str:
@@ -20,6 +38,7 @@ workflow.add_node("news_agent", news_agent)
 workflow.add_node("macro_agent", macro_agent)
 workflow.add_node("synthesizer_node", synthesizer_node)
 workflow.add_node("writer_node", writer_node)
+workflow.add_node("fact_checker_node", fact_checker_node)
 workflow.add_node("evaluator_node", evaluator_node)
 
 # 1) Parallel branches from START
@@ -32,7 +51,16 @@ workflow.add_edge(["financial_agent", "news_agent", "macro_agent"], "synthesizer
 
 # 3) Write/evaluate loop
 workflow.add_edge("synthesizer_node", "writer_node")
-workflow.add_edge("writer_node", "evaluator_node")
+workflow.add_edge("writer_node", "fact_checker_node")
+workflow.add_conditional_edges(
+    "fact_checker_node",
+    route_fact_check,
+    {
+        "END": END,
+        "writer_node": "writer_node",
+        "evaluator_node": "evaluator_node",
+    },
+)
 workflow.add_conditional_edges(
     "evaluator_node",
     route_evaluation,
