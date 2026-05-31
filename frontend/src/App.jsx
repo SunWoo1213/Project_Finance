@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes, useParams } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 
 import Header from "./components/Header";
+import ChatbotLauncher from "./components/ChatbotLauncher";
 import Home from "./pages/Home";
 import CategoryView from "./pages/CategoryView";
 import AssetDetail from "./pages/AssetDetail";
@@ -44,6 +45,7 @@ function App() {
               <Route path="/login" element={<Login />} />
             </Routes>
           </main>
+          <ChatbotLauncher />
         </div>
       </div>
     </BrowserRouter>

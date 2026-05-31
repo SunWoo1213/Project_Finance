@@ -2,11 +2,12 @@
 import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import ReactMarkdown from "react-markdown";
 import { CalendarDays, ExternalLink, Flag, Heart, Newspaper, RefreshCw, Send, Star } from "lucide-react";
 
+import ReportCard from "../components/ReportCard";
 import useAuthStore from "../store/authStore";
 import useFavoriteStore from "../store/favoriteStore";
+import { getUiCategory } from "../utils/assetCategories";
 import { formatChangeBadge, formatMarketCap, formatPrice, formatTicker } from "../utils/formatters";
 import { resolveAssetName } from "../utils/constants";
 
@@ -144,15 +145,31 @@ export default function AssetDetail() {
               setReport(reportRes.data);
             } catch (error) {
               if (error?.response?.status === 404) {
-                await axios.post(
-                  `http://localhost:8000/api/ai/generate/${encodeURIComponent(assetTicker)}`,
-                  {},
-                  { headers: authHeaders }
-                );
-                const retryRes = await axios.get(`http://localhost:8000/api/reports/${encodeURIComponent(assetTicker)}`, {
-                  headers: authHeaders,
-                });
-                setReport(retryRes.data);
+                try {
+                  await axios.post(
+                    `http://localhost:8000/api/ai/generate/${encodeURIComponent(assetTicker)}`,
+                    {},
+                    { headers: authHeaders }
+                  );
+                  const retryRes = await axios.get(`http://localhost:8000/api/reports/${encodeURIComponent(assetTicker)}`, {
+                    headers: authHeaders,
+                  });
+                  setReport(retryRes.data);
+                } catch (generationError) {
+                  const detail = generationError?.response?.data?.detail;
+                  if (generationError?.response?.status === 422 && detail?.metadata) {
+                    setReport({
+                      unavailable: true,
+                      bull_summary: "",
+                      bear_summary: "",
+                      final_content: "",
+                      metadata: detail.metadata,
+                    });
+                  } else {
+                    setReport(null);
+                    console.error("Failed to generate AI report:", generationError);
+                  }
+                }
               } else {
                 setReport(null);
                 console.error("Failed to load AI report:", error);
@@ -293,18 +310,16 @@ export default function AssetDetail() {
   const favorited = isFavorite(assetTicker);
   const hasChartData = Array.isArray(chartData) && chartData.length > 0;
 
-  const uiCategory =
-    assetGroup === "bonds"
-      ? assetTicker.startsWith("KTB_")
-        ? "KR_BOND"
-        : "US_BOND"
-      : assetGroup === "commodities"
-      ? "COMMODITY"
-      : "US_STOCK";
+  const uiCategory = getUiCategory(assetGroup, assetTicker);
 
   const isBond = uiCategory.includes("BOND");
   const marketCap = Number(marketInfo.marketCap ?? 0);
-  const isMacro = marketCap <= 0 || uiCategory === "US_BOND" || uiCategory === "KR_BOND" || uiCategory === "COMMODITY";
+  const isMacro =
+    marketCap <= 0 ||
+    uiCategory === "US_BOND" ||
+    uiCategory === "KR_BOND" ||
+    uiCategory === "COMMODITY" ||
+    uiCategory === "FX";
 
   const periods = [
     { label: "1일", value: "1d" },
@@ -512,14 +527,8 @@ export default function AssetDetail() {
 
       <section className={`relative ${isBond ? "mt-2" : ""}`}>
         <h2 className="mb-4 px-2 text-2xl font-bold tracking-tight">AI 분석 리포트</h2>
-        <div className={`rounded-3xl bg-slate-800 p-6 shadow-md transition-all duration-500 ${!authToken ? "select-none opacity-60 blur-md" : ""}`}>
-          {report ? (
-            <div className="prose prose-invert max-w-none prose-h1:text-xl prose-h2:text-lg prose-p:text-slate-300">
-              <ReactMarkdown>{report.final_content}</ReactMarkdown>
-            </div>
-          ) : (
-            <div className="py-10 text-center text-slate-400">이 종목의 AI 리포트가 아직 생성되지 않았습니다.</div>
-          )}
+        <div className={`transition-all duration-500 ${!authToken ? "select-none opacity-60 blur-md" : ""}`}>
+          <ReportCard reportData={report} isReportLoading={false} />
         </div>
 
         {!authToken && (

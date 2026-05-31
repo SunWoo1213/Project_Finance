@@ -11,6 +11,13 @@ export const formatPrice = (value, category = "US_STOCK") => {
     return `$${num.toFixed(2)}`;
   }
 
+  if (category === "CRYPTO") {
+    return `$${num.toLocaleString("en-US", {
+      minimumFractionDigits: num >= 1 ? 2 : 4,
+      maximumFractionDigits: num >= 1 ? 2 : 6,
+    })}`;
+  }
+
   if (category === "FX") {
     return `₩${num.toLocaleString("ko-KR", {
       minimumFractionDigits: 2,

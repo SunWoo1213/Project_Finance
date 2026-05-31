@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -8,8 +7,8 @@ import httpx
 
 from ..core.config import settings
 
-FMP_API_KEY = os.getenv("FMP_API_KEY") or getattr(settings, "FMP_API_KEY", "")
-FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY") or getattr(settings, "FINNHUB_API_KEY", "")
+FMP_API_KEY = settings.FMP_API_KEY or ""
+FINNHUB_API_KEY = settings.FINNHUB_API_KEY or ""
 
 COINGECKO_TICKER_MAP = {
     "BTC-USD": "bitcoin",

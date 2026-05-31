@@ -32,6 +32,7 @@ LANGUAGE_REQUIREMENT = """
 class StructuredFacts(BaseModel):
     ticker: str = ""
     asset_category: str = ""
+    analysis_framework: dict[str, Any] = Field(default_factory=dict)
     price: dict[str, Any] = Field(default_factory=dict)
     valuation: list[dict[str, Any] | str] = Field(default_factory=list)
     financials: list[dict[str, Any] | str] = Field(default_factory=list)
@@ -56,6 +57,72 @@ class EvaluationResult(BaseModel):
 
 
 NUMERIC_TOKEN_PATTERN = re.compile(r"(?<![A-Za-z])[-+]?\d[\d,]*(?:\.\d+)?%?")
+SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?。！？])\s+|\n+")
+FRAMEWORK_EVIDENCE_TERMS = [
+    "데이터",
+    "뉴스",
+    "가격",
+    "거래량",
+    "수익률",
+    "금리",
+    "환율",
+    "한계",
+    "부족",
+    "확인",
+    "기준",
+    "변동",
+    "리스크",
+    "공급",
+    "수요",
+    "정책",
+    "실적",
+    "시가총액",
+]
+QUALITATIVE_CLAIM_RULES = [
+    {
+        "label": "규제/ETF 이벤트",
+        "triggers": ["규제 완화", "규제 승인", "규제 뉴스", "ETF 승인", "ETF 자금", "ETF 유입"],
+        "evidence": ["규제", "ETF", "승인", "유입", "regulation", "regulatory"],
+    },
+    {
+        "label": "기관 수급",
+        "triggers": ["기관 수급", "기관 매수", "기관 자금", "수급이 강화", "자금 유입"],
+        "evidence": ["기관", "수급", "자금", "유입", "flow", "institution"],
+    },
+    {
+        "label": "실적/가이던스 개선",
+        "triggers": ["실적 개선", "마진 개선", "가이던스 상향", "실적 호조", "수익성 개선"],
+        "evidence": ["실적", "마진", "가이던스", "매출", "영업이익", "earnings", "guidance"],
+    },
+    {
+        "label": "중앙은행 정책 전환",
+        "triggers": ["정책이 완화", "완화적으로 전환", "금리 인하 전환", "중앙은행 정책", "연준 정책"],
+        "evidence": ["정책", "금리", "연준", "한국은행", "중앙은행", "FOMC", "CPI", "inflation"],
+    },
+    {
+        "label": "공급/재고 압박",
+        "triggers": ["재고 부족", "공급 부족", "공급망 압박", "재고 감소"],
+        "evidence": ["재고", "공급", "공급망", "inventory", "supply"],
+    },
+    {
+        "label": "온체인/거래소 흐름",
+        "triggers": ["온체인", "거래소 유출", "거래소 유입"],
+        "evidence": ["온체인", "거래소", "onchain", "exchange"],
+    },
+]
+
+REQUIRED_REPORT_SECTIONS = [
+    ("핵심 요약", ["핵심요약"]),
+    ("데이터 기준 시각과 한계", ["데이터기준시각과한계", "데이터기준시각", "데이터한계"]),
+    ("가격과 시장 반응", ["가격과시장반응", "가격및시장반응", "시장반응과가격"]),
+    ("Bull 시나리오", ["bull시나리오", "상승시나리오"]),
+    ("Bear 시나리오", ["bear시나리오", "하락시나리오"]),
+    ("핵심 촉매", ["핵심촉매", "주요촉매"]),
+    ("주요 리스크", ["주요리스크", "핵심리스크"]),
+    ("자산군별 분석", ["자산군별분석"]),
+    ("균형 결론", ["균형결론", "종합결론"]),
+    ("투자 유의사항", ["투자유의사항", "투자주의사항", "면책사항"]),
+]
 
 
 def _run_async(coro):
@@ -151,6 +218,160 @@ def _find_unsupported_numbers(draft_report: str, state: AgentState) -> list[str]
             continue
         seen.add(normalized)
         unsupported.append(match)
+    return unsupported
+
+
+def _normalize_section_text(text: str) -> str:
+    return re.sub(r"[\s#*`_\-:().\[\]0-9]+", "", text or "").casefold()
+
+
+def _extract_markdown_heading_labels(draft_report: str) -> list[str]:
+    headings: list[str] = []
+    for line in (draft_report or "").splitlines():
+        match = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", line)
+        if match:
+            headings.append(match.group(1))
+    return headings
+
+
+def _extract_markdown_sections(draft_report: str) -> dict[str, str]:
+    sections: dict[str, list[str]] = {}
+    current_heading = ""
+    for line in (draft_report or "").splitlines():
+        match = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", line)
+        if match:
+            current_heading = _normalize_section_text(match.group(1))
+            sections.setdefault(current_heading, [])
+            continue
+        if current_heading:
+            sections[current_heading].append(line)
+    return {heading: "\n".join(lines).strip() for heading, lines in sections.items()}
+
+
+def _find_section_block(draft_report: str, label: str, aliases: list[str] | None = None) -> str:
+    sections = _extract_markdown_sections(draft_report)
+    normalized_aliases = [_normalize_section_text(item) for item in [label, *(aliases or [])]]
+    for alias in normalized_aliases:
+        if alias in sections:
+            return sections[alias]
+    return ""
+
+
+def _missing_report_sections(draft_report: str) -> list[str]:
+    normalized_headings = [_normalize_section_text(heading) for heading in _extract_markdown_heading_labels(draft_report)]
+    missing: list[str] = []
+    for label, aliases in REQUIRED_REPORT_SECTIONS:
+        normalized_aliases = [_normalize_section_text(alias) for alias in [label, *aliases]]
+        if not any(alias == heading for alias in normalized_aliases for heading in normalized_headings):
+            missing.append(label)
+    return missing
+
+
+def _topic_discussion_block(section_block: str, topic: str, all_topics: list[str]) -> str:
+    topic_norm = _normalize_section_text(topic)
+    other_topic_norms = [_normalize_section_text(item) for item in all_topics if item != topic]
+    lines = section_block.splitlines()
+    collected: list[str] = []
+    collecting = False
+    for line in lines:
+        normalized_line = _normalize_section_text(line)
+        if topic_norm and topic_norm in normalized_line:
+            collecting = True
+            collected.append(line)
+            continue
+        if collecting and any(other and other in normalized_line for other in other_topic_norms):
+            break
+        if collecting:
+            collected.append(line)
+    return "\n".join(collected).strip()
+
+
+def _has_substantive_topic_discussion(text: str, topic: str) -> bool:
+    if not text:
+        return False
+    normalized_text = _normalize_section_text(text)
+    normalized_topic = _normalize_section_text(topic)
+    residual = normalized_text.replace(normalized_topic, "")
+    if len(residual) < 12:
+        return False
+    if NUMERIC_TOKEN_PATTERN.search(text):
+        return True
+    return any(term in text for term in FRAMEWORK_EVIDENCE_TERMS)
+
+
+def _missing_framework_sections(draft_report: str, state: AgentState) -> list[str]:
+    analysis_framework = (state.get("report_facts", {}) or {}).get("analysis_framework", {}) or {}
+    required_sections = analysis_framework.get("required_sections") or []
+    asset_framework_block = _find_section_block(draft_report, "자산군별 분석", ["자산군별분석"])
+    missing: list[str] = []
+    for section in required_sections:
+        label = str(section).strip()
+        if not label:
+            continue
+        topic_block = _topic_discussion_block(asset_framework_block, label, [str(item) for item in required_sections])
+        if _normalize_section_text(label) not in _normalize_section_text(asset_framework_block):
+            missing.append(label)
+            continue
+        if not _has_substantive_topic_discussion(topic_block, label):
+            missing.append(label)
+    return missing
+
+
+def _collect_evidence_text(state: AgentState) -> str:
+    report_facts = state.get("report_facts", {}) or {}
+    structured_facts = state.get("structured_facts", {}) or {}
+    payload = {
+        "report_price": report_facts.get("price", {}),
+        "report_market": report_facts.get("market", {}),
+        "report_news": report_facts.get("news", []),
+        "report_events": report_facts.get("events", []),
+        "structured_price": structured_facts.get("price", {}),
+        "structured_valuation": structured_facts.get("valuation", []),
+        "structured_financials": structured_facts.get("financials", []),
+        "structured_news": structured_facts.get("news", []),
+        "structured_macro": structured_facts.get("macro", []),
+        "structured_events": structured_facts.get("events", []),
+        "structured_risks": structured_facts.get("risks", []),
+        "structured_key_numbers": structured_facts.get("key_numbers", []),
+        "market_sentiment_news": structured_facts.get("market_sentiment_news", []),
+        "financial_facts": state.get("financial_facts", {}),
+        "news_facts": state.get("news_facts", {}),
+        "macro_facts": state.get("macro_facts", {}),
+        "bull_thesis": state.get("bull_thesis", {}),
+        "bear_thesis": state.get("bear_thesis", {}),
+        "risk_review": state.get("risk_review", {}),
+    }
+    chunks: list[str] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            for child in value.values():
+                visit(child)
+            return
+        if isinstance(value, list):
+            for child in value:
+                visit(child)
+            return
+        if value is not None:
+            chunks.append(str(value))
+
+    visit(payload)
+    return "\n".join(chunks)
+
+
+def _find_unsupported_qualitative_claims(draft_report: str, state: AgentState) -> list[str]:
+    evidence_text = _collect_evidence_text(state).casefold()
+    unsupported: list[str] = []
+    sentences = [item.strip() for item in SENTENCE_SPLIT_PATTERN.split(draft_report or "") if item.strip()]
+    for sentence in sentences:
+        normalized_sentence = sentence.casefold()
+        for rule in QUALITATIVE_CLAIM_RULES:
+            if not any(trigger.casefold() in normalized_sentence for trigger in rule["triggers"]):
+                continue
+            if any(term.casefold() in evidence_text for term in rule["evidence"]):
+                continue
+            unsupported.append(f"{rule['label']}: {sentence[:120]}")
+            break
     return unsupported
 
 
@@ -256,6 +477,7 @@ def synthesizer_node(state: AgentState) -> dict[str, Any]:
     prompt = ChatPromptTemplate.from_template(
         "당신은 데이터 취합/정제 책임자다.\n"
         "report_facts는 가격, 뉴스, 이벤트, 소스 상태를 담은 정규화 입력이다.\n"
+        "report_facts.analysis_framework는 자산군별 분석 기준이다. structured_facts.analysis_framework에 보존하라.\n"
         "financial_facts, news_facts, macro_facts는 provider 응답에서 정규화한 추가 팩트다.\n"
         "report_facts, provider facts, financial_context, news_context, macro_context를 모두 읽고 모순을 해결해 "
         "단일 structured_facts로 병합하라.\n"
@@ -288,6 +510,122 @@ def synthesizer_node(state: AgentState) -> dict[str, Any]:
     return {"structured_facts": facts.model_dump()}
 
 
+def _list_from_facts(value: Any) -> list[str]:
+    if not value:
+        return []
+    if not isinstance(value, list):
+        value = [value]
+
+    items: list[str] = []
+    for item in value:
+        if isinstance(item, dict):
+            for key in ("title", "summary", "label", "value"):
+                if item.get(key):
+                    items.append(str(item[key]))
+                    break
+            else:
+                compact = ", ".join(f"{key}: {val}" for key, val in item.items() if val)
+                if compact:
+                    items.append(compact)
+        else:
+            text = str(item).strip()
+            if text:
+                items.append(text)
+    return items
+
+
+def _role_evidence(structured_facts: dict[str, Any], keys: list[str], limit: int = 5) -> list[str]:
+    evidence: list[str] = []
+    for key in keys:
+        for item in _list_from_facts(structured_facts.get(key)):
+            if item not in evidence:
+                evidence.append(item)
+            if len(evidence) >= limit:
+                return evidence
+    return evidence
+
+
+def _fallback_thesis(message: str, structured_facts: dict[str, Any]) -> list[str]:
+    limitations = _list_from_facts(structured_facts.get("data_limitations"))
+    if limitations:
+        return [message, *limitations[:2]]
+    return [message]
+
+
+def bull_agent_node(state: AgentState) -> dict[str, Any]:
+    ticker = state.get("ticker", "")
+    logger.info("graph_node: bull_agent_node start (ticker=%s)", ticker)
+    structured_facts = state.get("structured_facts", {}) or {}
+    thesis = _list_from_facts(structured_facts.get("bull_factors"))
+    if not thesis:
+        thesis = _role_evidence(structured_facts, ["market_sentiment_news", "news", "events"], limit=3)
+    if not thesis:
+        thesis = _fallback_thesis("명확한 상승 논거가 구조화 팩트에서 확인되지 않았습니다.", structured_facts)
+
+    return {
+        "bull_thesis": {
+            "role": "bull_agent",
+            "stance": "positive_scenario",
+            "thesis": thesis[:5],
+            "evidence": _role_evidence(
+                structured_facts,
+                ["price", "valuation", "financials", "news", "macro", "events"],
+            ),
+            "limitations": _list_from_facts(structured_facts.get("data_limitations"))[:5],
+        }
+    }
+
+
+def bear_agent_node(state: AgentState) -> dict[str, Any]:
+    ticker = state.get("ticker", "")
+    logger.info("graph_node: bear_agent_node start (ticker=%s)", ticker)
+    structured_facts = state.get("structured_facts", {}) or {}
+    thesis = _list_from_facts(structured_facts.get("bear_factors"))
+    if not thesis:
+        thesis = _role_evidence(structured_facts, ["risks", "data_limitations"], limit=3)
+    if not thesis:
+        thesis = _fallback_thesis("명확한 하락 논거가 구조화 팩트에서 확인되지 않았습니다.", structured_facts)
+
+    return {
+        "bear_thesis": {
+            "role": "bear_agent",
+            "stance": "negative_scenario",
+            "thesis": thesis[:5],
+            "evidence": _role_evidence(
+                structured_facts,
+                ["risks", "data_limitations", "valuation", "financials", "news", "macro"],
+            ),
+            "limitations": _list_from_facts(structured_facts.get("data_limitations"))[:5],
+        }
+    }
+
+
+def risk_officer_node(state: AgentState) -> dict[str, Any]:
+    ticker = state.get("ticker", "")
+    logger.info("graph_node: risk_officer_node start (ticker=%s)", ticker)
+    structured_facts = state.get("structured_facts", {}) or {}
+    report_facts = state.get("report_facts", {}) or {}
+    missing_required = _list_from_facts(report_facts.get("missing_required_facts"))
+    risk_factors = _list_from_facts(structured_facts.get("risk_factors") or structured_facts.get("risks"))
+    limitations = _list_from_facts(structured_facts.get("data_limitations"))
+
+    findings = [*risk_factors[:5], *limitations[:5]]
+    if missing_required:
+        findings.append(f"누락된 필수 팩트: {', '.join(missing_required)}")
+    if not findings:
+        findings = ["구조화 팩트에서 별도 리스크가 충분히 분리되지 않았습니다."]
+
+    return {
+        "risk_review": {
+            "role": "risk_officer",
+            "stance": "risk_and_uncertainty",
+            "findings": findings[:8],
+            "missing_required_facts": missing_required,
+            "source_status": report_facts.get("source_status", {}),
+        }
+    }
+
+
 def writer_node(state: AgentState) -> dict[str, Any]:
     ticker = state.get("ticker", "")
     logger.info("graph_node: writer_node start (ticker=%s)", ticker)
@@ -298,16 +636,26 @@ def writer_node(state: AgentState) -> dict[str, Any]:
         "'무엇이 달라졌는지(Delta)'를 서론 맨 앞에 강렬하게 작성하세요.\n"
         "예: '6시간 전과 비교하여 시장 센티먼트가 긍정적으로 전환되었습니다.'\n"
         "과거 리포트가 없다면 일반적인 분석 리포트를 작성하세요.\n\n"
-        "structured_facts와 feedback만을 기반으로 투자 리포트를 작성하라.\n"
+        "structured_facts, analysis_framework, bull_thesis, bear_thesis, risk_review, feedback만을 기반으로 투자 리포트를 작성하라.\n"
         "아래 고정 섹션을 Markdown으로 유지하라: 1) 핵심 요약, 2) 데이터 기준 시각과 한계, "
         "3) 가격과 시장 반응, 4) Bull 시나리오, 5) Bear 시나리오, 6) 핵심 촉매, "
         "7) 주요 리스크, 8) 자산군별 분석, 9) 균형 결론, 10) 투자 유의사항.\n"
+        "8) 자산군별 분석 섹션은 analysis_framework.required_sections와 "
+        "analysis_framework.interpretation_rules를 우선 기준으로 작성하라. "
+        "각 required_sections 항목은 반드시 8) 자산군별 분석 섹션 안에 쓰고, "
+        "라벨만 나열하지 말고 확인된 근거 또는 데이터 한계 문장을 함께 작성하라.\n"
         "본문 초반에 데이터 기준 시각, 확인된 최신 뉴스/발표, 데이터 한계를 명시하라.\n"
         "확인된 사실과 해석을 구분하고, 직접적인 매수/매도 권고는 피하라.\n"
+        "규제, ETF, 기관 수급, 실적 개선, 중앙은행 정책 전환, 재고/공급, 온체인 흐름 같은 "
+        "정성 클레임은 structured_facts나 provider facts에 근거가 있을 때만 사용하라.\n"
         "넘겨받지 않은 숫자를 만들지 말라.\n"
         "{language_requirement}\n\n"
         "previous_report:\n{previous_report}\n\n"
         "structured_facts:\n{structured_facts}\n\n"
+        "analysis_framework:\n{analysis_framework}\n\n"
+        "bull_thesis:\n{bull_thesis}\n\n"
+        "bear_thesis:\n{bear_thesis}\n\n"
+        "risk_review:\n{risk_review}\n\n"
         "feedback:\n{feedback}\n"
     )
     chain = prompt | llm
@@ -315,6 +663,10 @@ def writer_node(state: AgentState) -> dict[str, Any]:
         {
             "previous_report": state.get("previous_report", ""),
             "structured_facts": state.get("structured_facts", {}),
+            "analysis_framework": (state.get("report_facts", {}) or {}).get("analysis_framework", {}),
+            "bull_thesis": state.get("bull_thesis", {}),
+            "bear_thesis": state.get("bear_thesis", {}),
+            "risk_review": state.get("risk_review", {}),
             "feedback": state.get("feedback", ""),
             "language_requirement": LANGUAGE_REQUIREMENT,
         }
@@ -322,6 +674,46 @@ def writer_node(state: AgentState) -> dict[str, Any]:
     draft = result.content
     logger.info("graph_node: writer_node done (ticker=%s)", ticker)
     return {"draft_report": draft, "analysis_result": draft, "final_report": draft}
+
+
+def report_format_validator_node(state: AgentState) -> dict[str, Any]:
+    ticker = state.get("ticker", "")
+    logger.info("graph_node: report_format_validator_node start (ticker=%s)", ticker)
+    draft_report = state.get("draft_report", "")
+    missing_sections = _missing_report_sections(draft_report)
+    missing_framework_sections = _missing_framework_sections(draft_report, state)
+    if not missing_sections and not missing_framework_sections:
+        logger.info("graph_node: report_format_validator_node pass (ticker=%s)", ticker)
+        return {"format_check_pass": True, "format_check_feedback": ""}
+
+    missing_parts = []
+    if missing_sections:
+        missing_parts.append(f"Missing fixed sections: {', '.join(missing_sections)}")
+    if missing_framework_sections:
+        missing_parts.append(f"Missing asset-framework topics: {', '.join(missing_framework_sections)}")
+    feedback = (
+        "Report format check failed: final draft does not satisfy the required template. "
+        f"{'; '.join(missing_parts)}. "
+        "Rewrite the report using all 10 fixed Markdown sections in order, and make the "
+        "자산군별 분석 section explicitly cover every asset-framework topic."
+    )
+    existing_feedback = state.get("feedback", "")
+    combined_feedback = f"{existing_feedback}\n{feedback}".strip()
+    next_revision = state.get("revision_count", 0) + 1
+    logger.info(
+        "graph_node: report_format_validator_node fail (ticker=%s, missing=%s, revision_count->%s)",
+        ticker,
+        "; ".join(missing_parts),
+        next_revision,
+    )
+    return {
+        "format_check_pass": False,
+        "format_check_feedback": feedback,
+        "feedback": combined_feedback,
+        "is_pass": False,
+        "revision_count": next_revision,
+        "retry_count": state.get("retry_count", 0) + 1,
+    }
 
 
 def fact_checker_node(state: AgentState) -> dict[str, Any]:
@@ -351,6 +743,39 @@ def fact_checker_node(state: AgentState) -> dict[str, Any]:
     return {
         "fact_check_pass": False,
         "fact_check_feedback": feedback,
+        "feedback": combined_feedback,
+        "is_pass": False,
+        "revision_count": next_revision,
+        "retry_count": state.get("retry_count", 0) + 1,
+    }
+
+
+def qualitative_claim_checker_node(state: AgentState) -> dict[str, Any]:
+    ticker = state.get("ticker", "")
+    logger.info("graph_node: qualitative_claim_checker_node start (ticker=%s)", ticker)
+    unsupported_claims = _find_unsupported_qualitative_claims(state.get("draft_report", ""), state)
+    if not unsupported_claims:
+        logger.info("graph_node: qualitative_claim_checker_node pass (ticker=%s)", ticker)
+        return {"qualitative_check_pass": True, "qualitative_check_feedback": ""}
+
+    feedback = (
+        "Qualitative claim check failed: the draft contains high-risk qualitative claims "
+        "without matching structured evidence. Unsupported claims: "
+        f"{'; '.join(unsupported_claims[:5])}. "
+        "Rewrite by either citing the available source facts or downgrading the claim into a data limitation."
+    )
+    existing_feedback = state.get("feedback", "")
+    combined_feedback = f"{existing_feedback}\n{feedback}".strip()
+    next_revision = state.get("revision_count", 0) + 1
+    logger.info(
+        "graph_node: qualitative_claim_checker_node fail (ticker=%s, unsupported=%s, revision_count->%s)",
+        ticker,
+        "; ".join(unsupported_claims[:5]),
+        next_revision,
+    )
+    return {
+        "qualitative_check_pass": False,
+        "qualitative_check_feedback": feedback,
         "feedback": combined_feedback,
         "is_pass": False,
         "revision_count": next_revision,

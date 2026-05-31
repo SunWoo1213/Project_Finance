@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Boolean, Column, Integer, JSON, String, Text, DateTime, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from typing import List, Optional
 
@@ -73,6 +73,17 @@ class AIReport(Base):
     bull_summary: Mapped[str] = mapped_column(Text, nullable=True)
     bear_summary: Mapped[str] = mapped_column(Text, nullable=True)
     final_content: Mapped[str] = mapped_column(Text, nullable=False)
+    quality_status: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    quality_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    format_check_pass: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    fact_check_pass: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    qualitative_check_pass: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    revision_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    data_as_of: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    source_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    risk_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    analysis_framework: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # 양방향 관계 맵핑

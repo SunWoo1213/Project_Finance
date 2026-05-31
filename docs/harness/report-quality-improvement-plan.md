@@ -298,6 +298,90 @@ Deferred:
 - Dedicated Bull, Bear, and Risk agent nodes.
 - LLM or retrieval-backed qualitative fact checking.
 
+### 2026-05-31 Phase 4 Role Preparation Nodes
+
+Implemented in `docs/harness/report-quality-role-nodes.md`.
+
+Completed:
+
+- Added cost-neutral `bull_agent_node`, `bear_agent_node`, and `risk_officer_node` after `synthesizer_node`.
+- Routed the graph so structured facts are separated into positive scenario, negative scenario, and risk/uncertainty views before writing.
+- Updated the writer prompt to consume `bull_thesis`, `bear_thesis`, and `risk_review` alongside `structured_facts`.
+- Exposed role outputs in generation metadata and used thesis outputs for saved bull/bear summaries when available.
+- Added mocked node tests for separated role outputs without real LLM or provider calls.
+
+Partially completed:
+
+- The role nodes are deterministic preparation nodes, not additional LLM-backed debate agents, so this improves structure without increasing generation token cost.
+
+Deferred:
+
+- Fully independent LLM-backed Bull, Bear, and Risk agents.
+- Qualitative claim fact checking.
+- Database persistence for role outputs and risk review fields.
+
+### 2026-05-31 Asset-Specific Analysis Frameworks
+
+Implemented in `docs/harness/report-quality-asset-frameworks.md`.
+
+Completed:
+
+- Added deterministic asset-category analysis frameworks for US stocks, Korean stocks, indices, US/Korean bonds, commodities, and crypto.
+- Attached the selected framework to `report_facts.analysis_framework` before graph execution.
+- Preserved the framework in structured facts and passed it directly to the writer prompt.
+- Exposed the selected framework in generation metadata for newly generated reports.
+- Added mocked tests for Korean stock and crypto framework selection without provider or LLM calls.
+
+Partially completed:
+
+- The writer is instructed to follow the framework in the fixed "자산군별 분석" section, but there is not yet a deterministic post-write section validator.
+
+Deferred:
+
+- Hard rejection when category-specific required facts are missing.
+- UI rendering of the selected framework and data limitations.
+
+### 2026-05-31 Fixed Format Validator
+
+Implemented in `docs/harness/report-quality-format-validator.md`.
+
+Completed:
+
+- Added a deterministic `report_format_validator_node` after `writer_node` and before numeric fact checking.
+- Added graph routing so drafts missing required fixed-template sections are sent back to `writer_node` with feedback.
+- Added revision-limit handling so repeated format failure ends as `is_pass=false` and is blocked by the service quality gate.
+- Exposed `format_check_pass` and `format_check_feedback` in generation metadata.
+- Added node-level tests for complete template pass, missing-section retry, and revision-limit end routing.
+
+Partially completed:
+
+- The validator checks presence of the 10 fixed report sections, but it does not yet validate the quality or completeness of each section.
+
+Deferred:
+
+- Deterministic validation that the "자산군별 분석" section covers every selected `analysis_framework.required_sections` item.
+- UI rendering of format-check feedback on generation failure.
+
+### 2026-05-31 Asset Framework Format Validation
+
+Implemented in `docs/harness/report-quality-framework-format-validation.md`.
+
+Completed:
+
+- Extended `report_format_validator_node` to check selected `analysis_framework.required_sections` topics.
+- Drafts that contain all 10 fixed sections but omit required asset-framework topics now route back to `writer_node`.
+- Added format feedback that distinguishes missing fixed sections from missing asset-framework topics.
+- Added node-level tests for framework-topic pass and fail cases.
+
+Partially completed:
+
+- The validator checks that framework topic labels appear in the final report. It does not judge analytical depth inside each topic.
+
+Deferred:
+
+- UI rendering of format-check feedback on generation failure.
+- More semantic validation of framework topic coverage.
+
 ## Verification Plan
 
 Use narrow verification first.

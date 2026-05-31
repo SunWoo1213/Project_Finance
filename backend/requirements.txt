@@ -14,3 +14,5 @@ python-jose[cryptography]
 httpx
 email-validator
 google-auth
+pytest
+pytest-asyncio

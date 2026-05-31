@@ -41,9 +41,9 @@ async def test_fetch_kr_bond_data_uses_exact_item_code(monkeypatch):
             return {
                 "StatisticSearch": {
                     "row": [
-                        {"DATA_VALUE": "2.50"},
-                        {"DATA_VALUE": "2.60"},
-                        {"DATA_VALUE": "2.70"},
+                        {"TIME": "20260529", "DATA_VALUE": "2.50"},
+                        {"TIME": "20260530", "DATA_VALUE": "2.60"},
+                        {"TIME": "20260531", "DATA_VALUE": "2.70"},
                     ]
                 }
             }

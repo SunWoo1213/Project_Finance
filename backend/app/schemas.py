@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, ConfigDict
+from typing import Any
+
+from pydantic import BaseModel, EmailStr, ConfigDict, Field
 
 from .models import AssetCategory
 
@@ -58,5 +60,60 @@ class CommentResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class AIReportResponse(BaseModel):
+    ticker: str
+    bull_summary: str | None = None
+    bear_summary: str | None = None
+    final_content: str
+    created_at: str
+    metadata: dict[str, Any] = {}
+
 class CommentResponseWithAuthor(CommentResponse):
     author_nickname: str
+
+
+# -----------------
+# Chatbot Schemas
+# -----------------
+class ChatContext(BaseModel):
+    ticker: str | None = None
+    category: str | None = None
+    authenticated: bool = False
+
+
+class ChatMessageRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=500)
+    current_path: str = "/"
+    context: ChatContext = Field(default_factory=ChatContext)
+    conversation_id: str | None = None
+    client_message_id: str | None = None
+
+
+class ChatAction(BaseModel):
+    type: str
+    label: str
+    url: str | None = None
+    reason: str | None = None
+    confidence: float = 0
+    requires_auth: bool = False
+
+
+class ChatCard(BaseModel):
+    type: str
+    ticker: str | None = None
+    name: str | None = None
+    category: str | None = None
+    route: str | None = None
+    description: str | None = None
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    intent: str
+    confidence: float
+    actions: list[ChatAction] = Field(default_factory=list)
+    cards: list[ChatCard] = Field(default_factory=list)
+    requires_auth: bool = False
+    safe_completion: bool = True
+    disclaimer: str | None = None

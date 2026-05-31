@@ -42,7 +42,7 @@ Improve report freshness without turning every asset-detail click into a new LLM
 ## Follow-Up Risks
 
 - yfinance latest news/calendar coverage can be sparse for Korean stocks, bonds, commodities, and macro tickers.
-- `POST /api/ai/generate/{ticker}` is still unauthenticated and should be protected before production use.
+- `POST /api/ai/generate/{ticker}` was unauthenticated when this change record was first written; later auth work protects it with `get_current_user`. See `docs/harness/report-quality-phase-1.md` and `docs/harness/google-login-only.md`.
 - Latest context freshness is provider-limited; UI should continue to present it as provider context, not guaranteed real-time market news.
 
 ## Feature Docs

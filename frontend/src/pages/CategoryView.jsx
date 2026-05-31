@@ -4,6 +4,7 @@ import axios from 'axios';
 import { Star } from 'lucide-react';
 import SparklineChart from '../components/SparklineChart';
 import useFavoriteStore from '../store/favoriteStore';
+import { getUiCategory } from '../utils/assetCategories';
 import { formatChangeBadge, formatMarketCap, formatPrice, formatTicker } from '../utils/formatters';
 import { resolveAssetName } from '../utils/constants';
 
@@ -40,22 +41,13 @@ export default function CategoryView({ categoryKey, title }) {
     return <div className="text-center py-20 text-slate-400">Loading {title}...</div>;
   }
 
-  const getUiCategory = (symbol) => {
-    if (categoryKey === 'kr_top10') return 'KR_STOCK';
-    if (categoryKey === 'bonds') return String(symbol || '').startsWith('KTB_') ? 'KR_BOND' : 'US_BOND';
-    if (categoryKey === 'commodities') return 'COMMODITY';
-    if (categoryKey === 'macro' && symbol === 'KRW=X') return 'FX';
-    if (categoryKey === 'macro' && symbol === '^KS11') return 'KR_STOCK';
-    return 'US_STOCK';
-  };
-
   return (
     <div className="max-w-screen-xl mx-auto py-8 px-4">
       <h2 className="text-2xl font-bold mb-6">{title}</h2>
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="flex flex-col gap-3">
           {items.map((data) => {
-            const uiCategory = getUiCategory(data.symbol);
+            const uiCategory = getUiCategory(categoryKey, data.symbol);
             const changeValue = data.changePercent ?? data.change_pct ?? 0;
             const badge = formatChangeBadge(changeValue);
             const strokeColor = changeValue >= 0 ? '#ef4444' : '#3b82f6';

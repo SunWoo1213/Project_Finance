@@ -1,12 +1,13 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.cache import market_cache
+from ..core.config import settings
 from ..db.session import AsyncSessionLocal
 from ..models import AIReport, Asset, AssetCategory
 from .graph.graph import app as graph_app
@@ -47,12 +48,128 @@ ASSET_FACT_REQUIREMENTS: dict[str, dict[str, list[str]]] = {
 }
 
 
+ASSET_ANALYSIS_FRAMEWORKS: dict[str, dict[str, list[str] | str]] = {
+    "STOCK_US": {
+        "label": "US stock equity framework",
+        "required_sections": [
+            "가격과 최근 성과",
+            "밸류에이션과 시가총액",
+            "실적, 마진, 가이던스",
+            "회사 뉴스와 경영진 코멘트",
+            "금리와 달러 환경",
+        ],
+        "interpretation_rules": [
+            "주가 방향과 기업 펀더멘털을 분리해 설명합니다.",
+            "밸류에이션 수치가 없으면 고평가/저평가 단정을 피합니다.",
+            "실적 데이터가 없으면 데이터 한계로 명시합니다.",
+        ],
+    },
+    "STOCK_KR": {
+        "label": "Korean stock local-market framework",
+        "required_sections": [
+            "가격과 최근 성과",
+            "업종과 국내 시장 맥락",
+            "기업 뉴스",
+            "환율 민감도",
+            "금리 민감도",
+        ],
+        "interpretation_rules": [
+            "국내 개별주 재무제표 공백을 추정으로 채우지 않습니다.",
+            "원화, 수출, 금리 영향을 관련성이 있을 때만 연결합니다.",
+            "로컬 뉴스가 부족하면 신뢰도 한계를 상단에 노출합니다.",
+        ],
+    },
+    "INDEX": {
+        "label": "Index macro and breadth framework",
+        "required_sections": [
+            "지수 레벨과 최근 성과",
+            "섹터 주도력",
+            "금리와 환율",
+            "변동성과 유동성",
+            "거시 이벤트",
+        ],
+        "interpretation_rules": [
+            "개별 기업 실적처럼 해석하지 않습니다.",
+            "지수 상승/하락을 섹터, 금리, 유동성 맥락으로 나눕니다.",
+            "섹터 주도력 데이터가 없으면 한계로 명시합니다.",
+        ],
+    },
+    "BOND_US": {
+        "label": "US bond yield framework",
+        "required_sections": [
+            "수익률 레벨",
+            "수익률 곡선",
+            "연준 정책",
+            "CPI와 실질금리",
+            "가격 수익률과 수익률 변동 구분",
+        ],
+        "interpretation_rules": [
+            "채권 가격과 수익률은 반대로 움직일 수 있음을 명시합니다.",
+            "수익률 변화를 주식 가격 변화처럼 표현하지 않습니다.",
+            "정책과 물가 데이터가 부족하면 방향성 단정을 피합니다.",
+        ],
+    },
+    "BOND_KR": {
+        "label": "Korean bond yield framework",
+        "required_sections": [
+            "수익률 레벨",
+            "수익률 곡선",
+            "한국은행 정책",
+            "물가와 원화 환율",
+            "가격 수익률과 수익률 변동 구분",
+        ],
+        "interpretation_rules": [
+            "채권 가격과 수익률은 반대로 움직일 수 있음을 명시합니다.",
+            "한국은행 정책과 국내 물가 맥락을 우선합니다.",
+            "환율 영향은 관련성이 있을 때만 연결합니다.",
+        ],
+    },
+    "COMMODITY": {
+        "label": "Commodity supply-demand framework",
+        "required_sections": [
+            "현물 또는 선물 가격",
+            "달러와 실질금리",
+            "재고와 공급망",
+            "지정학 리스크",
+            "계절성",
+        ],
+        "interpretation_rules": [
+            "원자재 가격을 기업 실적 논리로 설명하지 않습니다.",
+            "공급, 수요, 달러, 실질금리 요인을 분리합니다.",
+            "재고 데이터가 없으면 공급 수요 판단을 제한합니다.",
+        ],
+    },
+    "CRYPTO": {
+        "label": "Crypto liquidity and regulation framework",
+        "required_sections": [
+            "가격과 거래량",
+            "유동성 환경",
+            "ETF와 규제 뉴스",
+            "리스크온/오프 심리",
+            "온체인 또는 거래소 데이터 한계",
+        ],
+        "interpretation_rules": [
+            "온체인 데이터가 없으면 온체인 근거를 만들지 않습니다.",
+            "암호화폐 가격을 기업 펀더멘털처럼 설명하지 않습니다.",
+            "규제와 ETF 뉴스는 확인된 경우에만 촉매로 사용합니다.",
+        ],
+    },
+}
+
+
 class ReportQualityError(Exception):
     def __init__(self, ticker: str, feedback: str, revision_count: int, metadata: dict[str, Any]):
         super().__init__(f"Report generation rejected by evaluator for {ticker}: {feedback}")
         self.ticker = ticker
         self.feedback = feedback
         self.revision_count = revision_count
+        self.metadata = metadata
+
+
+class ReportReadinessError(Exception):
+    def __init__(self, ticker: str, metadata: dict[str, Any]):
+        super().__init__(f"Report generation blocked for {ticker}: insufficient data")
+        self.ticker = ticker
         self.metadata = metadata
 
 
@@ -97,6 +214,50 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _grade_report_readiness(report_facts: dict[str, Any]) -> dict[str, Any]:
+    price_value = (report_facts.get("price") or {}).get("value")
+    missing_required = list(report_facts.get("missing_required_facts") or [])
+    data_limitations = list(report_facts.get("data_limitations") or [])
+    asset_category = report_facts.get("asset_category", "")
+
+    blocking_reasons: list[str] = []
+    limiting_reasons: list[str] = []
+
+    if price_value in (None, "", 0):
+        blocking_reasons.append("가격 데이터가 없어 리포트 생성을 중단했습니다.")
+
+    if missing_required:
+        limiting_reasons.append(f"필수 팩트 일부가 비어 있습니다: {', '.join(missing_required)}")
+    if data_limitations:
+        limiting_reasons.extend(data_limitations[:3])
+
+    if asset_category in {"CRYPTO", "COMMODITY"} and len(missing_required) >= 3:
+        blocking_reasons.append("해당 자산군의 핵심 유동성/공급 데이터가 너무 부족합니다.")
+
+    if blocking_reasons:
+        status = "blocked"
+    elif limiting_reasons:
+        status = "limited"
+    else:
+        status = "ready"
+
+    return {
+        "status": status,
+        "blocking_reasons": blocking_reasons,
+        "limiting_reasons": limiting_reasons,
+        "missing_required_facts": missing_required,
+    }
+
+
 def _build_report_facts(
     ticker: str,
     category: AssetCategory,
@@ -118,6 +279,14 @@ def _build_report_facts(
         "latest_context_source": latest_context.get("source", "unknown"),
     }
     requirements = ASSET_FACT_REQUIREMENTS.get(category.name, {"required": ["price"], "optional": []})
+    analysis_framework = ASSET_ANALYSIS_FRAMEWORKS.get(
+        category.name,
+        {
+            "label": "Generic asset framework",
+            "required_sections": ["가격", "뉴스", "거시 환경", "리스크"],
+            "interpretation_rules": ["자산군에 맞지 않는 해석을 피하고 데이터 한계를 명시합니다."],
+        },
+    )
 
     data_limitations: list[str] = []
     if not price_payload.get("price") and not price_payload.get("currentPrice"):
@@ -176,6 +345,7 @@ def _build_report_facts(
         "ticker": ticker,
         "asset_category": category.name,
         "requirements": requirements,
+        "analysis_framework": analysis_framework,
         "price": {
             "value": price_payload.get("price", price_payload.get("currentPrice")),
             "change_pct": price_payload.get("change_pct", price_payload.get("changePercent")),
@@ -232,6 +402,7 @@ def _build_generation_metadata(
     result: dict[str, Any],
 ) -> dict[str, Any]:
     structured_facts = result.get("structured_facts") or {}
+    risk_review = result.get("risk_review") or {}
     data_as_of = (
         structured_facts.get("data_as_of")
         or report_facts.get("price", {}).get("as_of")
@@ -240,18 +411,34 @@ def _build_generation_metadata(
     return {
         "ticker": ticker,
         "is_pass": bool(result.get("is_pass")),
+        "quality_status": "pass" if result.get("is_pass") else "failed",
         "feedback": result.get("feedback", ""),
+        "format_check_pass": bool(result.get("format_check_pass")),
+        "format_check_feedback": result.get("format_check_feedback", ""),
         "fact_check_pass": bool(result.get("fact_check_pass")),
         "fact_check_feedback": result.get("fact_check_feedback", ""),
+        "qualitative_check_pass": bool(result.get("qualitative_check_pass")),
+        "qualitative_check_feedback": result.get("qualitative_check_feedback", ""),
         "revision_count": int(result.get("revision_count", 0) or 0),
         "generated_at": _iso_now(),
         "data_as_of": data_as_of,
         "source_status": report_facts.get("source_status", {}),
         "missing_required_facts": report_facts.get("missing_required_facts", []),
+        "readiness": report_facts.get("readiness", {}),
+        "critic_mode": settings.REPORT_CRITIC_MODE,
+        "llm_report_critics_enabled": settings.ENABLE_LLM_REPORT_CRITICS,
+        "analysis_framework": report_facts.get("analysis_framework", {}),
         "risk_summary": _summary_from_facts(
-            structured_facts.get("risk_factors") or structured_facts.get("risks"),
+            risk_review.get("findings")
+            or structured_facts.get("risk_factors")
+            or structured_facts.get("risks"),
             "구조화된 리스크 요약이 생성되지 않았습니다.",
         ),
+        "role_outputs": {
+            "bull_thesis": result.get("bull_thesis") or {},
+            "bear_thesis": result.get("bear_thesis") or {},
+            "risk_review": risk_review,
+        },
     }
 
 
@@ -275,6 +462,33 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
 
     category = get_asset_category(ticker)
     report_facts = _build_report_facts(ticker, category, price_payload, merged_news, latest_context)
+    readiness = _grade_report_readiness(report_facts)
+    report_facts["readiness"] = readiness
+    if readiness["status"] == "blocked":
+        metadata = {
+            "ticker": ticker,
+            "is_pass": False,
+            "quality_status": "blocked",
+            "feedback": "리포트 생성을 위한 필수 데이터가 부족합니다.",
+            "format_check_pass": False,
+            "format_check_feedback": "",
+            "fact_check_pass": False,
+            "fact_check_feedback": "",
+            "qualitative_check_pass": False,
+            "qualitative_check_feedback": "",
+            "revision_count": 0,
+            "generated_at": _iso_now(),
+            "data_as_of": report_facts.get("price", {}).get("as_of") or _iso_now(),
+            "source_status": report_facts.get("source_status", {}),
+            "missing_required_facts": report_facts.get("missing_required_facts", []),
+            "readiness": readiness,
+            "critic_mode": settings.REPORT_CRITIC_MODE,
+            "llm_report_critics_enabled": settings.ENABLE_LLM_REPORT_CRITICS,
+            "analysis_framework": report_facts.get("analysis_framework", {}),
+            "risk_summary": _summary_from_facts(report_facts.get("data_limitations"), "필수 데이터가 부족합니다."),
+            "role_outputs": {"bull_thesis": {}, "bear_thesis": {}, "risk_review": {}},
+        }
+        raise ReportReadinessError(ticker=ticker, metadata=metadata)
 
     initial_state = {
         "ticker": ticker,
@@ -296,9 +510,16 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
         "news_facts": {},
         "macro_facts": {},
         "structured_facts": {},
+        "bull_thesis": {},
+        "bear_thesis": {},
+        "risk_review": {},
         "draft_report": "",
+        "format_check_pass": False,
+        "format_check_feedback": "",
         "fact_check_pass": False,
         "fact_check_feedback": "",
+        "qualitative_check_pass": False,
+        "qualitative_check_feedback": "",
         "previous_report": previous_report,
         "analysis_result": "",
         "final_report": "",
@@ -333,14 +554,25 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
     report = AIReport(
         asset_id=asset.id,
         bull_summary=_summary_from_facts(
-            structured_facts.get("bull_factors"),
+            (result.get("bull_thesis") or {}).get("thesis") or structured_facts.get("bull_factors"),
             result.get("analysis_result", ""),
         ),
         bear_summary=_summary_from_facts(
-            structured_facts.get("bear_factors"),
+            (result.get("bear_thesis") or {}).get("thesis") or structured_facts.get("bear_factors"),
             "구조화된 하락 요약이 생성되지 않았습니다.",
         ),
         final_content=result["final_report"],
+        quality_status=metadata.get("quality_status"),
+        quality_feedback=metadata.get("feedback", ""),
+        format_check_pass=metadata.get("format_check_pass"),
+        fact_check_pass=metadata.get("fact_check_pass"),
+        qualitative_check_pass=metadata.get("qualitative_check_pass"),
+        revision_count=metadata.get("revision_count"),
+        data_as_of=_parse_iso_datetime(metadata.get("data_as_of")),
+        source_summary=metadata.get("source_status", {}),
+        risk_summary=metadata.get("risk_summary", ""),
+        analysis_framework=metadata.get("analysis_framework", {}),
+        metadata_json=metadata,
     )
     db.add(report)
     await db.commit()
@@ -352,18 +584,33 @@ async def generate_daily_reports() -> None:
     logger.info("AI 리포트 생성 시작")
     try:
         today = datetime.now().date()
+        cooldown_cutoff = datetime.now() - timedelta(hours=settings.REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS)
         async with AsyncSessionLocal() as db_session:
+            coverage = settings.REPORT_SCHEDULER_COVERAGE.lower().strip()
+            if coverage != "conservative":
+                logger.warning(
+                    "REPORT_SCHEDULER_COVERAGE=%s requested, but broad scheduled generation remains disabled by policy.",
+                    settings.REPORT_SCHEDULER_COVERAGE,
+                )
             assets_result = await db_session.execute(select(Asset).order_by(Asset.id.asc()))
             assets = assets_result.scalars().all()
             logger.info("리포트 생성 대상 자산 수: %d", len(assets))
 
+            generated_count = 0
             for asset in assets:
+                if generated_count >= settings.REPORT_SCHEDULER_MAX_REPORTS_PER_RUN:
+                    logger.info(
+                        "스케줄러 회당 최대 리포트 수 도달 - max=%d",
+                        settings.REPORT_SCHEDULER_MAX_REPORTS_PER_RUN,
+                    )
+                    break
                 try:
                     existing_report_result = await db_session.execute(
                         select(AIReport.id)
                         .where(
                             AIReport.asset_id == asset.id,
-                            func.date(AIReport.created_at) == today,
+                            (func.date(AIReport.created_at) == today)
+                            | (AIReport.created_at >= cooldown_cutoff),
                         )
                         .limit(1)
                     )
@@ -373,6 +620,7 @@ async def generate_daily_reports() -> None:
 
                     logger.info("%s 리포트 생성 시작", asset.ticker)
                     await generate_report_for_ticker(asset.ticker, db_session)
+                    generated_count += 1
                     logger.info("%s 리포트 생성 완료", asset.ticker)
 
                     # Rate-limit protection between LLM calls.

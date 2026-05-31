@@ -13,7 +13,12 @@ from .core.cache import market_cache
 from .core.config import settings
 from .db.session import engine, get_db
 from .models import AIReport, Asset, Base
-from .services.ai_service import ReportQualityError, generate_daily_reports, generate_report_for_ticker
+from .services.ai_service import (
+    ReportQualityError,
+    ReportReadinessError,
+    generate_daily_reports,
+    generate_report_for_ticker,
+)
 from .services.market_service import fetch_latest_asset_context, update_news_task, update_prices_task
 try:
     from app.services.macro_service import (
@@ -29,7 +34,7 @@ except ModuleNotFoundError:
         fetch_kr_bond_history,
         fetch_us_bond_data,
     )
-from .api import auth, community
+from .api import auth, chat, community
 from .models import User
 from .api.deps import get_current_user
 
@@ -40,67 +45,95 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def ensure_ai_report_metadata_columns(conn) -> None:
+    statements = [
+        "ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS quality_status VARCHAR",
+        "ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS quality_feedback TEXT",
+        "ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS format_check_pass BOOLEAN",
+        "ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS fact_check_pass BOOLEAN",
+        "ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS qualitative_check_pass BOOLEAN",
+        "ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS revision_count INTEGER",
+        "ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS data_as_of TIMESTAMP",
+        "ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS source_summary JSON",
+        "ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS risk_summary TEXT",
+        "ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS analysis_framework JSON",
+        "ALTER TABLE ai_reports ADD COLUMN IF NOT EXISTS metadata_json JSON",
+    ]
+    for statement in statements:
+        await conn.execute(text(statement))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
         async with engine.begin() as conn:
             # await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
+            await ensure_ai_report_metadata_columns(conn)
         print("[lifespan] database initialization completed")
     except Exception as exc:
         print(f"[lifespan] database initialization skipped: {exc}")
 
-    print("[lifespan] initial market cache warm-up started")
-    await update_prices_task()
-    await update_news_task()
-    print("[lifespan] initial market cache warm-up completed")
+    if settings.ENABLE_MARKET_WARMUP:
+        print("[lifespan] initial market cache warm-up started")
+        await update_prices_task()
+        await update_news_task()
+        print("[lifespan] initial market cache warm-up completed")
+    else:
+        print("[lifespan] initial market cache warm-up skipped")
 
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(
-        update_prices_task,
-        "interval",
-        minutes=5,
-        id="update_prices_task",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-    )
-    scheduler.add_job(
-        update_news_task,
-        "interval",
-        hours=1,
-        id="update_news_task",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-    )
+    scheduler = None
+    if settings.ENABLE_SCHEDULER:
+        scheduler = AsyncIOScheduler()
+        scheduler.add_job(
+            update_prices_task,
+            "interval",
+            minutes=5,
+            id="update_prices_task",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+        )
+        scheduler.add_job(
+            update_news_task,
+            "interval",
+            hours=1,
+            id="update_news_task",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+        )
 
-    async def run_daily_reports_job() -> None:
-        logger.info("AI 리포트 생성 시작")
-        try:
-            await generate_daily_reports()
-            logger.info("AI 리포트 생성 종료")
-        except Exception as e:
-            logger.error(f"리포트 생성 중 에러 발생: {e}", exc_info=True)
+        async def run_daily_reports_job() -> None:
+            logger.info("AI 리포트 생성 시작")
+            try:
+                await generate_daily_reports()
+                logger.info("AI 리포트 생성 종료")
+            except Exception as e:
+                logger.error(f"리포트 생성 중 에러 발생: {e}", exc_info=True)
 
-    scheduler.add_job(
-        run_daily_reports_job,
-        "interval",
-        hours=6,
-        id="generate_daily_reports",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-    )
-    scheduler.start()
+        scheduler.add_job(
+            run_daily_reports_job,
+            "interval",
+            hours=6,
+            id="generate_daily_reports",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+        )
+        scheduler.start()
+        print("[lifespan] scheduler started (prices:5m, news:1h, reports: every 6 hours)")
+    else:
+        print("[lifespan] scheduler skipped")
+
     app.state.scheduler = scheduler
-    print("[lifespan] scheduler started (prices:5m, news:1h, reports: every 6 hours)")
 
     try:
         yield
     finally:
-        scheduler.shutdown(wait=False)
-        print("[lifespan] scheduler stopped")
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
+            print("[lifespan] scheduler stopped")
 
 
 app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
@@ -118,6 +151,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(community.router)
+app.include_router(chat.router)
 
 
 @app.get("/health")
@@ -281,6 +315,15 @@ async def generate_report(
         result = await generate_report_for_ticker(ticker, db)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ReportReadinessError as exc:
+        logger.info("리포트 준비도 차단 (ticker=%s): %s", ticker, exc.metadata.get("readiness", {}))
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "리포트 생성을 위한 필수 데이터가 부족합니다.",
+                "metadata": exc.metadata,
+            },
+        ) from exc
     except ReportQualityError as exc:
         logger.warning(
             "리포트 품질 평가 실패 (ticker=%s, revision_count=%s): %s",
@@ -307,6 +350,24 @@ async def generate_report(
     }
 
 
+def report_metadata_payload(report: AIReport) -> dict:
+    metadata = report.metadata_json or {}
+    if metadata:
+        return metadata
+    return {
+        "quality_status": report.quality_status,
+        "feedback": report.quality_feedback or "",
+        "format_check_pass": report.format_check_pass,
+        "fact_check_pass": report.fact_check_pass,
+        "qualitative_check_pass": report.qualitative_check_pass,
+        "revision_count": report.revision_count,
+        "data_as_of": report.data_as_of.isoformat() if report.data_as_of else None,
+        "source_status": report.source_summary or {},
+        "risk_summary": report.risk_summary or "",
+        "analysis_framework": report.analysis_framework or {},
+    }
+
+
 @app.get("/api/reports/{ticker}")
 async def get_latest_report(ticker: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     query = (
@@ -328,4 +389,5 @@ async def get_latest_report(ticker: str, current_user: User = Depends(get_curren
         "bear_summary": report.bear_summary,
         "final_content": report.final_content,
         "created_at": report.created_at.isoformat(),
+        "metadata": report_metadata_payload(report),
     }

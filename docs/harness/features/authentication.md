@@ -16,6 +16,7 @@ Local email/password registration and login are not part of the current UI flow.
 - Client auth state: `frontend/src/store/authStore.js`
 - Backend auth router: `backend/app/api/auth.py`
 - Current-user dependency: `backend/app/api/deps.py`
+- Optional current-user dependency for public chatbot guidance: `backend/app/api/deps.py`
 - JWT helper: `backend/app/core/security.py`
 - Config variable names: `backend/app/core/config.py`
 - User storage shape: `backend/app/models.py`
@@ -30,6 +31,8 @@ Local email/password registration and login are not part of the current UI flow.
 5. The backend creates or updates the user record and returns the app JWT plus user metadata, including the numeric user id needed for owner-only community controls.
 6. `authStore.js` keeps token and user data in Zustand and localStorage.
 7. Protected API calls send `Authorization: Bearer <token>`.
+8. JWTs with missing or non-numeric `sub` claims are rejected with HTTP 401 before any user lookup.
+9. The chatbot endpoint can parse JWTs optionally. Missing or invalid chat tokens are treated as unauthenticated so public navigation guidance still works.
 
 ## Contracts
 
@@ -44,6 +47,7 @@ Local email/password registration and login are not part of the current UI flow.
   - `DELETE /api/community/{asset_id}/comments/{comment_id}`
   - `POST /api/community/comments/{comment_id}/like`
   - `POST /api/community/comments/{comment_id}/report`
+- Public auth-aware chatbot endpoint: `POST /api/chat/message`. It may return login guidance, but it must not expose protected data without a valid current user.
 
 Document variable names only. Do not write actual client IDs, JWT secrets, tokens, or `.env` contents into docs.
 
@@ -66,6 +70,9 @@ Document variable names only. Do not write actual client IDs, JWT secrets, token
 - `docs/harness/harness-feature-documentation.md`
 - `docs/harness/google-login-only.md`
 - `docs/harness/community-comment-reporting.md`
+- `docs/harness/feature-implementation-fixes-2026-05-31.md`
+- `docs/harness/feature-implementation-fixes-verification-2026-05-31.md`
+- `docs/harness/chatbot-feature-implementation-2026-05-31.md`
 
 ## Open Risks
 

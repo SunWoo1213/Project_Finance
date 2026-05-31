@@ -21,9 +21,16 @@ class AgentState(TypedDict):
 
     # Pipeline fields
     structured_facts: dict[str, Any]
+    bull_thesis: dict[str, Any]
+    bear_thesis: dict[str, Any]
+    risk_review: dict[str, Any]
     draft_report: str
+    format_check_pass: bool
+    format_check_feedback: str
     fact_check_pass: bool
     fact_check_feedback: str
+    qualitative_check_pass: bool
+    qualitative_check_feedback: str
     previous_report: str
     feedback: str
     revision_count: int

@@ -21,8 +21,10 @@ Current routes:
 - Global navigation: `frontend/src/components/Header.jsx`
 - Shared components: `frontend/src/components/`
 - Global auth state: `frontend/src/store/authStore.js`
+- Global chat state: `frontend/src/store/chatStore.js`
 - Browser-local favorite state: `frontend/src/store/favoriteStore.js`
 - Constants and display helpers: `frontend/src/utils/constants.js`, `frontend/src/utils/formatters.js`
+- Shared route context/API helpers: `frontend/src/utils/chatContext.js`, `frontend/src/utils/apiClient.js`
 - Page-level screens: `frontend/src/pages/`
 
 ## Data Flow
@@ -32,7 +34,9 @@ Current routes:
 3. `Header.jsx` reads auth state and renders navigation.
 4. Pages fetch their own data and pass display values to reusable components when appropriate.
 5. `favoriteStore.js` keeps browser-local favorite assets in sync with localStorage for category and detail screens.
-6. Shared utility functions format prices, tickers, changes, and display names.
+6. `ChatbotLauncher.jsx` is mounted globally and overlays the current route without changing route page ownership.
+7. `chatStore.js` keeps session-only chat messages and pending/error state.
+8. Shared utility functions format prices, tickers, changes, and display names.
 
 ## Contracts
 
@@ -60,6 +64,7 @@ Current routes:
 - `docs/harness/google-login-only.md` removed the `/register` route and signup navigation.
 - `docs/harness/main-market-snapshot-and-news.md` added `/market/:ticker` for home index/FX cards.
 - `docs/harness/asset-favorites.md` added browser-local favorite asset state and navigation.
+- `docs/harness/chatbot-feature-implementation-2026-05-31.md` added the global chatbot launcher, panel, session state, and route action handling.
 
 ## Open Risks
 
