@@ -134,13 +134,14 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/subscription-tier-payment-implementation-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-feedback-implementation-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md`
+- `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md`
 
 ## Open Risks
 
 - Report generation is coupled to external APIs and LLM configuration.
 - Latest news/calendar coverage depends on yfinance provider availability and may be sparse for Korean assets, bonds, and macro tickers.
 - `AssetDetail.jsx` still owns several responsibilities and may need future decomposition.
-- There is still no standalone migration tool; report metadata columns are created through startup-time `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+- Subscription billing tables now have Alembic coverage, but report metadata columns are still created through startup-time `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
 - Existing running database instances need the backend lifespan to run again so `comment_reports` is created.
 - Structured provider facts are summarized in persisted metadata, but raw provider payloads are still not persisted as first-class rows.
 - The qualitative checker is intentionally narrow and deterministic; it catches selected high-risk unsupported claims but is not a full claim-evidence verifier.

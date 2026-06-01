@@ -71,7 +71,11 @@ export default function Pricing() {
     try {
       const { data } = await apiClient.post(
         "/api/billing/checkout",
-        { tier: planTier },
+        {
+          tier: planTier,
+          success_url: `${window.location.origin}/billing/success`,
+          cancel_url: `${window.location.origin}/billing/cancel`,
+        },
         { headers: authHeader(token) }
       );
       if (data?.checkout_url) {
@@ -80,7 +84,11 @@ export default function Pricing() {
       }
       toast("결제 세션을 만들었지만 이동할 URL이 없습니다.");
     } catch (error) {
-      toast.error(error?.response?.data?.detail || "결제 준비가 아직 완료되지 않았습니다.");
+      if (error?.response?.status === 503) {
+        toast.error("결제 제공자 설정이 아직 준비되지 않았습니다.");
+      } else {
+        toast.error(error?.response?.data?.detail || "결제 준비가 아직 완료되지 않았습니다.");
+      }
     } finally {
       setCheckoutTier(null);
     }

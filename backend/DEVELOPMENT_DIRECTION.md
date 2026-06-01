@@ -29,6 +29,18 @@
 
 DB 테이블 생성은 현재 lifespan에서 `create_all`로 처리됩니다. 운영 수준으로 확장할 때는 Alembic migration 도입을 우선 검토합니다.
 
+## Migration Workflow
+
+Subscription billing tables are tracked by Alembic under `backend/alembic/`.
+Use these commands from `backend/` after dependencies are installed:
+
+```powershell
+alembic upgrade head
+alembic downgrade -1
+```
+
+The development lifespan still calls `Base.metadata.create_all` for local bootstrap, but production-like database changes should be represented as Alembic revisions before release.
+
 ## 하네스 문서 연계
 
 백엔드 기능을 수정할 때는 먼저 `docs/harness/feature-index.md`에서 대상 기능 문서를 찾습니다.

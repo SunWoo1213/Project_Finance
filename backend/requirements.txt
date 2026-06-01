@@ -3,6 +3,8 @@ uvicorn
 pydantic-settings
 sqlalchemy
 asyncpg
+aiosqlite
+alembic
 yfinance
 pandas
 apscheduler

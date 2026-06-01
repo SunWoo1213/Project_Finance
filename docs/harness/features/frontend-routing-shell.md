@@ -73,6 +73,7 @@ Current routes:
 - `docs/harness/subscription-tier-payment-plan-2026-06-01.md` plans pricing/billing routes and tier-based report/chatbot gates.
 - `docs/harness/subscription-tier-payment-implementation-2026-06-01.md` added pricing/billing routes, subscription state, and tier-based shell visibility.
 - `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md` plans provider-backed billing route feedback and post-checkout confirmation behavior.
+- `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md` sends checkout return URLs and refreshes billing state on success/cancel routes.
 
 ## Open Risks
 

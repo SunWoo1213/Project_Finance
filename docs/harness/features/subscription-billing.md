@@ -4,9 +4,9 @@ Date: 2026-06-01
 
 ## Current Behavior
 
-Subscription billing is partially implemented. The app has plan metadata, an authenticated current-entitlement endpoint, backend report/chatbot gates, frontend pricing/success/cancel routes, a subscription store, plan badge, and report paywall UI.
+Subscription billing is partially implemented. The app has plan metadata, an authenticated current-entitlement endpoint, backend report/chatbot gates, frontend pricing/success/cancel routes, a subscription store, plan badge, report paywall UI, database-backed subscription snapshots, and a provider-neutral payment boundary with a local mock provider.
 
-There is still no payment provider integration, no monthly renewal state, and no database-backed subscription storage. Until subscription tables and webhook updates are implemented, `GET /api/billing/me` returns Free/NONE for authenticated users.
+There is still no production payment provider integration. Until `PAYMENT_PROVIDER` and provider plan/webhook settings are configured, checkout and webhook routes return a clear provider-unavailable error. When the mock provider is configured, `GET /api/billing/me` reads the latest stored subscription row and webhook processing can activate Plus/Pro entitlements without generating reports.
 
 The target tier model is:
 
@@ -31,17 +31,18 @@ The target tier model is:
 - Chat API gate: `backend/app/api/chat.py`
 - Report endpoint gate: `backend/app/main.py` unless report routes are split later
 - Subscription logic: `backend/app/services/subscription_service.py`
-- Future payment provider adapter: `backend/app/services/payment_service.py`
+- Payment provider adapter: `backend/app/services/payment_service.py`
+- Billing migration workflow: `backend/alembic/`
 
 ## Data Flow
 
 1. User logs in through the existing Google-only auth flow.
 2. Frontend fetches `GET /api/billing/me` with the app JWT.
-3. Backend returns entitlement state. Current implementation returns Free/NONE until database-backed subscriptions are added.
+3. Backend returns entitlement state from the latest stored subscription snapshot, falling back to Free/NONE when no active paid state exists.
 4. Free users see report upgrade prompts and no chatbot launcher.
 5. Plus users can fetch stored reports but do not see the chatbot launcher.
 6. Pro users can fetch stored reports and use the chatbot.
-7. Plan purchase starts from `POST /api/billing/checkout`; current implementation returns HTTP 501 until a provider is selected.
+7. Plan purchase starts from `POST /api/billing/checkout`; it rejects Free, requires provider configuration, and returns a provider checkout URL without granting entitlement.
 8. The payment provider completes billing authorization or subscription creation.
 9. Provider webhook verifies the event signature and updates local subscription state.
 10. Frontend success page refreshes `GET /api/billing/me`, but access is granted only after backend subscription state is active.
@@ -50,9 +51,9 @@ The target tier model is:
 
 - Plan metadata endpoint: `GET /api/billing/plans`
 - Current billing endpoint: `GET /api/billing/me`
-- Checkout endpoint placeholder: `POST /api/billing/checkout` returns HTTP 501 until provider integration.
-- Cancellation endpoint placeholder: `POST /api/billing/cancel` returns HTTP 501 until provider integration.
-- Webhook endpoint placeholder: `POST /api/billing/webhook` returns HTTP 501 until provider integration.
+- Checkout endpoint: `POST /api/billing/checkout` returns a `checkout_url` for Plus/Pro when a provider is configured; it does not create paid entitlement.
+- Cancellation endpoint: `POST /api/billing/cancel` schedules cancellation at period end for the current active provider-backed subscription.
+- Webhook endpoint: `POST /api/billing/webhook` verifies signatures, stores an idempotent billing event summary, and applies normalized subscription transitions.
 - Report access: `GET /api/reports/{ticker}` requires active Plus or Pro entitlement.
 - Chatbot access: `POST /api/chat/message` requires active Pro entitlement.
 - User-facing report and chatbot requests must not trigger report generation.
@@ -81,10 +82,10 @@ The target tier model is:
 - `docs/harness/subscription-tier-payment-feedback-improvement-plan-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-feedback-implementation-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md`
+- `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md`
 
 ## Open Risks
 
-- The repository does not yet have formal migration tooling.
-- The payment provider is not selected yet.
+- Production payment provider selection and dashboard setup remain open.
 - Monthly billing policies for VAT, cancellation, failed renewals, downgrades, and refunds need product confirmation.
 - Existing report scheduler coverage is conservative, so paid users may still see pending reports for assets without stored scheduled reports.
