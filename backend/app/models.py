@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from sqlalchemy import Boolean, Column, Integer, JSON, String, Text, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Boolean, Column, Integer, JSON, String, Text, DateTime, ForeignKey, Enum as SQLEnum, Index, UniqueConstraint
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from typing import List, Optional
 
@@ -40,6 +40,8 @@ class User(Base):
     comments: Mapped[List["Comment"]] = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
     liked_comments: Mapped[List["CommentLike"]] = relationship("CommentLike", back_populates="user", cascade="all, delete-orphan")
     reported_comments: Mapped[List["CommentReport"]] = relationship("CommentReport", back_populates="user", cascade="all, delete-orphan")
+    subscriptions: Mapped[List["Subscription"]] = relationship("Subscription", back_populates="user", cascade="all, delete-orphan")
+    billing_events: Mapped[List["BillingEvent"]] = relationship("BillingEvent", back_populates="user")
 
 
 class Asset(Base):
@@ -141,3 +143,55 @@ class CommentReport(Base):
 
     user: Mapped["User"] = relationship("User", back_populates="reported_comments")
     comment: Mapped["Comment"] = relationship("Comment", back_populates="reports")
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+    __table_args__ = (
+        Index("ix_subscriptions_user_id", "user_id"),
+        UniqueConstraint("provider", "provider_subscription_id", name="uq_subscriptions_provider_subscription"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    tier: Mapped[str] = mapped_column(String(20), nullable=False, default="FREE")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    provider_customer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    provider_subscription_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    provider_plan_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    current_period_start: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    current_period_end: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    canceled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user: Mapped["User"] = relationship("User", back_populates="subscriptions")
+    billing_events: Mapped[List["BillingEvent"]] = relationship("BillingEvent", back_populates="subscription")
+
+
+class BillingEvent(Base):
+    __tablename__ = "billing_events"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_event_id", name="uq_billing_events_provider_event"),
+        Index("ix_billing_events_subscription_id", "subscription_id"),
+        Index("ix_billing_events_user_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    provider_event_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    processed_status: Mapped[str] = mapped_column(String(20), nullable=False, default="received")
+    subscription_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("subscriptions.id"), nullable=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    normalized_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    subscription: Mapped[Optional["Subscription"]] = relationship("Subscription", back_populates="billing_events")
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="billing_events")

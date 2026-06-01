@@ -73,6 +73,21 @@ class BillingMeResponse(BaseModel):
 
 class BillingCheckoutRequest(BaseModel):
     tier: SubscriptionTier
+    success_url: str | None = None
+    cancel_url: str | None = None
+
+
+class BillingCheckoutResponse(BaseModel):
+    checkout_url: str
+
+
+class BillingCancelResponse(BaseModel):
+    canceled: bool
+    message: str
+
+
+class BillingWebhookAckResponse(BaseModel):
+    received: bool
 
 # -----------------
 # Asset Schemas

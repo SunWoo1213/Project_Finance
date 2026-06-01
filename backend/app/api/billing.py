@@ -4,10 +4,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.session import get_db
 from ..models import User
 from ..schemas import (
+    BillingCancelResponse,
     BillingCheckoutRequest,
+    BillingCheckoutResponse,
     BillingMeResponse,
     BillingPlanResponse,
+    BillingWebhookAckResponse,
     SubscriptionEntitlementsResponse,
+    SubscriptionTier,
 )
 from ..services.subscription_service import get_billing_plans, get_user_entitlements
 from .deps import get_current_user
@@ -39,19 +43,25 @@ async def get_my_billing_state(
     )
 
 
-@router.post("/checkout")
+@router.post("/checkout", response_model=BillingCheckoutResponse)
 async def create_checkout_session(
     payload: BillingCheckoutRequest,
     current_user: User = Depends(get_current_user),
 ):
-    _ = (payload, current_user)
+    _ = current_user
+    if payload.tier == SubscriptionTier.FREE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Free plan does not require checkout.",
+        )
+
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
         detail="Payment provider checkout is not configured yet.",
     )
 
 
-@router.post("/cancel")
+@router.post("/cancel", response_model=BillingCancelResponse)
 async def cancel_subscription(current_user: User = Depends(get_current_user)):
     _ = current_user
     raise HTTPException(
@@ -60,7 +70,7 @@ async def cancel_subscription(current_user: User = Depends(get_current_user)):
     )
 
 
-@router.post("/webhook")
+@router.post("/webhook", response_model=BillingWebhookAckResponse)
 async def receive_billing_webhook():
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,

@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     ENABLE_LLM_REPORT_CRITICS: bool = False
     REPORT_CRITIC_MODE: str = "deterministic"
 
+    # Payment provider boundary. Secret values must be supplied through env.
+    PAYMENT_PROVIDER: str | None = None
+    PAYMENT_WEBHOOK_SECRET: str | None = None
+    PAYMENT_PLUS_PLAN_ID: str | None = None
+    PAYMENT_PRO_PLAN_ID: str | None = None
+    PAYMENT_MOCK_CHECKOUT_BASE_URL: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=str(ROOT_ENV_FILE),
         extra="ignore",

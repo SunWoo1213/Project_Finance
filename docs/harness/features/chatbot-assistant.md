@@ -4,7 +4,7 @@ Date: 2026-05-31
 
 ## Current Behavior
 
-The app now has a global chatbot launcher in the bottom-right corner of every frontend route. The first implementation is a rule-based financial navigation and explanation assistant. It does not store server-side conversations, does not stream responses, does not call an LLM, and does not trigger AI report generation. Report answers must continue to use the latest stored `AIReport`, matching the scheduled-report-only target documented in `docs/harness/report-generation-schedule-alignment-plan-2026-06-01.md`. Planned subscription behavior limits chatbot visibility and API access to active Pro users only.
+The app has a rule-based financial navigation and explanation assistant. It does not store server-side conversations, does not stream responses, does not call an LLM, and does not trigger AI report generation. Report answers must continue to use the latest stored `AIReport`, matching the scheduled-report-only target documented in `docs/harness/report-generation-schedule-alignment-plan-2026-06-01.md`. Subscription behavior now limits chatbot visibility and API access to active Pro users only.
 
 The 2026-06-01 scheduler alignment implementation keeps this chatbot behavior unchanged: report generation is limited to the backend scheduler, and the chatbot reads stored reports only.
 
@@ -30,11 +30,11 @@ Non-financial questions return a fixed scope message and no actions.
 
 ## Data Flow
 
-1. `ChatbotLauncher` is mounted once inside the app shell.
+1. `App.jsx` renders `ChatbotLauncher` only when subscription entitlement includes `can_use_chatbot`.
 2. The launcher reads React Router location and auth state.
 3. `buildChatContext` extracts `current_path`, detail/market ticker, category, and authenticated state.
 4. `chatStore.sendMessage` appends a user message to session memory and posts to `POST /api/chat/message`.
-5. The backend parses optional JWT state through `get_optional_current_user`.
+5. The backend requires chatbot entitlement through `require_chatbot_access`.
 6. `chat_service.handle_chat_message` classifies the request, resolves candidates through `chat_tools`, and returns `ChatResponse`.
 7. Phase 2-style market explanations reuse `market_cache` or `fetch_latest_asset_context` with the existing TTL policy.
 8. Phase 3-style saved report summaries query the latest stored `AIReport` only for authenticated users. They prefer stored `metadata.research_packet` base-case and risk-review snippets when available, and they do not call `POST /api/ai/generate/{ticker}`.
@@ -44,8 +44,8 @@ Non-financial questions return a fixed scope message and no actions.
 ## Contracts
 
 - Chat endpoint: `POST /api/chat/message`
-- Planned tier behavior: active Pro required. Free and Plus users should not see the launcher, and backend should reject direct API calls.
-- Current endpoint auth policy: public. A valid JWT can enrich auth-aware responses; missing or invalid JWT is treated as unauthenticated for chat.
+- Tier behavior: active Pro required. Free and Plus users should not see the launcher, and backend rejects direct API calls.
+- Endpoint auth policy: protected. Missing or invalid JWT returns 401; valid non-Pro users return 403.
 - Request fields:
   - `message`: required, 1-500 characters
   - `current_path`: current frontend path
@@ -67,7 +67,7 @@ Non-financial questions return a fixed scope message and no actions.
 - Chatbot report answers must fetch and summarize the stored scheduled report. They must not generate a new report per user request.
 - Any future audit, plan, or implementation that touches chatbot report behavior must create/update a `docs/harness/` record and link it from this feature doc.
 - Do not add server-side conversation storage without privacy, retention, and deletion design.
-- Keep protected data access auth-aware. Public users may receive guidance, but saved report summaries require a valid user.
+- Keep protected data access entitlement-aware. Saved report summaries require an entitled user and must use stored report rows.
 - Keep the assistant scoped to financial data, market information, reports, and Project Finance app navigation.
 - Prefer deterministic rules and existing cache/service functions before adding external providers.
 - Preserve user-controlled navigation. The backend should return actions, not directly move the browser.
@@ -95,11 +95,13 @@ For the 2026-05-31 implementation request, verification commands were intentiona
 - `docs/harness/report-writing-method-implementation-plan-2026-06-01.md`
 - `docs/harness/report-writing-method-implementation-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-plan-2026-06-01.md`
+- `docs/harness/subscription-tier-payment-implementation-2026-06-01.md`
+- `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md`
 
 ## Open Risks
 
 - The rule-based Korean/English alias dictionary is intentionally small and may need expansion as supported assets grow.
 - Market summary can only explain what the current cache or latest-context service can provide.
-- Invalid JWTs are ignored for chat guidance, which improves UX but means protected-data branches must continue checking `current_user`.
+- Invalid JWTs now fail the chat endpoint with 401 because chatbot access is Pro-only.
 - Frontend chat does not yet have automated component tests.
 - The chatbot is aligned with the stored-report rule, but report summaries are only available after the scheduler has produced a stored report for a configured target ticker.

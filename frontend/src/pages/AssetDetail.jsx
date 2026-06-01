@@ -1,6 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import axios from "axios";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalendarDays, ExternalLink, Flag, Heart, Newspaper, RefreshCw, Send, Star } from "lucide-react";
 
@@ -9,6 +8,7 @@ import ReportCard from "../components/ReportCard";
 import useAuthStore from "../store/authStore";
 import useFavoriteStore from "../store/favoriteStore";
 import useSubscriptionStore from "../store/subscriptionStore";
+import { apiClient, authHeader } from "../utils/apiClient";
 import { getUiCategory } from "../utils/assetCategories";
 import { formatChangeBadge, formatMarketCap, formatPrice, formatTicker } from "../utils/formatters";
 import { resolveAssetName } from "../utils/constants";
@@ -47,11 +47,11 @@ export default function AssetDetail() {
   const [reportAccessDenied, setReportAccessDenied] = useState(false);
   const reportRequestCacheRef = useRef(new Set());
 
-  const authHeaders = useMemo(() => (authToken ? { Authorization: `Bearer ${authToken}` } : {}), [authToken]);
+  const authHeaders = useMemo(() => authHeader(authToken), [authToken]);
 
   const fetchComments = useCallback(async () => {
     try {
-      const res = await axios.get(`http://localhost:8000/api/community/${encodeURIComponent(assetTicker)}/comments`);
+      const res = await apiClient.get(`/api/community/${encodeURIComponent(assetTicker)}/comments`);
       setComments(res.data);
     } catch (error) {
       console.error("Failed to fetch comments:", error);
@@ -64,8 +64,8 @@ export default function AssetDetail() {
 
       setIsLatestContextLoading(true);
       try {
-        const res = await axios.get(
-          `http://localhost:8000/api/market/latest-context/${encodeURIComponent(assetTicker)}${
+        const res = await apiClient.get(
+          `/api/market/latest-context/${encodeURIComponent(assetTicker)}${
             forceRefresh ? "?force_refresh=true" : ""
           }`
         );
@@ -92,8 +92,8 @@ export default function AssetDetail() {
       }
 
       try {
-        const res = await axios.get(
-          `http://localhost:8000/api/market/history/${encodeURIComponent(assetTicker)}?period=${selectedPeriod}`
+        const res = await apiClient.get(
+          `/api/market/history/${encodeURIComponent(assetTicker)}?period=${selectedPeriod}`
         );
         const payload = res.data;
 
@@ -126,7 +126,7 @@ export default function AssetDetail() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const priceRes = await axios.get("http://localhost:8000/api/market/prices");
+        const priceRes = await apiClient.get("/api/market/prices");
         let matched = null;
 
         for (const [groupName, group] of Object.entries(priceRes.data)) {
@@ -148,7 +148,7 @@ export default function AssetDetail() {
           if (!reportRequestCacheRef.current.has(requestKey)) {
             reportRequestCacheRef.current.add(requestKey);
             try {
-              const reportRes = await axios.get(`http://localhost:8000/api/reports/${encodeURIComponent(assetTicker)}`, {
+              const reportRes = await apiClient.get(`/api/reports/${encodeURIComponent(assetTicker)}`, {
                 headers: authHeaders,
               });
               setReport(reportRes.data);
@@ -204,7 +204,7 @@ export default function AssetDetail() {
     if (!authToken) return;
 
     try {
-      await axios.post(`http://localhost:8000/api/community/comments/${commentId}/like`, {}, { headers: authHeaders });
+      await apiClient.post(`/api/community/comments/${commentId}/like`, {}, { headers: authHeaders });
       await fetchComments();
     } catch (error) {
       console.error("Failed to toggle like:", error);
@@ -216,8 +216,8 @@ export default function AssetDetail() {
     if (!authToken || !newComment.trim()) return;
 
     try {
-      await axios.post(
-        `http://localhost:8000/api/community/${encodeURIComponent(assetTicker)}/comments`,
+      await apiClient.post(
+        `/api/community/${encodeURIComponent(assetTicker)}/comments`,
         { content: newComment.trim() },
         { headers: authHeaders }
       );
@@ -245,8 +245,8 @@ export default function AssetDetail() {
     if (!authToken || !editingContent.trim()) return;
 
     try {
-      await axios.put(
-        `http://localhost:8000/api/community/${encodeURIComponent(assetTicker)}/comments/${commentId}`,
+      await apiClient.put(
+        `/api/community/${encodeURIComponent(assetTicker)}/comments/${commentId}`,
         { content: editingContent.trim() },
         { headers: authHeaders }
       );
@@ -264,8 +264,8 @@ export default function AssetDetail() {
     if (!window.confirm("삭제하시겠습니까?")) return;
 
     try {
-      await axios.delete(
-        `http://localhost:8000/api/community/${encodeURIComponent(assetTicker)}/comments/${commentId}`,
+      await apiClient.delete(
+        `/api/community/${encodeURIComponent(assetTicker)}/comments/${commentId}`,
         { headers: authHeaders }
       );
       setCommentActionMessage("");
@@ -287,8 +287,8 @@ export default function AssetDetail() {
 
     try {
       setReportingCommentId(commentId);
-      await axios.post(
-        `http://localhost:8000/api/community/comments/${commentId}/report`,
+      await apiClient.post(
+        `/api/community/comments/${commentId}/report`,
         {},
         { headers: authHeaders }
       );

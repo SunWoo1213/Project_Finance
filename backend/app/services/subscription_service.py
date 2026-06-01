@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import User
+from ..models import Subscription, User
 from ..schemas import (
     BillingPlanResponse,
     SubscriptionStatus,
@@ -72,22 +73,78 @@ async def get_user_subscription(
     user_id: int,
     db: AsyncSession,
 ) -> SubscriptionSnapshot | None:
-    # The first implementation intentionally avoids a schema change until
-    # subscription table migration/provider policy is confirmed.
-    _ = (user_id, db)
-    return None
+    result = await db.execute(
+        select(Subscription)
+        .where(Subscription.user_id == user_id)
+        .order_by(desc(Subscription.updated_at), desc(Subscription.created_at), desc(Subscription.id))
+        .limit(1)
+    )
+    subscription = result.scalar_one_or_none()
+    if subscription is None:
+        return None
+
+    return normalize_subscription_snapshot(
+        SubscriptionSnapshot(
+            tier=_coerce_tier(subscription.tier),
+            status=_coerce_status(subscription.status),
+            current_period_start=subscription.current_period_start,
+            current_period_end=subscription.current_period_end,
+            cancel_at_period_end=subscription.cancel_at_period_end,
+        )
+    )
+
+
+def _coerce_tier(value: str | None) -> SubscriptionTier:
+    try:
+        return SubscriptionTier(value or SubscriptionTier.FREE.value)
+    except ValueError:
+        return SubscriptionTier.FREE
+
+
+def _coerce_status(value: str | None) -> SubscriptionStatus:
+    try:
+        return SubscriptionStatus(value or SubscriptionStatus.NONE.value)
+    except ValueError:
+        return SubscriptionStatus.NONE
+
+
+def _now() -> datetime:
+    return datetime.utcnow()
+
+
+def normalize_subscription_snapshot(subscription: SubscriptionSnapshot) -> SubscriptionSnapshot:
+    if subscription.current_period_end and subscription.current_period_end <= _now():
+        return SubscriptionSnapshot(
+            tier=subscription.tier,
+            status=SubscriptionStatus.EXPIRED,
+            current_period_start=subscription.current_period_start,
+            current_period_end=subscription.current_period_end,
+            cancel_at_period_end=subscription.cancel_at_period_end,
+        )
+    return subscription
 
 
 def has_active_paid_access(subscription: SubscriptionSnapshot | None) -> bool:
     if subscription is None:
         return False
-    return subscription.status == SubscriptionStatus.ACTIVE and subscription.tier in {
-        SubscriptionTier.PLUS,
-        SubscriptionTier.PRO,
-    }
+    if subscription.tier not in {SubscriptionTier.PLUS, SubscriptionTier.PRO}:
+        return False
+    if subscription.current_period_end and subscription.current_period_end <= _now():
+        return False
+    if subscription.status == SubscriptionStatus.ACTIVE:
+        return True
+    return (
+        subscription.status == SubscriptionStatus.CANCELED
+        and subscription.cancel_at_period_end
+        and subscription.current_period_end is not None
+        and subscription.current_period_end > _now()
+    )
 
 
 def build_entitlements(subscription: SubscriptionSnapshot | None) -> SubscriptionEntitlements:
+    if subscription is not None:
+        subscription = normalize_subscription_snapshot(subscription)
+
     if not has_active_paid_access(subscription):
         return SubscriptionEntitlements(
             tier=SubscriptionTier.FREE,

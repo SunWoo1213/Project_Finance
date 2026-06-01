@@ -16,7 +16,7 @@ Local email/password registration and login are not part of the current UI flow.
 - Client auth state: `frontend/src/store/authStore.js`
 - Backend auth router: `backend/app/api/auth.py`
 - Current-user dependency: `backend/app/api/deps.py`
-- Optional current-user dependency for public chatbot guidance: `backend/app/api/deps.py`
+- Optional current-user dependency for public routes and subscription entitlement dependencies: `backend/app/api/deps.py`
 - JWT helper: `backend/app/core/security.py`
 - Config variable names: `backend/app/core/config.py`
 - User storage shape: `backend/app/models.py`
@@ -32,7 +32,7 @@ Local email/password registration and login are not part of the current UI flow.
 6. `authStore.js` keeps token and user data in Zustand and localStorage.
 7. Protected API calls send `Authorization: Bearer <token>`.
 8. JWTs with missing or non-numeric `sub` claims are rejected with HTTP 401 before any user lookup.
-9. The chatbot endpoint can parse JWTs optionally. Missing or invalid chat tokens are treated as unauthenticated so public navigation guidance still works.
+9. The chatbot endpoint now requires authenticated Pro entitlement. Missing or invalid chat tokens return 401, and authenticated users without Pro return 403.
 
 ## Contracts
 
@@ -41,14 +41,14 @@ Local email/password registration and login are not part of the current UI flow.
 - Login endpoint: `POST /api/auth/google`
 - Login response user metadata: `id`, `email`, `nickname`
 - Protected report endpoint: `GET /api/reports/{ticker}`
-- Planned tier entitlement behavior: report access should require active Plus or Pro, and chatbot access should require active Pro.
+- Tier entitlement behavior: report access requires active Plus or Pro, and chatbot access requires active Pro.
 - Protected community write endpoints:
   - `POST /api/community/{asset_id}/comments`
   - `PUT /api/community/{asset_id}/comments/{comment_id}`
   - `DELETE /api/community/{asset_id}/comments/{comment_id}`
   - `POST /api/community/comments/{comment_id}/like`
   - `POST /api/community/comments/{comment_id}/report`
-- Public auth-aware chatbot endpoint: `POST /api/chat/message`. It may return login guidance, but it must not expose protected data without a valid current user.
+- Protected chatbot endpoint: `POST /api/chat/message`. It requires a valid JWT and active Pro entitlement.
 
 Document variable names only. Do not write actual client IDs, JWT secrets, tokens, or `.env` contents into docs.
 
@@ -75,6 +75,7 @@ Document variable names only. Do not write actual client IDs, JWT secrets, token
 - `docs/harness/feature-implementation-fixes-verification-2026-05-31.md`
 - `docs/harness/chatbot-feature-implementation-2026-05-31.md`
 - `docs/harness/subscription-tier-payment-plan-2026-06-01.md`
+- `docs/harness/subscription-tier-payment-implementation-2026-06-01.md`
 
 ## Open Risks
 

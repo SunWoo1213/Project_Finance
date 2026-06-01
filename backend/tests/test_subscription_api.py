@@ -58,3 +58,30 @@ async def test_billing_me_returns_free_entitlements_until_subscription_storage_e
         "can_view_reports": False,
         "can_use_chatbot": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_billing_checkout_rejects_free_tier_before_provider_work():
+    app = FastAPI()
+    app.include_router(billing.router)
+    app.dependency_overrides[billing.get_current_user] = override_current_user
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/billing/checkout", json={"tier": "FREE"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Free plan does not require checkout."
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tier", ["PLUS", "PRO"])
+async def test_billing_checkout_paid_tiers_remain_provider_placeholder(tier):
+    app = FastAPI()
+    app.include_router(billing.router)
+    app.dependency_overrides[billing.get_current_user] = override_current_user
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/billing/checkout", json={"tier": tier})
+
+    assert response.status_code == 501
+    assert response.json()["detail"] == "Payment provider checkout is not configured yet."

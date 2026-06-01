@@ -4,7 +4,7 @@ Date: 2026-05-30
 
 ## Current Behavior
 
-The asset detail screen combines market summary, favorite toggling, chart history, latest news/calendar context, AI report access, and the per-asset discussion area. AI reports are visible only to authenticated users and render through `ReportCard.jsx`, including bull/bear summaries plus the final Markdown report. Comments can be read by anyone, but creating, editing, deleting, liking, and reporting comments require an app JWT.
+The asset detail screen combines market summary, favorite toggling, chart history, latest news/calendar context, AI report access, and the per-asset discussion area. AI reports are visible only to users with report entitlement and render through `ReportCard.jsx`, including bull/bear summaries plus the final Markdown report. Comments can be read by anyone, but creating, editing, deleting, liking, and reporting comments require an app JWT.
 
 Comment reports are one-per-user per comment. When a comment reaches 100 accumulated reports, the backend automatically deletes that comment.
 
@@ -32,7 +32,7 @@ If an authenticated user requests a report and the latest report is missing, the
 3. The page reads local favorite state and can toggle the current ticker into `favoriteAssets`.
 4. The page fetches history for the selected ticker and period.
 5. The page fetches `GET /api/market/latest-context/{ticker}` for ticker-specific recent news and calendar events.
-6. If authenticated and entitled, the page fetches `GET /api/reports/{ticker}`. Planned tier behavior is Free: no report access, Plus: report access, Pro: report access.
+6. If authenticated and entitled, the page fetches `GET /api/reports/{ticker}`. Current tier behavior is Free: no report access, Plus: report access, Pro: report access.
 7. If no stored report exists, the page displays a scheduled-report-pending state and does not call `POST /api/ai/generate/{ticker}`.
 8. Report generation merges broad cached news with latest-context news and builds structured report facts before deciding whether to invoke the LangGraph workflow.
 9. Structured report facts include asset-category requirements, an auditable fact matrix, asset-specific analysis frameworks, price/source timestamps, market metadata, provider status, missing required facts, and explicit data limitations.
@@ -59,7 +59,7 @@ If an authenticated user requests a report and the latest report is missing, the
 ## Contracts
 
 - Detail route: `/detail/:ticker`
-- Report fetch: `GET /api/reports/{ticker}` currently requires auth. Planned tier behavior requires active Plus or Pro.
+- Report fetch: `GET /api/reports/{ticker}` requires active Plus or Pro entitlement.
 - Report generation: `POST /api/ai/generate/{ticker}` requires auth but is disabled for ordinary users with HTTP 403; LLM-backed generation is scheduled-only.
 - Report fetch responses include persisted `metadata` when available.
 - Report generation success response includes `metadata` with `quality_status`, `is_pass`, `feedback`, `format_check_pass`, `format_check_feedback`, `fact_check_pass`, `fact_check_feedback`, `qualitative_check_pass`, `qualitative_check_feedback`, `revision_count`, `generated_at`, `data_as_of`, `source_status`, `missing_required_facts`, `fact_matrix`, `fact_matrix_summary`, `readiness`, `critic_mode`, `llm_report_critics_enabled`, `research_packet`, `source_table`, and `risk_summary`.
@@ -131,6 +131,9 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/report-writing-method-implementation-plan-2026-06-01.md`
 - `docs/harness/report-writing-method-implementation-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-plan-2026-06-01.md`
+- `docs/harness/subscription-tier-payment-implementation-2026-06-01.md`
+- `docs/harness/subscription-tier-payment-feedback-implementation-2026-06-01.md`
+- `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md`
 
 ## Open Risks
 
@@ -145,4 +148,5 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - Asset-specific framework depth validation is deterministic and conservative; it checks section placement and minimal evidence/limitation text, not full analytical quality.
 - Broadening scheduled AI report generation beyond the five representative target tickers remains disabled because it would increase LLM call volume.
 - Detail pages no longer trigger manual report generation on 404, so unsupported or not-yet-generated assets can show a pending report state until the scheduler produces a stored report.
+- Free users and users without loaded report entitlement now see a paywall and should not trigger report fetches from the detail page.
 - Remaining report-quality follow-ups are prioritized in `docs/harness/report-quality-follow-up-plan-2026-05-31.md`.

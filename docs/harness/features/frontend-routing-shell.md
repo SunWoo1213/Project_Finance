@@ -13,7 +13,9 @@ Current routes:
 - `/market/:ticker`: main index/FX time-based snapshot with a related dashboard link.
 - `/detail/:ticker`: asset detail, AI report, and comments.
 - `/login`: Google login.
-- Planned subscription routes: `/pricing`, `/billing/success`, and `/billing/cancel`.
+- `/pricing`: tier comparison and checkout CTA.
+- `/billing/success`: post-checkout verification status.
+- `/billing/cancel`: canceled or interrupted checkout status.
 
 ## Ownership Map
 
@@ -23,6 +25,7 @@ Current routes:
 - Shared components: `frontend/src/components/`
 - Global auth state: `frontend/src/store/authStore.js`
 - Global chat state: `frontend/src/store/chatStore.js`
+- Global subscription state: `frontend/src/store/subscriptionStore.js`
 - Browser-local favorite state: `frontend/src/store/favoriteStore.js`
 - Constants and display helpers: `frontend/src/utils/constants.js`, `frontend/src/utils/formatters.js`
 - Shared route context/API helpers: `frontend/src/utils/chatContext.js`, `frontend/src/utils/apiClient.js`
@@ -35,8 +38,8 @@ Current routes:
 3. `Header.jsx` reads auth state and renders navigation.
 4. Pages fetch their own data and pass display values to reusable components when appropriate.
 5. `favoriteStore.js` keeps browser-local favorite assets in sync with localStorage for category and detail screens.
-6. `ChatbotLauncher.jsx` is mounted globally and overlays the current route without changing route page ownership.
-7. Planned tier behavior should render `ChatbotLauncher` only for active Pro users.
+6. `ChatbotLauncher.jsx` is mounted only when subscription entitlement includes `can_use_chatbot`.
+7. Active Pro users can see the launcher; Free and Plus users should not.
 8. `chatStore.js` keeps session-only chat messages and pending/error state.
 9. Shared utility functions format prices, tickers, changes, and display names.
 
@@ -68,6 +71,8 @@ Current routes:
 - `docs/harness/asset-favorites.md` added browser-local favorite asset state and navigation.
 - `docs/harness/chatbot-feature-implementation-2026-05-31.md` added the global chatbot launcher, panel, session state, and route action handling.
 - `docs/harness/subscription-tier-payment-plan-2026-06-01.md` plans pricing/billing routes and tier-based report/chatbot gates.
+- `docs/harness/subscription-tier-payment-implementation-2026-06-01.md` added pricing/billing routes, subscription state, and tier-based shell visibility.
+- `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md` plans provider-backed billing route feedback and post-checkout confirmation behavior.
 
 ## Open Risks
 
