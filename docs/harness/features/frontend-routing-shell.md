@@ -13,6 +13,7 @@ Current routes:
 - `/market/:ticker`: main index/FX time-based snapshot with a related dashboard link.
 - `/detail/:ticker`: asset detail, AI report, and comments.
 - `/login`: Google login.
+- Planned subscription routes: `/pricing`, `/billing/success`, and `/billing/cancel`.
 
 ## Ownership Map
 
@@ -35,8 +36,9 @@ Current routes:
 4. Pages fetch their own data and pass display values to reusable components when appropriate.
 5. `favoriteStore.js` keeps browser-local favorite assets in sync with localStorage for category and detail screens.
 6. `ChatbotLauncher.jsx` is mounted globally and overlays the current route without changing route page ownership.
-7. `chatStore.js` keeps session-only chat messages and pending/error state.
-8. Shared utility functions format prices, tickers, changes, and display names.
+7. Planned tier behavior should render `ChatbotLauncher` only for active Pro users.
+8. `chatStore.js` keeps session-only chat messages and pending/error state.
+9. Shared utility functions format prices, tickers, changes, and display names.
 
 ## Contracts
 
@@ -65,6 +67,7 @@ Current routes:
 - `docs/harness/main-market-snapshot-and-news.md` added `/market/:ticker` for home index/FX cards.
 - `docs/harness/asset-favorites.md` added browser-local favorite asset state and navigation.
 - `docs/harness/chatbot-feature-implementation-2026-05-31.md` added the global chatbot launcher, panel, session state, and route action handling.
+- `docs/harness/subscription-tier-payment-plan-2026-06-01.md` plans pricing/billing routes and tier-based report/chatbot gates.
 
 ## Open Risks
 

@@ -24,6 +24,7 @@ class AgentState(TypedDict):
     bull_thesis: dict[str, Any]
     bear_thesis: dict[str, Any]
     risk_review: dict[str, Any]
+    research_packet: dict[str, Any]
     draft_report: str
     format_check_pass: bool
     format_check_feedback: str

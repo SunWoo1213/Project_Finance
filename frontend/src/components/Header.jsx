@@ -1,8 +1,11 @@
 import { Link, NavLink } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
+import useSubscriptionStore from '../store/subscriptionStore';
+import PlanBadge from './PlanBadge';
 
 export default function Header() {
   const { token, user, logout } = useAuthStore();
+  const { tier, isLoading } = useSubscriptionStore();
 
   const navItems = [
     { name: '홈', path: '/' },
@@ -11,6 +14,7 @@ export default function Header() {
     { name: '채권', path: '/category/bonds' },
     { name: '원자재', path: '/category/commodities' },
     { name: '암호화폐', path: '/category/cryptos' },
+    { name: '요금제', path: '/pricing' },
   ];
 
   return (
@@ -36,6 +40,7 @@ export default function Header() {
       <div className="flex gap-4 text-slate-300 items-center">
         {token ? (
           <>
+            <PlanBadge tier={tier} isLoading={isLoading} />
             <span className="text-sm font-medium">{user?.nickname}님</span>
             <button onClick={logout} className="px-3 py-1 text-sm bg-slate-800 hover:bg-slate-700 rounded-md transition-colors cursor-pointer">
               로그아웃

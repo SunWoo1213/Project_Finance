@@ -11,6 +11,7 @@ from .nodes import (
     news_agent,
     qualitative_claim_checker_node,
     report_format_validator_node,
+    research_packet_node,
     risk_officer_node,
     synthesizer_node,
     writer_node,
@@ -65,6 +66,7 @@ workflow.add_node("synthesizer_node", synthesizer_node)
 workflow.add_node("bull_agent_node", bull_agent_node)
 workflow.add_node("bear_agent_node", bear_agent_node)
 workflow.add_node("risk_officer_node", risk_officer_node)
+workflow.add_node("research_packet_node", research_packet_node)
 workflow.add_node("writer_node", writer_node)
 workflow.add_node("report_format_validator_node", report_format_validator_node)
 workflow.add_node("fact_checker_node", fact_checker_node)
@@ -83,7 +85,8 @@ workflow.add_edge(["financial_agent", "news_agent", "macro_agent"], "synthesizer
 workflow.add_edge("synthesizer_node", "bull_agent_node")
 workflow.add_edge("synthesizer_node", "bear_agent_node")
 workflow.add_edge("synthesizer_node", "risk_officer_node")
-workflow.add_edge(["bull_agent_node", "bear_agent_node", "risk_officer_node"], "writer_node")
+workflow.add_edge(["bull_agent_node", "bear_agent_node", "risk_officer_node"], "research_packet_node")
+workflow.add_edge("research_packet_node", "writer_node")
 
 # 4) Write/evaluate loop
 workflow.add_edge("writer_node", "report_format_validator_node")

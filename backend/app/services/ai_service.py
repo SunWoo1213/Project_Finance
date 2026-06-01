@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.cache import market_cache
@@ -14,6 +14,24 @@ from .graph.graph import app as graph_app
 from .market_service import BONDS, COMMODITIES, CRYPTOS, INDICES, KR_BONDS, KR_TOP10, fetch_latest_asset_context
 
 logger = logging.getLogger(__name__)
+
+
+SCHEDULED_REPORT_ASSET_CATALOG: dict[str, dict[str, Any]] = {
+    "DGS10": {"name": "US 10Y Treasury", "category": AssetCategory.BOND_US},
+    "XAU": {"name": "Gold", "category": AssetCategory.COMMODITY},
+    "BTC-USD": {"name": "Bitcoin", "category": AssetCategory.CRYPTO},
+    "NVDA": {"name": "NVDA", "category": AssetCategory.STOCK_US},
+    "005930.KS": {"name": "Samsung Electronics", "category": AssetCategory.STOCK_KR},
+}
+
+SCHEDULED_REPORT_TICKER_ALIASES = {
+    "GC=F": "XAU",
+    "GOLD": "XAU",
+    "BITCOIN": "BTC-USD",
+    "BTC": "BTC-USD",
+    "SAMSUNG": "005930.KS",
+    "005930": "005930.KS",
+}
 
 
 ASSET_FACT_REQUIREMENTS: dict[str, dict[str, list[str]]] = {
@@ -45,6 +63,34 @@ ASSET_FACT_REQUIREMENTS: dict[str, dict[str, list[str]]] = {
         "required": ["price", "volume_or_liquidity", "regulatory_or_etf_news", "liquidity_backdrop"],
         "optional": ["onchain_data", "exchange_data"],
     },
+}
+
+
+PRIMARY_FACT_KEYS = {
+    "price",
+    "index_level",
+    "yield_level",
+    "spot_or_futures_price",
+}
+
+FACT_COLLECTOR_SOURCE_BY_KEY = {
+    "price": "market_cache.prices",
+    "index_level": "market_cache.prices",
+    "yield_level": "market_cache.prices",
+    "spot_or_futures_price": "market_cache.prices",
+    "recent_performance": "market_cache.prices.history",
+    "market_cap": "market_cache.prices.marketCap",
+    "company_news": "market_cache.news/latest_context.news",
+    "volume_or_liquidity": "market_cache.prices.volume",
+    "regulatory_or_etf_news": "latest_context.news",
+    "liquidity_backdrop": "latest_context.news",
+    "macro_drivers": "latest_context.events",
+    "curve_context": "latest_context.events",
+    "central_bank_policy": "latest_context.events",
+    "inflation_context": "latest_context.events",
+    "dollar_context": "latest_context.events",
+    "real_rates": "latest_context.events",
+    "supply_demand_driver": "latest_context.news",
 }
 
 
@@ -189,6 +235,52 @@ def get_asset_category(ticker: str) -> AssetCategory:
     return AssetCategory.STOCK_US
 
 
+def _configured_scheduled_report_tickers() -> list[str]:
+    raw_tickers = str(settings.REPORT_SCHEDULER_TARGET_TICKERS or "").split(",")
+    tickers: list[str] = []
+    seen: set[str] = set()
+    for raw_ticker in raw_tickers:
+        ticker = raw_ticker.strip()
+        if not ticker:
+            continue
+        ticker = SCHEDULED_REPORT_TICKER_ALIASES.get(ticker.upper(), ticker)
+        if ticker in seen:
+            continue
+        seen.add(ticker)
+        tickers.append(ticker)
+    return tickers
+
+
+def _scheduled_report_asset_spec(ticker: str) -> dict[str, Any]:
+    catalog_spec = SCHEDULED_REPORT_ASSET_CATALOG.get(ticker)
+    if catalog_spec:
+        return {"ticker": ticker, **catalog_spec}
+    return {"ticker": ticker, "name": ticker, "category": get_asset_category(ticker)}
+
+
+async def ensure_scheduled_report_assets(db: AsyncSession) -> list[Asset]:
+    scheduled_assets: list[Asset] = []
+    for ticker in _configured_scheduled_report_tickers():
+        spec = _scheduled_report_asset_spec(ticker)
+        result = await db.execute(select(Asset).where(Asset.ticker == spec["ticker"]))
+        asset = result.scalar_one_or_none()
+        if asset is None:
+            asset = Asset(
+                ticker=spec["ticker"],
+                name=spec["name"],
+                category=spec["category"],
+            )
+            db.add(asset)
+            await db.flush()
+        else:
+            asset.name = spec["name"]
+            asset.category = spec["category"]
+        scheduled_assets.append(asset)
+
+    await db.commit()
+    return scheduled_assets
+
+
 def find_cached_payload(cache_bucket: dict, ticker: str):
     for group_data in cache_bucket.values():
         for label, item in group_data.items():
@@ -223,9 +315,113 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
         return None
 
 
+def _has_positive_value(value: Any) -> bool:
+    if value in (None, ""):
+        return False
+    try:
+        return float(value) != 0
+    except (TypeError, ValueError):
+        return bool(value)
+
+
+def _fact_is_present(
+    fact_key: str,
+    price_payload: dict[str, Any],
+    merged_news: list[dict[str, Any]],
+    latest_context: dict[str, Any],
+) -> bool:
+    price_value = price_payload.get("price", price_payload.get("currentPrice"))
+    change_value = price_payload.get("change_pct", price_payload.get("changePercent"))
+    history_points = price_payload.get("history_prices") or []
+    latest_news = latest_context.get("news") or []
+    latest_events = latest_context.get("events") or []
+
+    if fact_key in PRIMARY_FACT_KEYS:
+        return _has_positive_value(price_value)
+    if fact_key == "recent_performance":
+        return change_value is not None or len(history_points) > 1
+    if fact_key == "market_cap":
+        return _has_positive_value(price_payload.get("marketCap"))
+    if fact_key == "volume_or_liquidity":
+        return _has_positive_value(price_payload.get("volume"))
+    if fact_key in {"company_news", "regulatory_or_etf_news", "supply_demand_driver"}:
+        return bool(merged_news or latest_news)
+    if fact_key in {
+        "macro_drivers",
+        "curve_context",
+        "central_bank_policy",
+        "inflation_context",
+        "dollar_context",
+        "real_rates",
+        "sector_or_local_context",
+        "liquidity_backdrop",
+    }:
+        return bool(latest_events or latest_news)
+    return False
+
+
+def _build_fact_matrix(
+    category: AssetCategory,
+    requirements: dict[str, list[str]],
+    price_payload: dict[str, Any],
+    merged_news: list[dict[str, Any]],
+    latest_context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    matrix: list[dict[str, Any]] = []
+    for requirement, fact_keys in (
+        ("required", requirements.get("required", [])),
+        ("optional", requirements.get("optional", [])),
+    ):
+        for fact_key in fact_keys:
+            is_present = _fact_is_present(fact_key, price_payload, merged_news, latest_context)
+            if is_present:
+                status = "present"
+            elif requirement == "required":
+                status = "missing_required"
+            else:
+                status = "missing_optional_provider"
+
+            matrix.append(
+                {
+                    "fact_key": fact_key,
+                    "display_label": fact_key.replace("_", " ").title(),
+                    "asset_categories": [category.name],
+                    "collector_source": FACT_COLLECTOR_SOURCE_BY_KEY.get(fact_key, "provider_not_configured"),
+                    "requirement": requirement,
+                    "status": status,
+                    "stale_after_hours": settings.REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS,
+                    "blocking_severity": "blocking" if fact_key in PRIMARY_FACT_KEYS else "limiting",
+                    "ui_note": (
+                        "Required before report generation."
+                        if requirement == "required"
+                        else "Optional provider coverage; show as limitation when missing."
+                    ),
+                }
+            )
+    return matrix
+
+
+def _fact_matrix_summary(fact_matrix: list[dict[str, Any]]) -> dict[str, int]:
+    summary = {
+        "present": 0,
+        "missing_required": 0,
+        "missing_optional_provider": 0,
+        "not_applicable": 0,
+    }
+    for item in fact_matrix:
+        status = item.get("status", "not_applicable")
+        summary[status] = summary.get(status, 0) + 1
+    return summary
+
+
 def _grade_report_readiness(report_facts: dict[str, Any]) -> dict[str, Any]:
     price_value = (report_facts.get("price") or {}).get("value")
-    missing_required = list(report_facts.get("missing_required_facts") or [])
+    fact_matrix = list(report_facts.get("fact_matrix") or [])
+    missing_required = [
+        item.get("fact_key")
+        for item in fact_matrix
+        if item.get("status") == "missing_required" and item.get("fact_key")
+    ] or list(report_facts.get("missing_required_facts") or [])
     data_limitations = list(report_facts.get("data_limitations") or [])
     asset_category = report_facts.get("asset_category", "")
 
@@ -234,6 +430,14 @@ def _grade_report_readiness(report_facts: dict[str, Any]) -> dict[str, Any]:
 
     if price_value in (None, "", 0):
         blocking_reasons.append("가격 데이터가 없어 리포트 생성을 중단했습니다.")
+
+    blocking_fact_keys = [
+        item.get("fact_key")
+        for item in fact_matrix
+        if item.get("status") == "missing_required" and item.get("blocking_severity") == "blocking"
+    ]
+    if blocking_fact_keys:
+        blocking_reasons.append(f"Blocking facts are missing: {', '.join(blocking_fact_keys)}")
 
     if missing_required:
         limiting_reasons.append(f"필수 팩트 일부가 비어 있습니다: {', '.join(missing_required)}")
@@ -255,6 +459,7 @@ def _grade_report_readiness(report_facts: dict[str, Any]) -> dict[str, Any]:
         "blocking_reasons": blocking_reasons,
         "limiting_reasons": limiting_reasons,
         "missing_required_facts": missing_required,
+        "fact_matrix_summary": _fact_matrix_summary(fact_matrix),
     }
 
 
@@ -304,15 +509,12 @@ def _build_report_facts(
     if category.name == "CRYPTO":
         data_limitations.append("온체인/거래소 데이터는 신뢰 가능한 provider가 없으면 사용하지 않습니다.")
 
-    missing_required: list[str] = []
-    if not price_payload.get("price") and not price_payload.get("currentPrice"):
-        missing_required.append("price")
-    if "market_cap" in requirements["required"] and not price_payload.get("marketCap"):
-        missing_required.append("market_cap")
-    if "volume_or_liquidity" in requirements["required"] and not price_payload.get("volume"):
-        missing_required.append("volume_or_liquidity")
-    if "company_news" in requirements["required"] and not merged_news:
-        missing_required.append("company_news")
+    fact_matrix = _build_fact_matrix(category, requirements, price_payload, merged_news, latest_context)
+    missing_required = [
+        item["fact_key"]
+        for item in fact_matrix
+        if item.get("status") == "missing_required"
+    ]
     if missing_required:
         data_limitations.append(f"필수 팩트 일부가 비어 있습니다: {', '.join(sorted(set(missing_required)))}")
 
@@ -376,6 +578,8 @@ def _build_report_facts(
         "risks": [],
         "data_limitations": data_limitations,
         "missing_required_facts": sorted(set(missing_required)),
+        "fact_matrix": fact_matrix,
+        "fact_matrix_summary": _fact_matrix_summary(fact_matrix),
         "source_status": source_status,
     }
 
@@ -396,6 +600,53 @@ def _summary_from_facts(items: list[Any] | None, fallback: str = "") -> str:
     return (summary or fallback)[:500]
 
 
+def _blocked_research_packet(report_facts: dict[str, Any]) -> dict[str, Any]:
+    limitations = list(report_facts.get("data_limitations") or [])
+    missing_required = list(report_facts.get("missing_required_facts") or [])
+    return {
+        "base_case": {
+            "title": "Base case",
+            "items": [],
+            "evidence_ids": [],
+            "limitation_reason": "Required source facts are missing.",
+        },
+        "bull_case": {
+            "title": "Bull case",
+            "items": [],
+            "evidence_ids": [],
+            "limitation_reason": "Generation stopped before scenario writing.",
+        },
+        "bear_case": {
+            "title": "Bear case",
+            "items": [],
+            "evidence_ids": [],
+            "limitation_reason": "Generation stopped before scenario writing.",
+        },
+        "risk_review": {
+            "title": "Risk review",
+            "items": limitations[:8],
+            "evidence_ids": ["FACT_MATRIX"] if missing_required else [],
+            "limitation_reason": "" if limitations else "No risk review was generated.",
+        },
+        "catalysts": [],
+        "watchlist": missing_required,
+        "source_table": [
+            {
+                "id": "FACT_MATRIX",
+                "label": "Fact matrix",
+                "source": "deterministic_readiness_gate",
+                "status": "blocked",
+            }
+        ],
+        "data_limitations": limitations,
+        "prior_report_delta": {
+            "items": [],
+            "evidence_ids": [],
+            "limitation_reason": "Generation stopped before prior-report comparison.",
+        },
+    }
+
+
 def _build_generation_metadata(
     ticker: str,
     report_facts: dict[str, Any],
@@ -403,6 +654,7 @@ def _build_generation_metadata(
 ) -> dict[str, Any]:
     structured_facts = result.get("structured_facts") or {}
     risk_review = result.get("risk_review") or {}
+    research_packet = result.get("research_packet") or {}
     data_as_of = (
         structured_facts.get("data_as_of")
         or report_facts.get("price", {}).get("as_of")
@@ -424,12 +676,17 @@ def _build_generation_metadata(
         "data_as_of": data_as_of,
         "source_status": report_facts.get("source_status", {}),
         "missing_required_facts": report_facts.get("missing_required_facts", []),
+        "fact_matrix": report_facts.get("fact_matrix", []),
+        "fact_matrix_summary": report_facts.get("fact_matrix_summary", {}),
         "readiness": report_facts.get("readiness", {}),
         "critic_mode": settings.REPORT_CRITIC_MODE,
         "llm_report_critics_enabled": settings.ENABLE_LLM_REPORT_CRITICS,
         "analysis_framework": report_facts.get("analysis_framework", {}),
+        "research_packet": research_packet,
+        "source_table": research_packet.get("source_table", []),
         "risk_summary": _summary_from_facts(
-            risk_review.get("findings")
+            (research_packet.get("risk_review") or {}).get("items")
+            or risk_review.get("findings")
             or structured_facts.get("risk_factors")
             or structured_facts.get("risks"),
             "구조화된 리스크 요약이 생성되지 않았습니다.",
@@ -465,6 +722,7 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
     readiness = _grade_report_readiness(report_facts)
     report_facts["readiness"] = readiness
     if readiness["status"] == "blocked":
+        blocked_packet = _blocked_research_packet(report_facts)
         metadata = {
             "ticker": ticker,
             "is_pass": False,
@@ -481,10 +739,14 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
             "data_as_of": report_facts.get("price", {}).get("as_of") or _iso_now(),
             "source_status": report_facts.get("source_status", {}),
             "missing_required_facts": report_facts.get("missing_required_facts", []),
+            "fact_matrix": report_facts.get("fact_matrix", []),
+            "fact_matrix_summary": report_facts.get("fact_matrix_summary", {}),
             "readiness": readiness,
             "critic_mode": settings.REPORT_CRITIC_MODE,
             "llm_report_critics_enabled": settings.ENABLE_LLM_REPORT_CRITICS,
             "analysis_framework": report_facts.get("analysis_framework", {}),
+            "research_packet": blocked_packet,
+            "source_table": blocked_packet.get("source_table", []),
             "risk_summary": _summary_from_facts(report_facts.get("data_limitations"), "필수 데이터가 부족합니다."),
             "role_outputs": {"bull_thesis": {}, "bear_thesis": {}, "risk_review": {}},
         }
@@ -513,6 +775,7 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
         "bull_thesis": {},
         "bear_thesis": {},
         "risk_review": {},
+        "research_packet": {},
         "draft_report": "",
         "format_check_pass": False,
         "format_check_feedback": "",
@@ -583,7 +846,6 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
 async def generate_daily_reports() -> None:
     logger.info("AI 리포트 생성 시작")
     try:
-        today = datetime.now().date()
         cooldown_cutoff = datetime.now() - timedelta(hours=settings.REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS)
         async with AsyncSessionLocal() as db_session:
             coverage = settings.REPORT_SCHEDULER_COVERAGE.lower().strip()
@@ -592,8 +854,7 @@ async def generate_daily_reports() -> None:
                     "REPORT_SCHEDULER_COVERAGE=%s requested, but broad scheduled generation remains disabled by policy.",
                     settings.REPORT_SCHEDULER_COVERAGE,
                 )
-            assets_result = await db_session.execute(select(Asset).order_by(Asset.id.asc()))
-            assets = assets_result.scalars().all()
+            assets = await ensure_scheduled_report_assets(db_session)
             logger.info("리포트 생성 대상 자산 수: %d", len(assets))
 
             generated_count = 0
@@ -609,8 +870,7 @@ async def generate_daily_reports() -> None:
                         select(AIReport.id)
                         .where(
                             AIReport.asset_id == asset.id,
-                            (func.date(AIReport.created_at) == today)
-                            | (AIReport.created_at >= cooldown_cutoff),
+                            AIReport.created_at >= cooldown_cutoff,
                         )
                         .limit(1)
                     )

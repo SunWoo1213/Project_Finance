@@ -7,6 +7,7 @@ from jose import jwt, JWTError
 from ..core.config import settings
 from ..db.session import get_db
 from ..models import User
+from ..services.subscription_service import SubscriptionEntitlements, get_user_entitlements
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/google")
 optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/google", auto_error=False)
@@ -61,3 +62,36 @@ async def get_optional_current_user(
         return await get_current_user(token=token, db=db)
     except HTTPException:
         return None
+
+
+async def get_current_entitlements(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SubscriptionEntitlements:
+    return await get_user_entitlements(current_user, db)
+
+
+async def require_report_access(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    entitlements = await get_user_entitlements(current_user, db)
+    if not entitlements.can_view_reports:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="AI report access requires an active Plus or Pro subscription.",
+        )
+    return current_user
+
+
+async def require_chatbot_access(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    entitlements = await get_user_entitlements(current_user, db)
+    if not entitlements.can_use_chatbot:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chatbot access requires an active Pro subscription.",
+        )
+    return current_user

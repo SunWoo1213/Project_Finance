@@ -626,6 +626,169 @@ def risk_officer_node(state: AgentState) -> dict[str, Any]:
     }
 
 
+def _source_table_from_state(state: AgentState) -> list[dict[str, Any]]:
+    report_facts = state.get("report_facts", {}) or {}
+    structured_facts = state.get("structured_facts", {}) or {}
+    source_table: list[dict[str, Any]] = []
+
+    price = report_facts.get("price") or {}
+    if price.get("value") not in (None, "", 0):
+        source_table.append(
+            {
+                "id": "PRICE",
+                "label": "Price snapshot",
+                "source": price.get("source", "market_cache"),
+                "as_of": price.get("as_of", ""),
+                "confidence": price.get("confidence", "unknown"),
+            }
+        )
+
+    for index, item in enumerate(report_facts.get("news") or [], start=1):
+        source_table.append(
+            {
+                "id": f"NEWS_{index}",
+                "label": item.get("title") or f"News item {index}",
+                "source": item.get("source", "unknown"),
+                "as_of": item.get("as_of", ""),
+                "url": item.get("url", ""),
+                "confidence": item.get("confidence", "unknown"),
+            }
+        )
+
+    for index, item in enumerate(report_facts.get("events") or [], start=1):
+        source_table.append(
+            {
+                "id": f"EVENT_{index}",
+                "label": item.get("title") or f"Event {index}",
+                "source": item.get("source", "unknown"),
+                "as_of": item.get("as_of", ""),
+                "confidence": item.get("confidence", "unknown"),
+            }
+        )
+
+    for provider_key, evidence_id in (
+        ("financial_facts", "PROVIDER_FINANCIAL"),
+        ("news_facts", "PROVIDER_NEWS"),
+        ("macro_facts", "PROVIDER_MACRO"),
+    ):
+        facts = state.get(provider_key, {}) or {}
+        if facts:
+            source_table.append(
+                {
+                    "id": evidence_id,
+                    "label": provider_key.replace("_", " ").title(),
+                    "source": facts.get("provider", provider_key),
+                    "status": facts.get("status", "available"),
+                }
+            )
+
+    if report_facts.get("fact_matrix"):
+        source_table.append(
+            {
+                "id": "FACT_MATRIX",
+                "label": "Fact matrix",
+                "source": "deterministic_readiness_gate",
+                "status": (report_facts.get("readiness") or {}).get("status", "unknown"),
+            }
+        )
+
+    if structured_facts:
+        source_table.append(
+            {
+                "id": "STRUCTURED_FACTS",
+                "label": "Structured facts",
+                "source": "synthesizer_node",
+                "status": "available",
+            }
+        )
+
+    return source_table
+
+
+def _available_evidence_ids(source_table: list[dict[str, Any]]) -> list[str]:
+    return [str(item["id"]) for item in source_table if item.get("id")]
+
+
+def _packet_section(
+    title: str,
+    items: list[str],
+    evidence_ids: list[str],
+    limitation_reason: str = "",
+) -> dict[str, Any]:
+    return {
+        "title": title,
+        "items": items[:8],
+        "evidence_ids": evidence_ids[:6] if items else [],
+        "limitation_reason": "" if items else limitation_reason,
+    }
+
+
+def research_packet_node(state: AgentState) -> dict[str, Any]:
+    ticker = state.get("ticker", "")
+    logger.info("graph_node: research_packet_node start (ticker=%s)", ticker)
+    structured_facts = state.get("structured_facts", {}) or {}
+    report_facts = state.get("report_facts", {}) or {}
+    bull_thesis = state.get("bull_thesis", {}) or {}
+    bear_thesis = state.get("bear_thesis", {}) or {}
+    risk_review = state.get("risk_review", {}) or {}
+    source_table = _source_table_from_state(state)
+    evidence_ids = _available_evidence_ids(source_table)
+    default_evidence = evidence_ids or ["STRUCTURED_FACTS"]
+
+    base_items = _list_from_facts(structured_facts.get("summary"))
+    if not base_items:
+        base_items = _list_from_facts(structured_facts.get("key_numbers"))
+    if not base_items:
+        base_items = _list_from_facts(structured_facts.get("market_sentiment_news"))
+
+    catalysts = _list_from_facts(structured_facts.get("events"))[:5]
+    if not catalysts:
+        catalysts = _list_from_facts(structured_facts.get("news"))[:5]
+
+    watchlist = _list_from_facts(report_facts.get("missing_required_facts"))
+    watchlist.extend(_list_from_facts(structured_facts.get("risk_factors"))[:5])
+    watchlist = list(dict.fromkeys(watchlist))[:8]
+
+    packet = {
+        "base_case": _packet_section(
+            "Base case",
+            base_items,
+            default_evidence,
+            "No synthesized base-case facts were available.",
+        ),
+        "bull_case": _packet_section(
+            "Bull case",
+            _list_from_facts(bull_thesis.get("thesis")),
+            _list_from_facts(bull_thesis.get("evidence")) and default_evidence,
+            "Insufficient evidence for a supported bull case.",
+        ),
+        "bear_case": _packet_section(
+            "Bear case",
+            _list_from_facts(bear_thesis.get("thesis")),
+            _list_from_facts(bear_thesis.get("evidence")) and default_evidence,
+            "Insufficient evidence for a supported bear case.",
+        ),
+        "risk_review": _packet_section(
+            "Risk review",
+            _list_from_facts(risk_review.get("findings")),
+            ["FACT_MATRIX", *default_evidence],
+            "No structured risk review was available.",
+        ),
+        "catalysts": catalysts,
+        "watchlist": watchlist,
+        "source_table": source_table,
+        "data_limitations": _list_from_facts(structured_facts.get("data_limitations") or report_facts.get("data_limitations")),
+        "prior_report_delta": _packet_section(
+            "Prior report delta",
+            [],
+            [],
+            "Prior-report comparison is not yet deterministic in this implementation slice.",
+        ),
+    }
+    logger.info("graph_node: research_packet_node done (ticker=%s)", ticker)
+    return {"research_packet": packet}
+
+
 def writer_node(state: AgentState) -> dict[str, Any]:
     ticker = state.get("ticker", "")
     logger.info("graph_node: writer_node start (ticker=%s)", ticker)
@@ -649,9 +812,11 @@ def writer_node(state: AgentState) -> dict[str, Any]:
         "규제, ETF, 기관 수급, 실적 개선, 중앙은행 정책 전환, 재고/공급, 온체인 흐름 같은 "
         "정성 클레임은 structured_facts나 provider facts에 근거가 있을 때만 사용하라.\n"
         "넘겨받지 않은 숫자를 만들지 말라.\n"
+        "Research packet discipline: research_packet is the controlling packet. Do not invent analysis outside its entries, evidence IDs, source table, and data limitations.\n"
         "{language_requirement}\n\n"
         "previous_report:\n{previous_report}\n\n"
         "structured_facts:\n{structured_facts}\n\n"
+        "research_packet:\n{research_packet}\n\n"
         "analysis_framework:\n{analysis_framework}\n\n"
         "bull_thesis:\n{bull_thesis}\n\n"
         "bear_thesis:\n{bear_thesis}\n\n"
@@ -663,6 +828,7 @@ def writer_node(state: AgentState) -> dict[str, Any]:
         {
             "previous_report": state.get("previous_report", ""),
             "structured_facts": state.get("structured_facts", {}),
+            "research_packet": state.get("research_packet", {}),
             "analysis_framework": (state.get("report_facts", {}) or {}).get("analysis_framework", {}),
             "bull_thesis": state.get("bull_thesis", {}),
             "bear_thesis": state.get("bear_thesis", {}),

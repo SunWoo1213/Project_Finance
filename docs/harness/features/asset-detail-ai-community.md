@@ -8,7 +8,7 @@ The asset detail screen combines market summary, favorite toggling, chart histor
 
 Comment reports are one-per-user per comment. When a comment reaches 100 accumulated reports, the backend automatically deletes that comment.
 
-If an authenticated user requests a report and the latest report is missing, the frontend may call report generation and then retry the report fetch. Manual report generation is authenticated-only. If readiness grading blocks generation or the quality gates reject the final draft after the retry loop, the backend returns a failure response and does not save the draft as a final report.
+If an authenticated user requests a report and the latest report is missing, the frontend now shows a scheduled-report-pending state and does not call report generation. Manual report generation is disabled for ordinary authenticated users. This aligns with the target product rule documented in `docs/harness/report-generation-schedule-alignment-plan-2026-06-01.md` and implemented in `docs/harness/report-generation-schedule-alignment-implementation-2026-06-01.md`: user-facing report views read only pre-generated stored reports, while generation runs from the backend scheduler.
 
 ## Ownership Map
 
@@ -32,43 +32,44 @@ If an authenticated user requests a report and the latest report is missing, the
 3. The page reads local favorite state and can toggle the current ticker into `favoriteAssets`.
 4. The page fetches history for the selected ticker and period.
 5. The page fetches `GET /api/market/latest-context/{ticker}` for ticker-specific recent news and calendar events.
-6. If authenticated, the page fetches `GET /api/reports/{ticker}`.
-7. If no report exists, the page can call `POST /api/ai/generate/{ticker}` and retry the report fetch.
+6. If authenticated and entitled, the page fetches `GET /api/reports/{ticker}`. Planned tier behavior is Free: no report access, Plus: report access, Pro: report access.
+7. If no stored report exists, the page displays a scheduled-report-pending state and does not call `POST /api/ai/generate/{ticker}`.
 8. Report generation merges broad cached news with latest-context news and builds structured report facts before deciding whether to invoke the LangGraph workflow.
-9. Structured report facts include asset-category requirements, asset-specific analysis frameworks, price/source timestamps, market metadata, provider status, missing required facts, and explicit data limitations.
-10. A deterministic readiness grade marks the report `ready`, `limited`, or `blocked`. Blocked reports do not call the LangGraph/LLM pipeline.
+9. Structured report facts include asset-category requirements, an auditable fact matrix, asset-specific analysis frameworks, price/source timestamps, market metadata, provider status, missing required facts, and explicit data limitations.
+10. A deterministic readiness grade marks the report `ready`, `limited`, or `blocked` from the fact matrix. Blocked reports do not call the LangGraph/LLM pipeline.
 11. Financial, news, and macro graph nodes can pass structured provider facts from FMP, Finnhub, and CoinGecko alongside free-form research context.
 12. After synthesis, deterministic Bull, Bear, and Risk role nodes split `structured_facts` into `bull_thesis`, `bear_thesis`, and `risk_review` without adding extra LLM calls.
-13. The writer consumes the separated role outputs and the selected asset analysis framework before finalizing the Markdown report.
-14. The writer output goes through a deterministic fixed-format validator that checks for the 10 required Markdown section headings and requires asset-framework topic coverage inside the `자산군별 분석` section with supporting evidence or data-limit text.
-15. Format-passing output then goes through a deterministic numeric fact checker.
-16. Numeric-passing output goes through a deterministic qualitative claim checker for narrow high-risk claims such as unsupported regulatory, ETF, institutional-flow, policy-shift, earnings, supply, or on-chain statements.
-17. If the format validator, numeric fact checker, or qualitative checker fails, it routes feedback back to the writer until the revision limit.
-18. The graph evaluates format-, numeric-, and qualitative-check-passing reports. Passing reports are saved with bull and bear summaries derived from role outputs when available.
-19. Failed format checker, fact checker, qualitative checker, or evaluator results raise a quality failure and are not committed to the database.
-20. Scheduled report generation covers assets already present in the DB `assets` table. It does not currently seed every default market-cache ticker into the DB before running.
-21. Passing reports persist quality/source metadata on `AIReport`, and existing report fetches return the stored metadata to `ReportCard.jsx`.
-22. The page fetches comments using the ticker or asset key.
-23. Community writes send the JWT and the backend resolves the asset, creating an asset row from the warm market cache when a comment is posted before a report has created one.
-24. Edit/delete ownership checks happen on the backend.
-25. The frontend asks the user to pick a short report reason before sending the report. The selected reason is a UI confirmation only and is not stored by the current backend contract.
-26. Comment reports are stored separately from likes and can auto-delete the comment at the 100-report threshold.
-27. The chatbot can guide users to detail, report, and community areas. For authenticated users it can summarize an already stored report, but it does not call the report-generation endpoint.
+13. A deterministic research packet is assembled from structured facts, Bull/Bear role outputs, Risk review output, source-table entries, data limitations, catalysts, and watchlist items before the writer runs.
+14. The writer consumes the research packet, separated role outputs, and the selected asset analysis framework before finalizing the Markdown report.
+15. The writer output goes through a deterministic fixed-format validator that checks for the 10 required Markdown section headings and requires asset-framework topic coverage inside the `자산군별 분석` section with supporting evidence or data-limit text.
+16. Format-passing output then goes through a deterministic numeric fact checker.
+17. Numeric-passing output goes through a deterministic qualitative claim checker for narrow high-risk claims such as unsupported regulatory, ETF, institutional-flow, policy-shift, earnings, supply, or on-chain statements.
+18. If the format validator, numeric fact checker, or qualitative checker fails, it routes feedback back to the writer until the revision limit.
+19. The graph evaluates format-, numeric-, and qualitative-check-passing reports. Passing reports are saved with bull and bear summaries derived from role outputs when available.
+20. Failed format checker, fact checker, qualitative checker, or evaluator results raise a quality failure and are not committed to the database.
+21. Scheduled report generation seeds and covers only the configured representative target list by default: `DGS10`, `XAU`, `BTC-USD`, `NVDA`, and `005930.KS`.
+22. Passing reports persist quality/source metadata, fact matrix summaries, source-table entries, and research packet metadata on `AIReport`, and existing report fetches return the stored metadata to `ReportCard.jsx`.
+23. The page fetches comments using the ticker or asset key.
+24. Community writes send the JWT and the backend resolves the asset, creating an asset row from the warm market cache when a comment is posted before a report has created one.
+25. Edit/delete ownership checks happen on the backend.
+26. The frontend asks the user to pick a short report reason before sending the report. The selected reason is a UI confirmation only and is not stored by the current backend contract.
+27. Comment reports are stored separately from likes and can auto-delete the comment at the 100-report threshold.
+28. The chatbot can guide users to detail, report, and community areas. For authenticated users it can summarize an already stored report, but it does not call the report-generation endpoint.
 
 ## Contracts
 
 - Detail route: `/detail/:ticker`
-- Report fetch: `GET /api/reports/{ticker}` requires auth.
-- Report generation: `POST /api/ai/generate/{ticker}` requires auth and may trigger LLM-backed work.
+- Report fetch: `GET /api/reports/{ticker}` currently requires auth. Planned tier behavior requires active Plus or Pro.
+- Report generation: `POST /api/ai/generate/{ticker}` requires auth but is disabled for ordinary users with HTTP 403; LLM-backed generation is scheduled-only.
 - Report fetch responses include persisted `metadata` when available.
-- Report generation success response includes `metadata` with `quality_status`, `is_pass`, `feedback`, `format_check_pass`, `format_check_feedback`, `fact_check_pass`, `fact_check_feedback`, `qualitative_check_pass`, `qualitative_check_feedback`, `revision_count`, `generated_at`, `data_as_of`, `source_status`, `missing_required_facts`, `readiness`, `critic_mode`, `llm_report_critics_enabled`, and `risk_summary`.
+- Report generation success response includes `metadata` with `quality_status`, `is_pass`, `feedback`, `format_check_pass`, `format_check_feedback`, `fact_check_pass`, `fact_check_feedback`, `qualitative_check_pass`, `qualitative_check_feedback`, `revision_count`, `generated_at`, `data_as_of`, `source_status`, `missing_required_facts`, `fact_matrix`, `fact_matrix_summary`, `readiness`, `critic_mode`, `llm_report_critics_enabled`, `research_packet`, `source_table`, and `risk_summary`.
 - Report generation metadata also includes `role_outputs` with `bull_thesis`, `bear_thesis`, and `risk_review` for newly generated reports.
 - Report generation metadata also includes `analysis_framework`, which identifies the asset-category framework used by the writer.
 - Report readiness blocked and report quality failure responses return HTTP 422 and do not save an `AIReport`.
 - Persisted `AIReport` quality columns include `quality_status`, `quality_feedback`, `format_check_pass`, `fact_check_pass`, `qualitative_check_pass`, `revision_count`, `data_as_of`, `source_summary`, `risk_summary`, `analysis_framework`, and `metadata_json`.
 - FastAPI lifespan attempts `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for the report metadata columns because the project does not yet have a formal migration workflow.
 - Optional structured provider environment variable names for report-quality context: `FMP_API_KEY`, `FINNHUB_API_KEY`. They are optional; missing values produce provider limitation metadata rather than blocking report generation.
-- Optional report runtime policy variables: `ENABLE_LLM_REPORT_CRITICS`, `REPORT_CRITIC_MODE`, `REPORT_SCHEDULER_COVERAGE`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN`, and `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS`.
+- Optional report runtime policy variables: `ENABLE_LLM_REPORT_CRITICS`, `REPORT_CRITIC_MODE`, `REPORT_SCHEDULER_COVERAGE`, `REPORT_SCHEDULER_INTERVAL_HOURS`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS`, and `REPORT_SCHEDULER_TARGET_TICKERS`.
 - Latest context fetch: `GET /api/market/latest-context/{ticker}` is public and TTL-cached.
 - Comment list: `GET /api/community/{asset_id}/comments`
 - Chat guidance: `POST /api/chat/message`
@@ -88,6 +89,8 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 
 - Do not add ordinary tests that make real LLM calls.
 - Report generation behavior can increase cost; ask for confirmation before increasing automatic generation frequency or broadening triggers.
+- User-facing report views should read stored `AIReport` rows only. Do not make page load, button click, or chatbot request paths trigger report generation.
+- Any audit, plan, or implementation touching report generation cadence, report viewing, manual generation, or chatbot report responses must add/update a `docs/harness/` record and link it here.
 - Latest context may call free external providers; preserve ticker-level TTL caching before increasing refresh behavior.
 - Keep read-only community access separate from authenticated write access.
 - Ownership checks for comment edit/delete must stay server-side.
@@ -122,6 +125,12 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/report-quality-follow-up-plan-2026-05-31.md`
 - `docs/harness/report-quality-follow-up-implementation-2026-05-31.md`
 - `docs/harness/chatbot-feature-implementation-2026-05-31.md`
+- `docs/harness/report-generation-schedule-alignment-plan-2026-06-01.md`
+- `docs/harness/report-generation-schedule-alignment-implementation-2026-06-01.md`
+- `docs/harness/report-writing-method-feedback-2026-06-01.md`
+- `docs/harness/report-writing-method-implementation-plan-2026-06-01.md`
+- `docs/harness/report-writing-method-implementation-2026-06-01.md`
+- `docs/harness/subscription-tier-payment-plan-2026-06-01.md`
 
 ## Open Risks
 
@@ -134,5 +143,6 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - The qualitative checker is intentionally narrow and deterministic; it catches selected high-risk unsupported claims but is not a full claim-evidence verifier.
 - Bull, Bear, and Risk role outputs are deterministic graph state for now; fully independent LLM-backed debate agents would increase token cost and need explicit approval.
 - Asset-specific framework depth validation is deterministic and conservative; it checks section placement and minimal evidence/limitation text, not full analytical quality.
-- Broadening scheduled AI report generation from conservative DB-asset coverage to every default market-cache ticker remains disabled because it would increase LLM call volume.
+- Broadening scheduled AI report generation beyond the five representative target tickers remains disabled because it would increase LLM call volume.
+- Detail pages no longer trigger manual report generation on 404, so unsupported or not-yet-generated assets can show a pending report state until the scheduler produces a stored report.
 - Remaining report-quality follow-ups are prioritized in `docs/harness/report-quality-follow-up-plan-2026-05-31.md`.

@@ -28,7 +28,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 1. FastAPI lifespan initializes DB tables and warms price/news caches.
 2. FastAPI lifespan warms price/news caches when `ENABLE_MARKET_WARMUP` is true. The default is true.
 3. APScheduler refreshes prices every 5 minutes and news every 1 hour when `ENABLE_SCHEDULER` is true. The default is true.
-4. Scheduled AI report generation remains conservative by default: it iterates DB `Asset` rows only, respects a per-run cap, and does not seed every default market-cache ticker into the DB.
+4. Scheduled AI report generation remains cost-controlled by default: it seeds and iterates only the representative report target list (`DGS10`, `XAU`, `BTC-USD`, `NVDA`, `005930.KS`), respects a per-run cap of 5, and runs on a 6-hour interval/cooldown.
 5. `GET /api/market/prices` returns the cached category object.
 6. `GET /api/market/news` returns the cached news object.
 7. The home page renders S&P 500, Nasdaq 100, USD/KRW, and KOSPI from the `macro` cache and lists cached global news below the market cards.
@@ -51,7 +51,8 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - Latest context endpoint: `GET /api/market/latest-context/{ticker}?force_refresh=false`
 - History endpoint: `GET /api/market/history/{ticker}`
 - Optional runtime controls for local smoke checks: `ENABLE_MARKET_WARMUP=false`, `ENABLE_SCHEDULER=false`
-- Optional report scheduler policy controls: `REPORT_SCHEDULER_COVERAGE=conservative`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=20`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS=24`
+- Optional report scheduler policy controls: `REPORT_SCHEDULER_COVERAGE=conservative`, `REPORT_SCHEDULER_INTERVAL_HOURS=6`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=5`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS=6`, `REPORT_SCHEDULER_TARGET_TICKERS=DGS10,XAU,BTC-USD,NVDA,005930.KS`
+- Target report schedule rule: report generation is backend-scheduled every 6 hours and user/chatbot paths read stored reports only. The 2026-06-01 implementation limits scheduled coverage to five representative assets for API cost control; see `docs/harness/report-generation-schedule-alignment-implementation-2026-06-01.md`.
 - Supported history periods: `1d`, `1mo`, `1y`, `5y`
 - Main market snapshot route: `/market/:ticker`
 - Chat market guidance endpoint: `POST /api/chat/message`
@@ -69,6 +70,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - Keep latest-context requests TTL-cached so asset-detail clicks do not hammer free providers.
 - Treat empty provider responses, holidays, rate limits, and missing history as normal edge cases.
 - Scheduler frequency changes can affect API cost and rate limits; ask for confirmation before increasing frequency materially.
+- Report generation schedule, coverage, or cooldown changes must be documented in `docs/harness/` and linked from the affected feature docs.
 
 ## Verification
 
@@ -86,6 +88,10 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/feature-implementation-fixes-verification-2026-05-31.md`
 - `docs/harness/report-quality-follow-up-implementation-2026-05-31.md`
 - `docs/harness/chatbot-feature-implementation-2026-05-31.md`
+- `docs/harness/report-generation-schedule-alignment-plan-2026-06-01.md`
+- `docs/harness/report-generation-schedule-alignment-implementation-2026-06-01.md`
+- `docs/harness/report-writing-method-implementation-plan-2026-06-01.md`
+- `docs/harness/report-writing-method-implementation-2026-06-01.md`
 
 ## Open Risks
 
@@ -93,3 +99,4 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - Frontend API base URLs are hardcoded in several pages.
 - External provider behavior can change without code changes.
 - Full scheduled report coverage is intentionally not enabled; changing `REPORT_SCHEDULER_COVERAGE` away from `conservative` currently logs a warning and still avoids broad seeding because broader LLM/API usage needs product approval.
+- The report scheduler now wakes every 6 hours and uses a 6-hour per-asset cooldown, but coverage is limited to the configured representative ticker list.

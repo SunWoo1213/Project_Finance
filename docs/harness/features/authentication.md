@@ -41,6 +41,7 @@ Local email/password registration and login are not part of the current UI flow.
 - Login endpoint: `POST /api/auth/google`
 - Login response user metadata: `id`, `email`, `nickname`
 - Protected report endpoint: `GET /api/reports/{ticker}`
+- Planned tier entitlement behavior: report access should require active Plus or Pro, and chatbot access should require active Pro.
 - Protected community write endpoints:
   - `POST /api/community/{asset_id}/comments`
   - `PUT /api/community/{asset_id}/comments/{comment_id}`
@@ -73,6 +74,7 @@ Document variable names only. Do not write actual client IDs, JWT secrets, token
 - `docs/harness/feature-implementation-fixes-2026-05-31.md`
 - `docs/harness/feature-implementation-fixes-verification-2026-05-31.md`
 - `docs/harness/chatbot-feature-implementation-2026-05-31.md`
+- `docs/harness/subscription-tier-payment-plan-2026-06-01.md`
 
 ## Open Risks
 

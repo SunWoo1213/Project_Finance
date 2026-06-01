@@ -408,11 +408,18 @@ async def _fetch_saved_report(ticker: str, db: AsyncSession) -> AIReport | None:
 
 def _summarize_report(report: AIReport) -> str:
     parts = []
+    metadata = report.metadata_json or {}
+    packet = metadata.get("research_packet") or {}
+    base_items = _packet_items(packet.get("base_case"))
+    risk_items = _packet_items(packet.get("risk_review"))
+    if base_items:
+        parts.append(f"Base case: {_clean_text(base_items[0], 90)}")
+    if risk_items:
+        parts.append(f"Risk review: {_clean_text(risk_items[0], 90)}")
     if report.bull_summary:
         parts.append(f"상승 관점: {_clean_text(report.bull_summary, 90)}")
     if report.bear_summary:
         parts.append(f"리스크 관점: {_clean_text(report.bear_summary, 90)}")
-    metadata = report.metadata_json or {}
     risk_summary = metadata.get("risk_summary") or report.risk_summary
     if risk_summary:
         parts.append(f"주의점: {_clean_text(str(risk_summary), 90)}")
@@ -422,6 +429,15 @@ def _summarize_report(report: AIReport) -> str:
     if data_as_of:
         parts.append(f"데이터 기준: {data_as_of}")
     return " ".join(parts)
+
+
+def _packet_items(block: Any) -> list[str]:
+    if not isinstance(block, dict):
+        return []
+    items = block.get("items")
+    if not isinstance(items, list):
+        return []
+    return [str(item).strip() for item in items if str(item).strip()]
 
 
 def _clean_text(value: str, limit: int) -> str:

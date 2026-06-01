@@ -59,6 +59,16 @@ Each feature document should include:
 
 Do not include secrets, raw environment values, tokens, passwords, or private account data.
 
+## Report Generation Documentation Rule
+
+For AI report generation and report retrieval, documentation is mandatory before the work is considered complete. Any audit, plan, or implementation touching scheduler cadence, scheduler coverage, report cooldowns, manual generation endpoints, asset detail report loading, or chatbot report responses must:
+
+- Record the current behavior and target behavior under `docs/harness/`.
+- Link the record from `docs/harness/features/asset-detail-ai-community.md`.
+- Link chatbot-specific report behavior from `docs/harness/features/chatbot-assistant.md` when applicable.
+- Link scheduler or market-cache coverage behavior from `docs/harness/features/market-data.md` when applicable.
+- State explicitly whether user-facing requests can trigger generation. The target rule is that users and the chatbot read stored scheduled reports only.
+
 ## Change Record Rules
 
 Every meaningful harness change should create or update a Markdown record under `docs/harness/`.

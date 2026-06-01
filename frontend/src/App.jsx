@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { BrowserRouter, Route, Routes, useParams } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 
@@ -8,6 +9,11 @@ import CategoryView from "./pages/CategoryView";
 import AssetDetail from "./pages/AssetDetail";
 import MarketSnapshot from "./pages/MarketSnapshot";
 import Login from "./pages/Login";
+import Pricing from "./pages/Pricing";
+import BillingSuccess from "./pages/BillingSuccess";
+import BillingCancel from "./pages/BillingCancel";
+import useAuthStore from "./store/authStore";
+import useSubscriptionStore from "./store/subscriptionStore";
 
 function CategoryWrapper() {
   const { type } = useParams();
@@ -24,6 +30,19 @@ function CategoryWrapper() {
 }
 
 function App() {
+  const token = useAuthStore((state) => state.token);
+  const fetchSubscription = useSubscriptionStore((state) => state.fetchMe);
+  const clearSubscription = useSubscriptionStore((state) => state.clear);
+  const canUseChatbot = useSubscriptionStore((state) => state.entitlements.can_use_chatbot);
+
+  useEffect(() => {
+    if (token) {
+      fetchSubscription(token);
+    } else {
+      clearSubscription();
+    }
+  }, [clearSubscription, fetchSubscription, token]);
+
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-slate-900 text-slate-50 font-sans">
@@ -43,9 +62,12 @@ function App() {
               <Route path="/market/:ticker" element={<MarketSnapshot />} />
               <Route path="/detail/:ticker" element={<AssetDetail />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/pricing" element={<Pricing />} />
+              <Route path="/billing/success" element={<BillingSuccess />} />
+              <Route path="/billing/cancel" element={<BillingCancel />} />
             </Routes>
           </main>
-          <ChatbotLauncher />
+          {canUseChatbot && <ChatbotLauncher />}
         </div>
       </div>
     </BrowserRouter>

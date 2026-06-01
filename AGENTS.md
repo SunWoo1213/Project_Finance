@@ -198,3 +198,10 @@ Future harness work must keep feature explanations and modification records link
 - When a new feature area, route group, service boundary, or external integration is added, create a new feature document and add it to `docs/harness/feature-index.md`.
 - When folder ownership changes, update the nearest `DEVELOPMENT_DIRECTION.md` so the feature document and code location remain connected.
 - If existing product specs conflict with the current code or feature docs, inspect the current implementation first and update the stale documentation as part of the task.
+
+## 14. AI Report Generation Documentation Rule
+
+- Any audit, plan, or implementation touching AI report scheduler cadence, scheduler coverage, report cooldowns, manual generation endpoints, asset-detail report loading, or chatbot report responses must be documented under `docs/harness/`.
+- Link the document from the affected feature docs and `docs/harness/feature-index.md`.
+- State explicitly whether user-facing requests can trigger report generation.
+- The target rule is that users and the chatbot read stored scheduled reports only; ordinary user requests should not generate a fresh report.

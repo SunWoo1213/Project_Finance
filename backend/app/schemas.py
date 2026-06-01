@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 
 from typing import Any
 
@@ -27,6 +28,51 @@ class AuthTokenResponse(BaseModel):
     id: int
     email: EmailStr
     nickname: str
+
+
+# -----------------
+# Subscription / Billing Schemas
+# -----------------
+class SubscriptionTier(str, Enum):
+    FREE = "FREE"
+    PLUS = "PLUS"
+    PRO = "PRO"
+
+
+class SubscriptionStatus(str, Enum):
+    NONE = "NONE"
+    ACTIVE = "ACTIVE"
+    PAST_DUE = "PAST_DUE"
+    CANCELED = "CANCELED"
+    EXPIRED = "EXPIRED"
+
+
+class BillingPlanResponse(BaseModel):
+    tier: SubscriptionTier
+    name: str
+    monthly_price_krw: int
+    billing_cycle: str
+    can_view_reports: bool
+    can_use_chatbot: bool
+    description: str
+
+
+class SubscriptionEntitlementsResponse(BaseModel):
+    can_view_reports: bool
+    can_use_chatbot: bool
+
+
+class BillingMeResponse(BaseModel):
+    tier: SubscriptionTier
+    status: SubscriptionStatus
+    current_period_start: datetime | None = None
+    current_period_end: datetime | None = None
+    cancel_at_period_end: bool = False
+    entitlements: SubscriptionEntitlementsResponse
+
+
+class BillingCheckoutRequest(BaseModel):
+    tier: SubscriptionTier
 
 # -----------------
 # Asset Schemas

@@ -1,12 +1,14 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import axios from "axios";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalendarDays, ExternalLink, Flag, Heart, Newspaper, RefreshCw, Send, Star } from "lucide-react";
 
+import Paywall from "../components/Paywall";
 import ReportCard from "../components/ReportCard";
 import useAuthStore from "../store/authStore";
 import useFavoriteStore from "../store/favoriteStore";
+import useSubscriptionStore from "../store/subscriptionStore";
 import { getUiCategory } from "../utils/assetCategories";
 import { formatChangeBadge, formatMarketCap, formatPrice, formatTicker } from "../utils/formatters";
 import { resolveAssetName } from "../utils/constants";
@@ -16,10 +18,15 @@ const REPORT_REASONS = ["스팸/홍보", "욕설/비방", "부적절한 정보"]
 export default function AssetDetail() {
   const { ticker } = useParams();
   const assetTicker = String(ticker || "").trim();
-  const navigate = useNavigate();
   const { token, user } = useAuthStore();
+  const {
+    tier: subscriptionTier,
+    entitlements,
+    isLoading: isSubscriptionLoading,
+  } = useSubscriptionStore();
   const { isFavorite, toggleFavorite } = useFavoriteStore();
   const authToken = token || localStorage.getItem("token");
+  const canViewReports = Boolean(entitlements?.can_view_reports);
 
   const [marketInfo, setMarketInfo] = useState(null);
   const [report, setReport] = useState(null);
@@ -37,6 +44,7 @@ export default function AssetDetail() {
   const [commentActionMessage, setCommentActionMessage] = useState("");
   const [activeReportCommentId, setActiveReportCommentId] = useState(null);
   const [reportingCommentId, setReportingCommentId] = useState(null);
+  const [reportAccessDenied, setReportAccessDenied] = useState(false);
   const reportRequestCacheRef = useRef(new Set());
 
   const authHeaders = useMemo(() => (authToken ? { Authorization: `Bearer ${authToken}` } : {}), [authToken]);
@@ -134,8 +142,9 @@ export default function AssetDetail() {
 
         setMarketInfo(matched);
 
-        if (authToken) {
-          const requestKey = `${assetTicker}:${authToken.slice(0, 12)}`;
+        if (authToken && !isSubscriptionLoading && canViewReports) {
+          setReportAccessDenied(false);
+          const requestKey = `${assetTicker}:${authToken.slice(0, 12)}:${subscriptionTier}`;
           if (!reportRequestCacheRef.current.has(requestKey)) {
             reportRequestCacheRef.current.add(requestKey);
             try {
@@ -145,39 +154,31 @@ export default function AssetDetail() {
               setReport(reportRes.data);
             } catch (error) {
               if (error?.response?.status === 404) {
-                try {
-                  await axios.post(
-                    `http://localhost:8000/api/ai/generate/${encodeURIComponent(assetTicker)}`,
-                    {},
-                    { headers: authHeaders }
-                  );
-                  const retryRes = await axios.get(`http://localhost:8000/api/reports/${encodeURIComponent(assetTicker)}`, {
-                    headers: authHeaders,
-                  });
-                  setReport(retryRes.data);
-                } catch (generationError) {
-                  const detail = generationError?.response?.data?.detail;
-                  if (generationError?.response?.status === 422 && detail?.metadata) {
-                    setReport({
-                      unavailable: true,
-                      bull_summary: "",
-                      bear_summary: "",
-                      final_content: "",
-                      metadata: detail.metadata,
-                    });
-                  } else {
-                    setReport(null);
-                    console.error("Failed to generate AI report:", generationError);
-                  }
-                }
+                setReport({
+                  unavailable: true,
+                  bull_summary: "",
+                  bear_summary: "",
+                  final_content: "",
+                  metadata: {
+                    quality_status: "scheduled_pending",
+                    reason: "scheduled_report_not_ready",
+                  },
+                });
+              } else if (error?.response?.status === 403) {
+                setReport(null);
+                setReportAccessDenied(true);
               } else {
                 setReport(null);
                 console.error("Failed to load AI report:", error);
               }
             }
           }
+        } else if (authToken && !isSubscriptionLoading && !canViewReports) {
+          setReport(null);
+          setReportAccessDenied(true);
         } else {
           setReport(null);
+          setReportAccessDenied(false);
         }
 
         await fetchComments();
@@ -189,7 +190,15 @@ export default function AssetDetail() {
     };
 
     fetchData();
-  }, [assetTicker, authHeaders, authToken, fetchComments]);
+  }, [
+    assetTicker,
+    authHeaders,
+    authToken,
+    canViewReports,
+    fetchComments,
+    isSubscriptionLoading,
+    subscriptionTier,
+  ]);
 
   const handleLike = async (commentId) => {
     if (!authToken) return;
@@ -349,6 +358,7 @@ export default function AssetDetail() {
   const latestEvents = Array.isArray(latestContext?.events) ? latestContext.events : [];
   const latestFetchedAt = formatContextTime(latestContext?.fetched_at);
   const latestSourceStatus = latestContext?.source_status === "fresh" ? "갱신됨" : latestContext?.source_status;
+  const reportLocked = !authToken || isSubscriptionLoading || reportAccessDenied || !canViewReports;
 
   return (
     <div className="mx-auto flex max-w-screen-md flex-col gap-12 px-4 py-8">
@@ -527,19 +537,29 @@ export default function AssetDetail() {
 
       <section className={`relative ${isBond ? "mt-2" : ""}`}>
         <h2 className="mb-4 px-2 text-2xl font-bold tracking-tight">AI 분석 리포트</h2>
-        <div className={`transition-all duration-500 ${!authToken ? "select-none opacity-60 blur-md" : ""}`}>
+        <div className={`transition-all duration-500 ${reportLocked ? "select-none opacity-60 blur-md" : ""}`}>
           <ReportCard reportData={report} isReportLoading={false} />
         </div>
 
-        {!authToken && (
+        {reportLocked && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4">
             <div className="absolute inset-0 rounded-3xl bg-slate-900/80" />
-            <button
-              onClick={() => navigate("/login")}
-              className="z-20 rounded-xl bg-emerald-500 px-8 py-4 text-lg font-bold text-slate-900 transition-transform hover:scale-105 hover:bg-emerald-400"
-            >
-              로그인하고 AI 리포트 보기
-            </button>
+            {authToken && isSubscriptionLoading ? (
+              <div className="relative z-20 rounded-2xl border border-slate-700 bg-slate-900/95 px-6 py-5 text-sm text-slate-300 shadow-2xl shadow-black/30">
+                구독 권한을 확인하는 중입니다...
+              </div>
+            ) : (
+              <Paywall
+                showLogin={!authToken}
+                title={authToken ? "Plus 이상에서 AI 리포트를 볼 수 있습니다." : "로그인 후 구독 권한을 확인합니다."}
+                description={
+                  authToken
+                    ? "현재 계정은 저장된 AI 리포트 조회 권한이 없습니다. Plus 또는 Pro 구독이 필요합니다."
+                    : "AI 리포트는 로그인한 Plus 또는 Pro 사용자에게 제공됩니다."
+                }
+                actionLabel="요금제 보기"
+              />
+            )}
           </div>
         )}
       </section>
