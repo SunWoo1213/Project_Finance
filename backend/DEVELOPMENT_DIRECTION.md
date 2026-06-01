@@ -41,6 +41,14 @@ alembic downgrade -1
 
 The development lifespan still calls `Base.metadata.create_all` for local bootstrap, but production-like database changes should be represented as Alembic revisions before release.
 
+## Deployment Runtime Notes
+
+For Vercel + Supabase deployment, the FastAPI backend should run on a persistent runtime rather than Vercel serverless functions because `APScheduler`, market cache warm-up, and scheduled AI report generation assume a long-running process.
+
+Production-like deployments should set `ENABLE_DB_SCHEMA_BOOTSTRAP=false` and run `python -m alembic upgrade head` before starting the app. In that mode startup checks required tables and AI report metadata columns without creating or altering schema.
+
+Use `BACKEND_CORS_ORIGINS` for exact Vercel frontend origins and keep wildcard origins out of credentialed CORS. Keep `ENABLE_MARKET_WARMUP=false` and `ENABLE_SCHEDULER=false` for the first smoke deployment, then enable runtime jobs only after API, DB, cost, and rate-limit checks.
+
 ## 하네스 문서 연계
 
 백엔드 기능을 수정할 때는 먼저 `docs/harness/feature-index.md`에서 대상 기능 문서를 찾습니다.

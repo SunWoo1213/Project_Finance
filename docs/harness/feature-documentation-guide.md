@@ -73,6 +73,8 @@ For AI report generation and report retrieval, documentation is mandatory before
 
 Every meaningful harness change should create or update a Markdown record under `docs/harness/`.
 
+Write harness reports, verification summaries, implementation reports, plans, and change records in Korean by default unless the user explicitly requests another language. Keep code identifiers, file paths, commands, API paths, and error strings in their original form.
+
 The record should include:
 
 - Date

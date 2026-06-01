@@ -6,7 +6,7 @@ import yfinance as yf
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select, text
+from sqlalchemy import inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .core.cache import market_cache
@@ -41,6 +41,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+REQUIRED_TABLES = {
+    "users",
+    "assets",
+    "ai_reports",
+    "comments",
+    "comment_likes",
+    "comment_reports",
+    "subscriptions",
+    "billing_events",
+}
+
+REQUIRED_AI_REPORT_COLUMNS = {
+    "quality_status",
+    "quality_feedback",
+    "format_check_pass",
+    "fact_check_pass",
+    "qualitative_check_pass",
+    "revision_count",
+    "data_as_of",
+    "source_summary",
+    "risk_summary",
+    "analysis_framework",
+    "metadata_json",
+}
+
 
 async def ensure_ai_report_metadata_columns(conn) -> None:
     statements = [
@@ -60,16 +85,46 @@ async def ensure_ai_report_metadata_columns(conn) -> None:
         await conn.execute(text(statement))
 
 
+def get_schema_gaps(sync_conn) -> list[str]:
+    inspector = inspect(sync_conn)
+    table_names = set(inspector.get_table_names())
+    missing_tables = sorted(REQUIRED_TABLES - table_names)
+    gaps = [f"missing table: {table}" for table in missing_tables]
+
+    if "ai_reports" in table_names:
+        ai_report_columns = {column["name"] for column in inspector.get_columns("ai_reports")}
+        missing_columns = sorted(REQUIRED_AI_REPORT_COLUMNS - ai_report_columns)
+        gaps.extend(f"missing ai_reports column: {column}" for column in missing_columns)
+
+    return gaps
+
+
+async def verify_database_schema(conn) -> None:
+    gaps = await conn.run_sync(get_schema_gaps)
+    if gaps:
+        raise RuntimeError("Database schema is not migration-ready: " + ", ".join(gaps))
+
+
+async def prepare_database_on_startup() -> None:
+    if settings.ENABLE_DB_SCHEMA_BOOTSTRAP:
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+                await ensure_ai_report_metadata_columns(conn)
+            logger.info("Database bootstrap completed")
+        except Exception:
+            logger.warning("Database bootstrap skipped after startup initialization failure")
+        return
+
+    async with engine.begin() as conn:
+        await conn.execute(text("SELECT 1"))
+        await verify_database_schema(conn)
+    logger.info("Database bootstrap disabled; migration-managed schema check completed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        async with engine.begin() as conn:
-            # await conn.run_sync(Base.metadata.drop_all)
-            await conn.run_sync(Base.metadata.create_all)
-            await ensure_ai_report_metadata_columns(conn)
-        print("[lifespan] database initialization completed")
-    except Exception as exc:
-        print(f"[lifespan] database initialization skipped: {exc}")
+    await prepare_database_on_startup()
 
     if settings.ENABLE_MARKET_WARMUP:
         print("[lifespan] initial market cache warm-up started")
@@ -149,10 +204,8 @@ app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=settings.cors_origins(),
+    allow_origin_regex=settings.BACKEND_CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -177,8 +230,9 @@ async def db_check(db: AsyncSession = Depends(get_db)):
         if value == 1:
             return {"status": "db_connected"}
         return {"status": "error", "message": "Unexpected result"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    except Exception:
+        logger.warning("Database connectivity check failed")
+        return {"status": "error", "message": "Database connectivity check failed."}
 
 
 @app.get("/api/market/prices")

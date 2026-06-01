@@ -171,6 +171,7 @@ When a risky change is required, explain the risk, the intended files, and the v
 
 When reporting work back to the user:
 
+- Write harness reports, verification summaries, implementation reports, plans, and change records in Korean unless the user explicitly asks for another language.
 - Mention the files changed.
 - Mention the verification commands run and their results.
 - Mention any commands not run and why.
@@ -185,6 +186,7 @@ When code changes are made, create or update a Markdown change record so future 
 - Use one focused file per meaningful change, for example `docs/harness/google-login-only.md`.
 - Include the date, objective, files changed, behavior changes, verification performed, and follow-up risks.
 - Do not include secrets, raw environment values, access tokens, database passwords, or API keys.
+- Write change records in Korean by default, while keeping code identifiers, file paths, commands, API paths, and error strings in their original form.
 - Keep the record practical: write what changed and how a future agent should reason about it.
 
 ## 13. Harness Feature Documentation

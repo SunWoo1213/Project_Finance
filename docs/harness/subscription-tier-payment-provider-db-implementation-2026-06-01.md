@@ -48,9 +48,14 @@ Implement the database-backed subscription state and provider-neutral payment bo
 
 ## Verification Performed
 
-- Pending in this working copy until Python and frontend dependencies are installed in the local test environment:
+- Backend focused tests from `backend/` passed:
   - `python -m pytest tests/test_subscription_service.py tests/test_subscription_api.py tests/test_report_access_api.py tests/test_chat_api.py tests/test_payment_service.py tests/test_billing_webhook_api.py`
+  - Result: 34 passed.
+- Frontend checks from `frontend/` passed:
   - `npm.cmd run build`
+  - `npm.cmd run lint`
+- Migration smoke from `backend/` passed with a SQLite test database:
+  - `python -c "from alembic.config import main; main(argv=['upgrade','head'])"`
 
 ## Follow-Up Risks
 

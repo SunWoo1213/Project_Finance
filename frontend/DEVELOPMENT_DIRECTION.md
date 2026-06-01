@@ -43,3 +43,10 @@ API 주소는 장기적으로 환경변수와 공통 API 클라이언트로 모�
 - 상세 화면, AI 리포트, 댓글 UI: `docs/harness/features/asset-detail-ai-community.md`
 
 사용자 흐름, route, API 호출, localStorage 저장 구조, 표시 fallback이 바뀌면 기능 문서와 `docs/harness/` 변경 기록을 함께 갱신합니다.
+## Deployment Runtime Notes
+
+Vercel deployment should use `frontend/` as the project root, Vite as the framework preset, `npm install` as install command, `npm run build` as build command, and `dist` as output directory.
+
+Set only browser-safe variables in Vercel. The current frontend expects `VITE_API_BASE_URL` to point to the deployed FastAPI backend origin. Do not add backend secrets, Supabase passwords, JWT secrets, payment secrets, or OpenAI keys to frontend environment variables.
+
+`frontend/vercel.json` rewrites all routes to `index.html` so direct refresh on React Router routes such as `/login`, `/pricing`, `/billing/success`, and `/detail/:ticker` works on Vercel.

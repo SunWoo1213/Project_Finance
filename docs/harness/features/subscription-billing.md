@@ -54,6 +54,7 @@ The target tier model is:
 - Checkout endpoint: `POST /api/billing/checkout` returns a `checkout_url` for Plus/Pro when a provider is configured; it does not create paid entitlement.
 - Cancellation endpoint: `POST /api/billing/cancel` schedules cancellation at period end for the current active provider-backed subscription.
 - Webhook endpoint: `POST /api/billing/webhook` verifies signatures, stores an idempotent billing event summary, and applies normalized subscription transitions.
+- Hosted database bootstrap: `python -m alembic upgrade head` now creates the current core schema plus subscription and billing tables for a fresh Supabase database.
 - Report access: `GET /api/reports/{ticker}` requires active Plus or Pro entitlement.
 - Chatbot access: `POST /api/chat/message` requires active Pro entitlement.
 - User-facing report and chatbot requests must not trigger report generation.
@@ -83,6 +84,7 @@ The target tier model is:
 - `docs/harness/subscription-tier-payment-feedback-implementation-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md`
+- `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md`
 
 ## Open Risks
 

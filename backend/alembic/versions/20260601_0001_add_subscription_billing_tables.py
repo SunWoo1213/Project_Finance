@@ -12,8 +12,100 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
+asset_category_enum = sa.Enum(
+    "INDEX",
+    "BOND_US",
+    "BOND_KR",
+    "STOCK_US",
+    "STOCK_KR",
+    "COMMODITY",
+    "CRYPTO",
+    name="assetcategory",
+)
+
 
 def upgrade() -> None:
+    op.create_table(
+        "users",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("email", sa.String(), nullable=False),
+        sa.Column("google_sub", sa.String(), nullable=True),
+        sa.Column("nickname", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index("ix_users_email", "users", ["email"], unique=True)
+    op.create_index("ix_users_google_sub", "users", ["google_sub"], unique=True)
+    op.create_index("ix_users_id", "users", ["id"])
+    op.create_index("ix_users_nickname", "users", ["nickname"], unique=True)
+
+    op.create_table(
+        "assets",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("category", asset_category_enum, nullable=False),
+        sa.Column("ticker", sa.String(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index("ix_assets_id", "assets", ["id"])
+    op.create_index("ix_assets_ticker", "assets", ["ticker"], unique=True)
+
+    op.create_table(
+        "ai_reports",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("asset_id", sa.Integer(), nullable=False),
+        sa.Column("bull_summary", sa.Text(), nullable=True),
+        sa.Column("bear_summary", sa.Text(), nullable=True),
+        sa.Column("final_content", sa.Text(), nullable=False),
+        sa.Column("quality_status", sa.String(), nullable=True),
+        sa.Column("quality_feedback", sa.Text(), nullable=True),
+        sa.Column("format_check_pass", sa.Boolean(), nullable=True),
+        sa.Column("fact_check_pass", sa.Boolean(), nullable=True),
+        sa.Column("qualitative_check_pass", sa.Boolean(), nullable=True),
+        sa.Column("revision_count", sa.Integer(), nullable=True),
+        sa.Column("data_as_of", sa.DateTime(), nullable=True),
+        sa.Column("source_summary", sa.JSON(), nullable=True),
+        sa.Column("risk_summary", sa.Text(), nullable=True),
+        sa.Column("analysis_framework", sa.JSON(), nullable=True),
+        sa.Column("metadata_json", sa.JSON(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(["asset_id"], ["assets.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index("ix_ai_reports_id", "ai_reports", ["id"])
+
+    op.create_table(
+        "comments",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("asset_id", sa.Integer(), nullable=False),
+        sa.Column("content", sa.Text(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["asset_id"], ["assets.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index("ix_comments_id", "comments", ["id"])
+
+    op.create_table(
+        "comment_likes",
+        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("comment_id", sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(["comment_id"], ["comments.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.PrimaryKeyConstraint("user_id", "comment_id"),
+    )
+
+    op.create_table(
+        "comment_reports",
+        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("comment_id", sa.Integer(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["comment_id"], ["comments.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.PrimaryKeyConstraint("user_id", "comment_id"),
+    )
+
     op.create_table(
         "subscriptions",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -70,3 +162,18 @@ def downgrade() -> None:
     op.drop_index("ix_subscriptions_user_id", table_name="subscriptions")
     op.drop_index("ix_subscriptions_id", table_name="subscriptions")
     op.drop_table("subscriptions")
+    op.drop_table("comment_reports")
+    op.drop_table("comment_likes")
+    op.drop_index("ix_comments_id", table_name="comments")
+    op.drop_table("comments")
+    op.drop_index("ix_ai_reports_id", table_name="ai_reports")
+    op.drop_table("ai_reports")
+    op.drop_index("ix_assets_ticker", table_name="assets")
+    op.drop_index("ix_assets_id", table_name="assets")
+    op.drop_table("assets")
+    op.drop_index("ix_users_nickname", table_name="users")
+    op.drop_index("ix_users_id", table_name="users")
+    op.drop_index("ix_users_google_sub", table_name="users")
+    op.drop_index("ix_users_email", table_name="users")
+    op.drop_table("users")
+    asset_category_enum.drop(op.get_bind(), checkfirst=True)

@@ -15,6 +15,16 @@ class Settings(BaseSettings):
     FMP_API_KEY: str | None = None
     FINNHUB_API_KEY: str | None = None
     GOOGLE_CLIENT_ID: str | None = None
+
+    # Deployment/runtime environment
+    ENVIRONMENT: str = "development"
+    BACKEND_CORS_ORIGINS: str = ""
+    BACKEND_CORS_ORIGIN_REGEX: str | None = None
+    LOCAL_CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    ENABLE_DB_SCHEMA_BOOTSTRAP: bool = True
+    SQLALCHEMY_ECHO: bool = False
+    DB_POOL_PRE_PING: bool = True
+    DB_PREPARED_STATEMENT_CACHE_SIZE: int | None = None
     
     # JWT Authentication
     SECRET_KEY: str = "a_very_secure_randomly_generated_string_like_9b0d2a8"
@@ -43,5 +53,15 @@ class Settings(BaseSettings):
         env_file=str(ROOT_ENV_FILE),
         extra="ignore",
     )
+
+    def cors_origins(self) -> list[str]:
+        origins: list[str] = []
+        for raw_origins in (self.LOCAL_CORS_ORIGINS, self.BACKEND_CORS_ORIGINS):
+            origins.extend(
+                origin.strip().rstrip("/")
+                for origin in raw_origins.split(",")
+                if origin.strip()
+            )
+        return list(dict.fromkeys(origins))
 
 settings = Settings()

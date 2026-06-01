@@ -67,7 +67,7 @@ If an authenticated user requests a report and the latest report is missing, the
 - Report generation metadata also includes `analysis_framework`, which identifies the asset-category framework used by the writer.
 - Report readiness blocked and report quality failure responses return HTTP 422 and do not save an `AIReport`.
 - Persisted `AIReport` quality columns include `quality_status`, `quality_feedback`, `format_check_pass`, `fact_check_pass`, `qualitative_check_pass`, `revision_count`, `data_as_of`, `source_summary`, `risk_summary`, `analysis_framework`, and `metadata_json`.
-- FastAPI lifespan attempts `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for the report metadata columns because the project does not yet have a formal migration workflow.
+- FastAPI lifespan attempts `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for local bootstrap only when `ENABLE_DB_SCHEMA_BOOTSTRAP=true`. Production-like deployments should set that flag to `false` and rely on Alembic migration coverage for report metadata columns.
 - Optional structured provider environment variable names for report-quality context: `FMP_API_KEY`, `FINNHUB_API_KEY`. They are optional; missing values produce provider limitation metadata rather than blocking report generation.
 - Optional report runtime policy variables: `ENABLE_LLM_REPORT_CRITICS`, `REPORT_CRITIC_MODE`, `REPORT_SCHEDULER_COVERAGE`, `REPORT_SCHEDULER_INTERVAL_HOURS`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS`, and `REPORT_SCHEDULER_TARGET_TICKERS`.
 - Latest context fetch: `GET /api/market/latest-context/{ticker}` is public and TTL-cached.
@@ -135,13 +135,14 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/subscription-tier-payment-feedback-implementation-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md`
+- `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md`
 
 ## Open Risks
 
 - Report generation is coupled to external APIs and LLM configuration.
 - Latest news/calendar coverage depends on yfinance provider availability and may be sparse for Korean assets, bonds, and macro tickers.
 - `AssetDetail.jsx` still owns several responsibilities and may need future decomposition.
-- Subscription billing tables now have Alembic coverage, but report metadata columns are still created through startup-time `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+- Report metadata columns now have Alembic baseline coverage, but existing hosted databases still need `python -m alembic upgrade head` before running with `ENABLE_DB_SCHEMA_BOOTSTRAP=false`.
 - Existing running database instances need the backend lifespan to run again so `comment_reports` is created.
 - Structured provider facts are summarized in persisted metadata, but raw provider payloads are still not persisted as first-class rows.
 - The qualitative checker is intentionally narrow and deterministic; it catches selected high-risk unsupported claims but is not a full claim-evidence verifier.

@@ -51,6 +51,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - Latest context endpoint: `GET /api/market/latest-context/{ticker}?force_refresh=false`
 - History endpoint: `GET /api/market/history/{ticker}`
 - Optional runtime controls for local smoke checks: `ENABLE_MARKET_WARMUP=false`, `ENABLE_SCHEDULER=false`
+- Hosted deployment startup should keep `ENABLE_MARKET_WARMUP=false` and `ENABLE_SCHEDULER=false` for the first smoke release, then enable runtime jobs after API/DB checks and cost review.
 - Optional report scheduler policy controls: `REPORT_SCHEDULER_COVERAGE=conservative`, `REPORT_SCHEDULER_INTERVAL_HOURS=6`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=5`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS=6`, `REPORT_SCHEDULER_TARGET_TICKERS=DGS10,XAU,BTC-USD,NVDA,005930.KS`
 - Target report schedule rule: report generation is backend-scheduled every 6 hours and user/chatbot paths read stored reports only. The 2026-06-01 implementation limits scheduled coverage to five representative assets for API cost control; see `docs/harness/report-generation-schedule-alignment-implementation-2026-06-01.md`.
 - Supported history periods: `1d`, `1mo`, `1y`, `5y`
@@ -92,6 +93,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/report-generation-schedule-alignment-implementation-2026-06-01.md`
 - `docs/harness/report-writing-method-implementation-plan-2026-06-01.md`
 - `docs/harness/report-writing-method-implementation-2026-06-01.md`
+- `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md`
 
 ## Open Risks
 

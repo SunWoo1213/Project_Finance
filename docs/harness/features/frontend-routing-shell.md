@@ -6,6 +6,8 @@ Date: 2026-05-30
 
 The frontend is a React Vite JavaScript app. `App.jsx` owns the route table and app shell. `Header.jsx` provides global navigation. Route pages own most data fetching, while shared components, stores, and utilities keep reusable display behavior out of pages.
 
+Hosted Vercel deployments use `frontend/vercel.json` to rewrite direct route refreshes to `index.html` so React Router can resolve SPA routes such as `/login`, `/pricing`, `/billing/success`, and `/detail/:ticker`.
+
 Current routes:
 
 - `/`: home market summary.
@@ -29,6 +31,7 @@ Current routes:
 - Browser-local favorite state: `frontend/src/store/favoriteStore.js`
 - Constants and display helpers: `frontend/src/utils/constants.js`, `frontend/src/utils/formatters.js`
 - Shared route context/API helpers: `frontend/src/utils/chatContext.js`, `frontend/src/utils/apiClient.js`
+- Vercel SPA rewrite config: `frontend/vercel.json`
 - Page-level screens: `frontend/src/pages/`
 
 ## Data Flow
@@ -74,6 +77,7 @@ Current routes:
 - `docs/harness/subscription-tier-payment-implementation-2026-06-01.md` added pricing/billing routes, subscription state, and tier-based shell visibility.
 - `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md` plans provider-backed billing route feedback and post-checkout confirmation behavior.
 - `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md` sends checkout return URLs and refreshes billing state on success/cancel routes.
+- `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md` added the Vercel SPA rewrite for hosted route refreshes.
 
 ## Open Risks
 
