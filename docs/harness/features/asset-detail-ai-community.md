@@ -138,6 +138,7 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md`
 - `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md`
 - `docs/harness/mypage-profile-implementation-2026-06-02.md`
+- `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 
 ## Open Risks
 

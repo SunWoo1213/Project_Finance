@@ -98,6 +98,7 @@ For the 2026-05-31 implementation request, verification commands were intentiona
 - `docs/harness/subscription-tier-payment-implementation-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md`
+- `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 
 ## Open Risks
 

@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import axios from "axios";
 import { ArrowRight, BarChart3 } from "lucide-react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
+import { apiClient } from "../utils/apiClient";
 import { resolveAssetName } from "../utils/constants";
 import { formatChangeBadge, formatPrice, formatTicker } from "../utils/formatters";
 
@@ -78,8 +78,8 @@ export default function MarketSnapshot() {
       setIsLoading(true);
       try {
         const [priceRes, historyRes] = await Promise.all([
-          axios.get("http://localhost:8000/api/market/prices"),
-          axios.get(`http://localhost:8000/api/market/history/${encodeURIComponent(assetTicker)}?period=1d`),
+          apiClient.get("/api/market/prices"),
+          apiClient.get(`/api/market/history/${encodeURIComponent(assetTicker)}?period=1d`),
         ]);
 
         let matched = null;

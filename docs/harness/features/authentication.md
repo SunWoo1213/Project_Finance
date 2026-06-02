@@ -60,7 +60,7 @@ Document variable names only. Do not write actual client IDs, JWT secrets, token
 
 - Do not reintroduce local credential screens or password hashing unless the user explicitly requests that product change.
 - Auth changes should inspect frontend state, backend token creation, current-user dependency, and DB user fields together.
-- Database shape changes are risky because this repository does not currently have Alembic migrations.
+- Database shape changes should be represented as Alembic revisions under `backend/alembic/`; production-like runtime should run migrations before startup with `ENABLE_DB_SCHEMA_BOOTSTRAP=false`.
 - Tests should mock Google verification rather than calling Google.
 
 ## Verification
@@ -82,9 +82,11 @@ Document variable names only. Do not write actual client IDs, JWT secrets, token
 - `docs/harness/subscription-tier-payment-implementation-2026-06-01.md`
 - `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
 - `docs/harness/mypage-profile-implementation-2026-06-02.md`
+- `docs/harness/project-gap-remediation-plan-2026-06-02.md`
+- `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md`
 
 ## Open Risks
 
-- Existing databases may still need manual schema alignment for `users.google_sub`.
+- Existing databases should be aligned through the current Alembic workflow before production-like startup, especially for auth-related user columns such as `users.google_sub`.
 - Auth tests are not yet documented as present.
-- Frontend API base URLs are still hardcoded in some pages.
+- Auth UI now uses the shared frontend API client; future auth API additions should keep using `frontend/src/utils/apiClient.js`.

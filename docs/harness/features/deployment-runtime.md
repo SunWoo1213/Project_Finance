@@ -40,6 +40,7 @@ The backend can still bootstrap local schemas with `Base.metadata.create_all` wh
 - Frontend public env:
   - `VITE_API_BASE_URL`
 - Backend deployment env:
+  - `ENVIRONMENT`: runtime label such as `development`, `staging`, or `production`.
   - `BACKEND_CORS_ORIGINS`: comma-separated exact origins such as a Vercel production domain and staging domain.
   - `BACKEND_CORS_ORIGIN_REGEX`: optional regex for approved preview-origin policy.
   - `LOCAL_CORS_ORIGINS`: comma-separated local dev origins, defaults to Vite localhost origins.
@@ -62,6 +63,7 @@ The backend can still bootstrap local schemas with `Base.metadata.create_all` wh
 ## Verification
 
 - User explicitly requested no verification for the 2026-06-01 implementation pass.
+- For configuration-only updates, compare `.env_example` variable names against `backend/app/core/config.py` and confirm only placeholders, not secrets, are documented.
 - Future checks should include frontend lint/build, backend tests, Alembic migration against a disposable database, `/health`, `/db-check`, and CORS smoke checks.
 
 ## Change Records
@@ -69,6 +71,8 @@ The backend can still bootstrap local schemas with `Base.metadata.create_all` wh
 - `docs/harness/vercel-supabase-deployment-plan-2026-06-01.md`
 - `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md`
 - `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
+- `docs/harness/project-gap-remediation-plan-2026-06-02.md`
+- `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md`
 
 ## Open Risks
 

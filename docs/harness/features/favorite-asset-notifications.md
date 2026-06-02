@@ -69,6 +69,7 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 ## Change Records
 
 - `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
+- `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 
 ## Open Risks
 

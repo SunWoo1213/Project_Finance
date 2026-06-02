@@ -85,6 +85,7 @@ The target tier model is:
 - `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md`
 - `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md`
+- `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 
 ## Open Risks
 

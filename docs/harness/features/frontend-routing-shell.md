@@ -45,6 +45,7 @@ Current routes:
 7. Active Pro users can see the launcher; Free and Plus users should not.
 8. `chatStore.js` keeps session-only chat messages and pending/error state.
 9. Shared utility functions format prices, tickers, changes, and display names.
+10. Page-level API calls should use `frontend/src/utils/apiClient.js`, which reads `VITE_API_BASE_URL` and falls back to local FastAPI during development.
 
 ## Contracts
 
@@ -78,8 +79,10 @@ Current routes:
 - `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md` plans provider-backed billing route feedback and post-checkout confirmation behavior.
 - `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md` sends checkout return URLs and refreshes billing state on success/cancel routes.
 - `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md` added the Vercel SPA rewrite for hosted route refreshes.
+- `docs/harness/project-gap-remediation-plan-2026-06-02.md` plans API base URL cleanup, route smoke checks, and future `AssetDetail.jsx` decomposition.
+- `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md` removed page-level localhost API calls from home, login, and market snapshot routes.
 
 ## Open Risks
 
-- API base URLs are duplicated in page code.
+- Keep new page-level fetches on `apiClient` so hosted API origin remains controlled by `VITE_API_BASE_URL`.
 - Some page components, especially asset detail, carry enough responsibility that future work should consider focused extraction.

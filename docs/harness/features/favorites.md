@@ -41,7 +41,7 @@ As of 2026-06-02, logged-in users also sync favorites to the backend. On login, 
 ## Change Rules
 
 - Do not store sensitive user data in favorites.
-- If favorites become account-synced, add backend models/routes deliberately and document migration or fallback behavior.
+- Account-synced favorites should preserve anonymous localStorage fallback and merge local favorites into the account on login.
 - Keep route encoding intact when navigating to tickers such as `KRW=X`, `^GSPC`, or Korean stock codes.
 
 ## Verification
@@ -55,7 +55,9 @@ As of 2026-06-02, logged-in users also sync favorites to the backend. On login, 
 - `docs/harness/asset-favorites.md`
 - `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
 - `docs/harness/mypage-profile-implementation-2026-06-02.md`
+- `docs/harness/project-gap-remediation-plan-2026-06-02.md`
+- `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md`
 
 ## Open Risks
 
-- Favorites are browser-local and are not synced between devices or user accounts.
+- Cross-device favorite sync now exists for authenticated users, but anonymous users remain browser-local until they log in and merge local favorites into the account.

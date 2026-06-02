@@ -44,6 +44,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 13. Category lists let users favorite individual assets from the rightmost star button and open favorited assets through the right-side favorites panel.
 14. The chatbot can summarize the existing `market_cache` and ticker latest-context data, using existing cache/TTL behavior rather than adding a new provider path.
 15. Favorite asset notifications evaluate cached price/news data only. The evaluator does not call external market providers directly and does not generate AI reports.
+16. Frontend market pages use the shared API client, so hosted API origin is controlled by `VITE_API_BASE_URL` instead of page-level localhost literals.
 
 ## Contracts
 
@@ -96,11 +97,13 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/report-writing-method-implementation-2026-06-01.md`
 - `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md`
 - `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
+- `docs/harness/project-gap-remediation-plan-2026-06-02.md`
+- `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md`
 
 ## Open Risks
 
 - Market routes still live in `backend/app/main.py`; growth may justify moving them to `backend/app/api/market.py`.
-- Frontend API base URLs are hardcoded in several pages.
+- New market page API calls should continue to use `frontend/src/utils/apiClient.js`; avoid reintroducing page-level API origin literals.
 - External provider behavior can change without code changes.
 - Full scheduled report coverage is intentionally not enabled; changing `REPORT_SCHEDULER_COVERAGE` away from `conservative` currently logs a warning and still avoids broad seeding because broader LLM/API usage needs product approval.
 - The report scheduler now wakes every 6 hours and uses a 6-hour per-asset cooldown, but coverage is limited to the configured representative ticker list.

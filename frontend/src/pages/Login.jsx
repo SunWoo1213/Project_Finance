@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import toast from "react-hot-toast";
 
 import useAuthStore from "../store/authStore";
+import { apiClient } from "../utils/apiClient";
 
 const GOOGLE_SCRIPT_ID = "google-identity-services";
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -73,10 +73,9 @@ export default function Login() {
             try {
               setErrorMessage("");
 
-              const authResponse = await axios.post(
-                "http://localhost:8000/api/auth/google",
-                { credential: response.credential }
-              );
+              const authResponse = await apiClient.post("/api/auth/google", {
+                credential: response.credential,
+              });
 
               const token = authResponse.data?.access_token;
               const id = authResponse.data?.id;

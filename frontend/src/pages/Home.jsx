@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import { ExternalLink, Newspaper } from 'lucide-react';
 import SparklineChart from '../components/SparklineChart';
+import { apiClient } from '../utils/apiClient';
 import { formatPrice, formatPercent } from '../utils/formatters';
 
 export default function Home() {
@@ -15,8 +15,8 @@ export default function Home() {
     const fetchData = async () => {
       try {
         const [priceResult, newsResult] = await Promise.allSettled([
-          axios.get('http://localhost:8000/api/market/prices'),
-          axios.get('http://localhost:8000/api/market/news'),
+          apiClient.get('/api/market/prices'),
+          apiClient.get('/api/market/news'),
         ]);
 
         if (priceResult.status !== 'fulfilled') {
