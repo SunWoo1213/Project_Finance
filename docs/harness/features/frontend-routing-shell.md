@@ -81,6 +81,7 @@ Current routes:
 - `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md` added the Vercel SPA rewrite for hosted route refreshes.
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md` plans API base URL cleanup, route smoke checks, and future `AssetDetail.jsx` decomposition.
 - `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md` removed page-level localhost API calls from home, login, and market snapshot routes.
+- `docs/harness/project-defect-remediation-plan-2026-06-02.md` plans `AssetDetail.jsx` decomposition, route-level code splitting, and notification settings route ownership cleanup.
 
 ## Open Risks
 

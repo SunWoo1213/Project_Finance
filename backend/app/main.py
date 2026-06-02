@@ -138,7 +138,12 @@ async def prepare_database_on_startup() -> None:
                 await ensure_user_profile_columns(conn)
             logger.info("Database bootstrap completed")
         except Exception:
-            logger.warning("Database bootstrap skipped after startup initialization failure")
+            logger.warning(
+                "Database bootstrap failed and startup continued because "
+                "ENABLE_DB_SCHEMA_BOOTSTRAP=true. /health only checks app liveness; "
+                "use /db-check for database readiness. database_target=%s",
+                settings.database_url_diagnostics(),
+            )
         return
 
     async with engine.begin() as conn:
@@ -294,7 +299,12 @@ app.include_router(profile.router)
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "project": settings.PROJECT_NAME}
+    return {
+        "status": "ok",
+        "project": settings.PROJECT_NAME,
+        "database": "not_checked",
+        "database_check": "/db-check",
+    }
 
 
 @app.get("/db-check")
@@ -303,11 +313,31 @@ async def db_check(db: AsyncSession = Depends(get_db)):
         result = await db.execute(text("SELECT 1"))
         value = result.scalar()
         if value == 1:
-            return {"status": "db_connected"}
-        return {"status": "error", "message": "Unexpected result"}
+            return {
+                "status": "db_connected",
+                "database": settings.database_url_diagnostics(),
+            }
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "Database connectivity check returned an unexpected result.",
+                "database": settings.database_url_diagnostics(),
+            },
+        )
+    except HTTPException:
+        raise
     except Exception:
-        logger.warning("Database connectivity check failed")
-        return {"status": "error", "message": "Database connectivity check failed."}
+        logger.warning(
+            "Database connectivity check failed. database_target=%s",
+            settings.database_url_diagnostics(),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "Database connectivity check failed.",
+                "database": settings.database_url_diagnostics(),
+            },
+        )
 
 
 @app.get("/api/market/prices")

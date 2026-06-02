@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-import smtplib
+import base64
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -34,6 +35,13 @@ DELIVERY_CHANNELS = ("telegram", "email")
 @dataclass
 class DeliveryResult:
     success: bool
+    error_message: str | None = None
+
+
+@dataclass
+class GmailAccessTokenResult:
+    success: bool
+    access_token: str | None = None
     error_message: str | None = None
 
 
@@ -574,25 +582,112 @@ async def _send_telegram(chat_id: str, event: NotificationEvent) -> DeliveryResu
         return DeliveryResult(success=False, error_message=str(exc))
 
 
+async def send_email_verification_code(
+    db: AsyncSession,
+    connection: NotificationChannelConnection,
+) -> DeliveryResult:
+    if not connection.destination or not connection.verification_code:
+        return DeliveryResult(success=False, error_message="Email verification destination or code is missing.")
+
+    body = (
+        "Project Finance 알림 이메일 확인 코드입니다.\n\n"
+        f"확인 코드: {connection.verification_code}\n\n"
+        "이 코드는 30분 동안 유효합니다. 본인이 요청하지 않았다면 이 메일을 무시하세요."
+    )
+    delivery = await _send_gmail_message(
+        connection.destination,
+        "Project Finance 이메일 확인 코드",
+        body,
+    )
+    if not delivery.success:
+        connection.verification_status = "delivery_failed"
+        await db.commit()
+    return delivery
+
+
 async def _send_email(destination: str, event: NotificationEvent) -> DeliveryResult:
-    if settings.EMAIL_PROVIDER != "smtp":
-        return DeliveryResult(success=False, error_message="SMTP email provider is not configured.")
-    if not settings.EMAIL_FROM_ADDRESS or not settings.EMAIL_SMTP_HOST:
-        return DeliveryResult(success=False, error_message="SMTP email settings are incomplete.")
+    return await _send_gmail_message(destination, event.title, event.body)
+
+
+async def _send_gmail_message(destination: str, subject: str, body: str) -> DeliveryResult:
+    provider = (settings.EMAIL_PROVIDER or "gmail").strip().lower()
+    if provider != "gmail":
+        return DeliveryResult(success=False, error_message="Only Gmail email provider is supported.")
+    if not all(
+        [
+            settings.EMAIL_FROM_ADDRESS,
+            settings.GMAIL_CLIENT_ID,
+            settings.GMAIL_CLIENT_SECRET,
+            settings.GMAIL_REFRESH_TOKEN,
+        ]
+    ):
+        return DeliveryResult(success=False, error_message="Gmail email settings are incomplete.")
+
+    access_token = _refresh_gmail_access_token()
+    if not access_token.success:
+        return DeliveryResult(success=False, error_message=access_token.error_message)
 
     message = EmailMessage()
     message["From"] = settings.EMAIL_FROM_ADDRESS
     message["To"] = destination
-    message["Subject"] = event.title
-    message.set_content(event.body)
+    message["Subject"] = subject
+    message.set_content(body)
+
+    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
+    request = urllib.request.Request(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        data=json.dumps({"raw": raw_message}).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {access_token.access_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
 
     try:
-        with smtplib.SMTP(settings.EMAIL_SMTP_HOST, settings.EMAIL_SMTP_PORT, timeout=8) as smtp:
-            if settings.EMAIL_SMTP_USE_TLS:
-                smtp.starttls()
-            if settings.EMAIL_SMTP_USERNAME and settings.EMAIL_SMTP_PASSWORD:
-                smtp.login(settings.EMAIL_SMTP_USERNAME, settings.EMAIL_SMTP_PASSWORD)
-            smtp.send_message(message)
-        return DeliveryResult(success=True)
-    except Exception as exc:  # pragma: no cover - provider errors are environment-specific
+        with urllib.request.urlopen(request, timeout=8) as response:
+            if 200 <= response.status < 300:
+                return DeliveryResult(success=True)
+            return DeliveryResult(success=False, error_message=f"Gmail returned HTTP {response.status}.")
+    except urllib.error.HTTPError as exc:
+        return DeliveryResult(success=False, error_message=_http_error_message("Gmail", exc))
+    except (urllib.error.URLError, TimeoutError) as exc:
         return DeliveryResult(success=False, error_message=str(exc))
+
+
+def _refresh_gmail_access_token() -> GmailAccessTokenResult:
+    data = urllib.parse.urlencode(
+        {
+            "client_id": settings.GMAIL_CLIENT_ID,
+            "client_secret": settings.GMAIL_CLIENT_SECRET,
+            "refresh_token": settings.GMAIL_REFRESH_TOKEN,
+            "grant_type": "refresh_token",
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        "https://oauth2.googleapis.com/token",
+        data=data,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        return GmailAccessTokenResult(success=False, error_message=_http_error_message("Gmail OAuth", exc))
+    except (json.JSONDecodeError, urllib.error.URLError, TimeoutError) as exc:
+        return GmailAccessTokenResult(success=False, error_message=str(exc))
+
+    token = payload.get("access_token")
+    if not token:
+        return GmailAccessTokenResult(success=False, error_message="Gmail OAuth response did not include an access token.")
+    return GmailAccessTokenResult(success=True, access_token=str(token))
+
+
+def _http_error_message(provider: str, exc: urllib.error.HTTPError) -> str:
+    try:
+        payload = json.loads(exc.read().decode("utf-8"))
+    except Exception:
+        payload = {}
+    detail = payload.get("error_description") or payload.get("error") or exc.reason
+    return f"{provider} returned HTTP {exc.code}: {detail}"

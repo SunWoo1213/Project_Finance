@@ -28,7 +28,8 @@ Date: 2026-06-02
 3. 사용자는 `/settings/notifications`에서 알림 설정, Telegram/email 채널 검증, 최근 알림 이력을 확인한다.
 4. 알림 평가는 즐겨찾기별로 가격 변동, 새 뉴스 fingerprint, 저장된 최신 `AIReport.id`를 이전 snapshot과 비교한다.
 5. 감지된 알림은 `notification_events`에 `in_app` 이력으로 남고, 검증된 Telegram/email 채널이 활성화되어 있으면 채널별 pending event도 생성된다.
-6. 발송 adapter는 설정된 provider 환경변수가 있을 때만 외부 전송을 시도한다. 설정이 없으면 failed 이력으로 남긴다.
+6. Email 발송 adapter는 Gmail API만 지원한다. Gmail 설정이 없거나 provider가 `gmail`이 아니면 failed 이력으로 남긴다.
+7. Email 채널 인증 코드는 API 응답으로 노출하지 않고 Gmail로 발송한다. Gmail 발송 실패 시 인증 요청은 `503`으로 실패하며 channel 상태는 재요청 가능한 pending/delivery failure 상태로 남는다.
 
 ## Contracts
 
@@ -50,7 +51,7 @@ Date: 2026-06-02
   - `GET /api/notifications/history`
   - `POST /api/notifications/test`
 
-Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`, `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`, `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`, `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`, `EMAIL_SMTP_USE_TLS`.
+Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`, `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`, `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`, `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`.
 
 ## Change Rules
 
@@ -69,12 +70,15 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 ## Change Records
 
 - `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
+- `docs/harness/gmail-only-email-notification-plan-2026-06-02.md`
+- `docs/harness/gmail-only-email-notification-implementation-2026-06-02.md`
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`
+- `docs/harness/project-defect-remediation-plan-2026-06-02.md`
 
 ## Open Risks
 
 - Telegram bot webhook/polling handler는 아직 별도 운영 흐름으로 남아 있다. 현재 verify endpoint는 prototype/manual 연결용이다.
-- Email verification code는 prototype 편의를 위해 API 응답으로 반환된다. 운영 발송 provider가 연결되면 이메일 발송과 확인 링크 방식으로 전환해야 한다.
+- Gmail refresh token 발급 주체, 발신자 이름, Gmail quota, unsubscribe 문구, rate limit 정책은 운영 전에 확정해야 한다.
 - News 알림은 캐시에 존재하는 뉴스만 평가하므로, ticker별 최신 컨텍스트 coverage가 부족하면 알림도 제한된다.
 
 ## MyPage Integration Note

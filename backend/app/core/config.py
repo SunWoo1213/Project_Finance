@@ -1,8 +1,12 @@
 from pathlib import Path
+from urllib.parse import urlparse
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+ALLOWED_DATABASE_URL_SCHEMES = {"postgresql+asyncpg", "sqlite+aiosqlite"}
+
 
 class Settings(BaseSettings):
     PROJECT_NAME: str
@@ -25,7 +29,7 @@ class Settings(BaseSettings):
     SQLALCHEMY_ECHO: bool = False
     DB_POOL_PRE_PING: bool = True
     DB_PREPARED_STATEMENT_CACHE_SIZE: int | None = None
-    
+
     # JWT Authentication
     SECRET_KEY: str = "a_very_secure_randomly_generated_string_like_9b0d2a8"
     ALGORITHM: str = "HS256"
@@ -62,16 +66,29 @@ class Settings(BaseSettings):
     GMAIL_CLIENT_ID: str | None = None
     GMAIL_CLIENT_SECRET: str | None = None
     GMAIL_REFRESH_TOKEN: str | None = None
-    EMAIL_SMTP_HOST: str | None = None
-    EMAIL_SMTP_PORT: int = 587
-    EMAIL_SMTP_USERNAME: str | None = None
-    EMAIL_SMTP_PASSWORD: str | None = None
-    EMAIL_SMTP_USE_TLS: bool = True
 
     model_config = SettingsConfigDict(
         env_file=str(ROOT_ENV_FILE),
         extra="ignore",
     )
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def validate_database_url(cls, value: str) -> str:
+        parsed = urlparse(value)
+        if parsed.scheme not in ALLOWED_DATABASE_URL_SCHEMES:
+            allowed = ", ".join(sorted(ALLOWED_DATABASE_URL_SCHEMES))
+            raise ValueError(
+                "DATABASE_URL must use an async SQLAlchemy driver scheme. "
+                f"Allowed schemes: {allowed}."
+            )
+        if parsed.scheme == "postgresql+asyncpg" and not parsed.hostname:
+            raise ValueError("DATABASE_URL with postgresql+asyncpg must include a host.")
+        try:
+            parsed.port
+        except ValueError as exc:
+            raise ValueError("DATABASE_URL contains an invalid port.") from exc
+        return value
 
     def cors_origins(self) -> list[str]:
         origins: list[str] = []
@@ -82,5 +99,18 @@ class Settings(BaseSettings):
                 if origin.strip()
             )
         return list(dict.fromkeys(origins))
+
+    def database_url_diagnostics(self) -> dict[str, str | int | None]:
+        parsed = urlparse(self.DATABASE_URL)
+        port = None
+        try:
+            port = parsed.port
+        except ValueError:
+            port = None
+        return {
+            "scheme": parsed.scheme,
+            "host": parsed.hostname if parsed.scheme != "sqlite+aiosqlite" else None,
+            "port": port,
+        }
 
 settings = Settings()

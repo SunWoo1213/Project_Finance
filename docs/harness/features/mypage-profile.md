@@ -4,7 +4,7 @@ Date: 2026-06-02
 
 ## Current Behavior
 
-`/mypage` is the authenticated account settings screen. It lets a Google-login user confirm a community nickname, manage account-synced favorite assets, and toggle Telegram or Google Mail notification consent.
+`/mypage` is the authenticated account settings screen. It lets a Google-login user confirm a community nickname, manage account-synced favorite assets, and toggle Telegram or Gmail-backed email notification consent.
 
 Community comment creation requires `users.nickname_confirmed_at` to be set. Existing Google users keep their auto-generated nickname as a temporary display value until they confirm or save a nickname from MyPage.
 
@@ -34,7 +34,7 @@ The legacy `/settings/notifications` route now renders the same MyPage screen so
 6. Asset detail blocks comment submission locally when the user is authenticated but has no confirmed nickname.
 7. `POST /api/community/{asset_id}/comments` enforces the same rule server-side and returns `NICKNAME_REQUIRED` when blocked.
 8. MyPage reuses favorite sync APIs to add and remove favorite assets.
-9. MyPage toggles `telegram_enabled` and `email_enabled` through `PUT /api/notifications/preferences`; this disables delivery consent without deleting connected channel records.
+9. MyPage toggles `telegram_enabled` and `email_enabled` through `PUT /api/notifications/preferences`; this disables delivery consent without deleting connected channel records. Email delivery is handled by the backend Gmail API adapter.
 
 ## Contracts
 
@@ -73,6 +73,7 @@ Nickname rules:
 
 - `docs/harness/mypage-profile-implementation-2026-06-02.md`
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`
+- `docs/harness/gmail-only-email-notification-implementation-2026-06-02.md`
 
 ## Open Risks
 

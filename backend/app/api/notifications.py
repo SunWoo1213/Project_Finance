@@ -22,6 +22,7 @@ from ..services.notification_service import (
     get_or_create_preferences,
     list_channels,
     list_history,
+    send_email_verification_code,
     update_preferences,
     verify_channel,
 )
@@ -135,11 +136,17 @@ async def request_email_verification(
         channel="email",
         destination=destination,
     )
+    delivery = await send_email_verification_code(db, connection)
+    if not delivery.success:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Gmail 확인 코드 발송에 실패했습니다. {delivery.error_message}",
+        )
     return ChannelConnectResponse(
         channel="email",
-        verification_code=connection.verification_code or "",
+        verification_code=None,
         verification_expires_at=connection.verification_expires_at,
-        message="프로토타입에서는 확인 코드를 응답으로 반환합니다. 운영 발송은 email provider 설정 후 연결하세요.",
+        message="Gmail로 확인 코드를 보냈습니다.",
     )
 
 

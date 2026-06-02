@@ -105,11 +105,11 @@ export default function NotificationsSettings() {
         { email: emailAddress || user?.email },
         { headers }
       );
-      setEmailCode(response.data.verification_code);
-      setStatusMessage("이메일 확인 코드가 발급되었습니다.");
+      setEmailCode("");
+      setStatusMessage(response.data.message || "Gmail로 확인 코드를 보냈습니다.");
       await loadSettings();
     } catch (error) {
-      setStatusMessage(error?.response?.data?.detail || "이메일 확인 코드를 만들지 못했습니다.");
+      setStatusMessage(error?.response?.data?.detail || "Gmail 확인 코드를 보내지 못했습니다.");
     }
   };
 
@@ -274,7 +274,7 @@ export default function NotificationsSettings() {
                 <input
                   value={emailCode}
                   onChange={(event) => setEmailCode(event.target.value)}
-                  placeholder="확인 코드"
+                  placeholder="Gmail 확인 코드"
                   className="min-w-0 flex-1 rounded-md bg-slate-950 px-3 py-2 text-sm"
                 />
                 <button type="button" onClick={confirmEmail} className="rounded-md bg-emerald-500 px-3 py-2 text-sm font-semibold text-slate-950">

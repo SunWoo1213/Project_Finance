@@ -12,9 +12,15 @@ Backend CORS is configured from environment variables instead of hardcoded produ
 
 The backend can still bootstrap local schemas with `Base.metadata.create_all` when `ENABLE_DB_SCHEMA_BOOTSTRAP=true`. Production-like deployments should set `ENABLE_DB_SCHEMA_BOOTSTRAP=false`, run Alembic migrations first, and let startup fail if required tables or AI report metadata columns are missing.
 
+Local Docker PostgreSQL reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and `POSTGRES_PORT` from `.env` through Compose interpolation. `DATABASE_URL` must be kept aligned with the same local DB values and must use an async SQLAlchemy scheme. PostgreSQL runtime uses `postgresql+asyncpg://`; tests may use `sqlite+aiosqlite://`.
+
+`/health` is app liveness only and does not test the database. `/db-check` is the readiness check for DB connectivity and returns a sanitized scheme/host/port diagnostic without exposing credentials.
+
 ## Ownership Map
 
 - Deployment plan: `docs/harness/vercel-supabase-deployment-plan-2026-06-01.md`
+- Local Docker DB: `docker-compose.yml`, `.env_example`, `ENVIRONMENT_VARIABLE_SETUP.md`
+- Environment variable acquisition guide: `ENVIRONMENT_VARIABLE_SETUP.md` section `2.1 .env_example 변수값 확보 상세 절차`
 - Vercel SPA routing: `frontend/vercel.json`
 - Frontend API origin: `frontend/src/utils/apiClient.js`
 - Backend runtime settings: `backend/app/core/config.py`
@@ -33,13 +39,22 @@ The backend can still bootstrap local schemas with `Base.metadata.create_all` wh
 5. Hosted releases should run `python -m alembic upgrade head` before app startup.
 6. With `ENABLE_DB_SCHEMA_BOOTSTRAP=false`, backend startup checks for required tables and AI report metadata columns without creating or altering schema.
 7. Scheduler and market warm-up remain controlled by `ENABLE_SCHEDULER`, `ENABLE_MARKET_WARMUP`, and report scheduler environment variables.
-8. Favorite notification scheduler is controlled separately by `ENABLE_NOTIFICATION_SCHEDULER`, which defaults to false. Provider secrets for Telegram/email are backend-only environment variables.
+8. Favorite notification scheduler is controlled separately by `ENABLE_NOTIFICATION_SCHEDULER`, which defaults to false. Provider secrets for Telegram/Gmail email delivery are backend-only environment variables.
+
+Local Docker flow:
+
+1. `.env` supplies `POSTGRES_*` variables for the `db` service.
+2. The same local DB identity is represented in `DATABASE_URL`.
+3. `docker compose up -d db` initializes a new `postgres_data` volume only on first creation.
+4. Existing `postgres_data` volumes keep their original DB identity until explicitly migrated or deleted.
 
 ## Contracts
 
 - Frontend public env:
   - `VITE_API_BASE_URL`
 - Backend deployment env:
+  - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`: local docker-compose PostgreSQL initialization values. These are local runtime values and must not be committed with real secrets.
+  - `DATABASE_URL`: async SQLAlchemy database URL. Allowed schemes are `postgresql+asyncpg://` for PostgreSQL and `sqlite+aiosqlite://` for tests.
   - `ENVIRONMENT`: runtime label such as `development`, `staging`, or `production`.
   - `BACKEND_CORS_ORIGINS`: comma-separated exact origins such as a Vercel production domain and staging domain.
   - `BACKEND_CORS_ORIGIN_REGEX`: optional regex for approved preview-origin policy.
@@ -50,7 +65,7 @@ The backend can still bootstrap local schemas with `Base.metadata.create_all` wh
   - `DB_PREPARED_STATEMENT_CACHE_SIZE`: optional asyncpg prepared-statement cache override for pooler compatibility testing.
   - `ENABLE_NOTIFICATION_SCHEDULER`: enables favorite notification evaluation/delivery jobs when true.
   - `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`, `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`, `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`, `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`: notification scheduler and default rule controls.
-  - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`, `EMAIL_SMTP_USE_TLS`: backend-only delivery configuration names.
+  - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`: backend-only delivery configuration names. Email delivery supports Gmail API only.
 
 ## Change Rules
 
@@ -59,11 +74,15 @@ The backend can still bootstrap local schemas with `Base.metadata.create_all` wh
 - Do not enable production scheduler or AI report generation broadly until cost and rate-limit policy are confirmed.
 - Do not rely on `create_all` for production schema changes. Add Alembic revisions for schema changes and run migrations before deploying.
 - Do not expose database URLs, provider secrets, access tokens, or webhook secrets in logs or harness records.
+- Do not treat `/health` as database readiness. Use `/db-check` for DB connectivity.
+- Do not delete or recreate Docker volumes without explicit confirmation because named volumes can contain local data.
 
 ## Verification
 
 - User explicitly requested no verification for the 2026-06-01 implementation pass.
+- User explicitly requested no verification for the 2026-06-02 Docker database compatibility implementation pass.
 - For configuration-only updates, compare `.env_example` variable names against `backend/app/core/config.py` and confirm only placeholders, not secrets, are documented.
+- When `.env_example` gains a variable, update `ENVIRONMENT_VARIABLE_SETUP.md` with how to obtain or decide that value, including whether it is backend-only, frontend-public, generated locally, or provider-issued.
 - Future checks should include frontend lint/build, backend tests, Alembic migration against a disposable database, `/health`, `/db-check`, and CORS smoke checks.
 
 ## Change Records
@@ -73,9 +92,15 @@ The backend can still bootstrap local schemas with `Base.metadata.create_all` wh
 - `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 - `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md`
+- `docs/harness/project-defect-remediation-plan-2026-06-02.md`
+- `docs/harness/env-setup-guide-documentation-2026-06-02.md`
+- `docs/harness/docker-database-compatibility-remediation-plan-2026-06-02.md`
+- `docs/harness/docker-database-compatibility-implementation-2026-06-02.md`
+- `docs/harness/gmail-only-email-notification-implementation-2026-06-02.md`
 
 ## Open Risks
 
 - Hosted backend provider and exact production/staging domains still need to be chosen before final environment values can be set.
 - Supabase direct connection versus pooler mode must be tested with SQLAlchemy asyncpg before production traffic.
 - Scheduler should start disabled for the first smoke release and be enabled only after API, DB, cost, and rate-limit checks.
+- Existing local `postgres_data` volumes can preserve old DB user/password/name values. Resetting a volume is a data-loss action and needs explicit confirmation.

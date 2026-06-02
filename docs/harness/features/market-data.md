@@ -99,6 +99,8 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 - `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md`
+- `docs/harness/project-defect-remediation-plan-2026-06-02.md`
+- `docs/harness/report-scheduler-structured-output-error-fix-2026-06-02.md`
 
 ## Open Risks
 

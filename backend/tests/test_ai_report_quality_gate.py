@@ -7,6 +7,9 @@ from app.models import AIReport, Asset, AssetCategory
 from app.services import ai_service, external_api_service
 from app.services.graph.graph import route_fact_check, route_format_check, route_qualitative_check
 from app.services.graph.nodes import (
+    EvaluationResult,
+    StructuredFacts,
+    _llm_with_flexible_structured_output,
     bear_agent_node,
     bull_agent_node,
     fact_checker_node,
@@ -224,11 +227,44 @@ async def test_generate_report_blocks_when_readiness_is_insufficient(monkeypatch
     assert graph.received_state is None
 
 
-def test_report_generation_policy_rejects_missing_user():
+def test_report_generation_policy_rejects_manual_generation():
     with pytest.raises(HTTPException) as exc_info:
         main.ensure_report_generation_allowed(None)
 
-    assert exc_info.value.status_code == 401
+    assert exc_info.value.status_code == 403
+    assert "scheduler" in exc_info.value.detail
+
+
+def test_flexible_structured_output_uses_function_calling(monkeypatch):
+    class FakeLlm:
+        def __init__(self):
+            self.calls = []
+
+        def with_structured_output(self, schema, **kwargs):
+            self.calls.append((schema, kwargs))
+            return "structured-llm"
+
+    fake_llm = FakeLlm()
+    monkeypatch.setattr("app.services.graph.nodes.get_llm", lambda: fake_llm)
+
+    assert _llm_with_flexible_structured_output(StructuredFacts) == "structured-llm"
+    assert _llm_with_flexible_structured_output(EvaluationResult) == "structured-llm"
+    assert fake_llm.calls == [
+        (StructuredFacts, {"method": "function_calling"}),
+        (EvaluationResult, {"method": "function_calling"}),
+    ]
+
+
+def test_scheduled_report_jobs_detach_asset_values():
+    assets = [
+        Asset(id=1, ticker="DGS10", name="US 10Y Treasury", category=AssetCategory.BOND_US),
+        Asset(id=2, ticker="BTC-USD", name="Bitcoin", category=AssetCategory.CRYPTO),
+    ]
+
+    assert ai_service._scheduled_report_jobs(assets) == [
+        {"asset_id": 1, "ticker": "DGS10"},
+        {"asset_id": 2, "ticker": "BTC-USD"},
+    ]
 
 
 def test_fact_checker_passes_when_numbers_exist_in_structured_facts():

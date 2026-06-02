@@ -281,6 +281,10 @@ async def ensure_scheduled_report_assets(db: AsyncSession) -> list[Asset]:
     return scheduled_assets
 
 
+def _scheduled_report_jobs(assets: list[Asset]) -> list[dict[str, Any]]:
+    return [{"asset_id": asset.id, "ticker": asset.ticker} for asset in assets]
+
+
 def find_cached_payload(cache_bucket: dict, ticker: str):
     for group_data in cache_bucket.values():
         for label, item in group_data.items():
@@ -858,7 +862,9 @@ async def generate_daily_reports() -> None:
             logger.info("리포트 생성 대상 자산 수: %d", len(assets))
 
             generated_count = 0
-            for asset in assets:
+            for job in _scheduled_report_jobs(assets):
+                asset_id = job["asset_id"]
+                ticker = job["ticker"]
                 if generated_count >= settings.REPORT_SCHEDULER_MAX_REPORTS_PER_RUN:
                     logger.info(
                         "스케줄러 회당 최대 리포트 수 도달 - max=%d",
@@ -869,25 +875,25 @@ async def generate_daily_reports() -> None:
                     existing_report_result = await db_session.execute(
                         select(AIReport.id)
                         .where(
-                            AIReport.asset_id == asset.id,
+                            AIReport.asset_id == asset_id,
                             AIReport.created_at >= cooldown_cutoff,
                         )
                         .limit(1)
                     )
                     if existing_report_result.scalar_one_or_none() is not None:
-                        logger.info("%s 오늘 리포트 이미 존재 - 건너뜀", asset.ticker)
+                        logger.info("%s 오늘 리포트 이미 존재 - 건너뜀", ticker)
                         continue
 
-                    logger.info("%s 리포트 생성 시작", asset.ticker)
-                    await generate_report_for_ticker(asset.ticker, db_session)
+                    logger.info("%s 리포트 생성 시작", ticker)
+                    await generate_report_for_ticker(ticker, db_session)
                     generated_count += 1
-                    logger.info("%s 리포트 생성 완료", asset.ticker)
+                    logger.info("%s 리포트 생성 완료", ticker)
 
                     # Rate-limit protection between LLM calls.
                     await asyncio.sleep(10)
                 except Exception as exc:
                     await db_session.rollback()
-                    logger.error(f"{asset.ticker} 리포트 실패: {exc}", exc_info=True)
+                    logger.error("%s 리포트 실패: %s", ticker, exc, exc_info=True)
 
         logger.info("AI 리포트 생성 종료")
     except Exception as exc:

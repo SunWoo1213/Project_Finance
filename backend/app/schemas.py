@@ -281,7 +281,7 @@ class NotificationChannelResponse(BaseModel):
 
 class ChannelConnectResponse(BaseModel):
     channel: str
-    verification_code: str
+    verification_code: str | None = None
     verification_expires_at: datetime
     message: str
 

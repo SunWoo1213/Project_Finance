@@ -125,6 +125,10 @@ REQUIRED_REPORT_SECTIONS = [
 ]
 
 
+def _llm_with_flexible_structured_output(schema: type[BaseModel]):
+    return get_llm().with_structured_output(schema, method="function_calling")
+
+
 def _run_async(coro):
     try:
         return asyncio.run(coro)
@@ -473,7 +477,7 @@ def macro_agent(state: AgentState) -> dict[str, Any]:
 def synthesizer_node(state: AgentState) -> dict[str, Any]:
     ticker = state.get("ticker", "")
     logger.info("graph_node: synthesizer_node start (ticker=%s)", ticker)
-    llm = get_llm().with_structured_output(StructuredFacts)
+    llm = _llm_with_flexible_structured_output(StructuredFacts)
     prompt = ChatPromptTemplate.from_template(
         "당신은 데이터 취합/정제 책임자다.\n"
         "report_facts는 가격, 뉴스, 이벤트, 소스 상태를 담은 정규화 입력이다.\n"
@@ -953,7 +957,7 @@ def evaluator_node(state: AgentState) -> dict[str, Any]:
     ticker = state.get("ticker", "")
     logger.info("graph_node: evaluator_node start (ticker=%s)", ticker)
     current_year = datetime.now().year
-    llm = get_llm().with_structured_output(EvaluationResult)
+    llm = _llm_with_flexible_structured_output(EvaluationResult)
     prompt = ChatPromptTemplate.from_template(
         "당신은 깐깐한 편집장이다.\n"
         f"1) {current_year}년 최신성, 2) 팩트 무결성, 3) 한국어 품질, "
