@@ -43,6 +43,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 12. `CategoryView.jsx` and `AssetDetail.jsx` both use `getUiCategory` from `frontend/src/utils/assetCategories.js`, so Korean stocks, crypto, bonds, commodities, FX, and macro index tickers share the same display category rules.
 13. Category lists let users favorite individual assets from the rightmost star button and open favorited assets through the right-side favorites panel.
 14. The chatbot can summarize the existing `market_cache` and ticker latest-context data, using existing cache/TTL behavior rather than adding a new provider path.
+15. Favorite asset notifications evaluate cached price/news data only. The evaluator does not call external market providers directly and does not generate AI reports.
 
 ## Contracts
 
@@ -94,6 +95,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/report-writing-method-implementation-plan-2026-06-01.md`
 - `docs/harness/report-writing-method-implementation-2026-06-01.md`
 - `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md`
+- `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
 
 ## Open Risks
 

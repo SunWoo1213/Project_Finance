@@ -17,6 +17,7 @@ from .services.ai_service import (
     generate_daily_reports,
 )
 from .services.market_service import fetch_latest_asset_context, update_news_task, update_prices_task
+from .services.notification_service import evaluate_notifications, send_pending_notifications
 try:
     from app.services.macro_service import (
         fetch_commodity_data,
@@ -31,7 +32,7 @@ except ModuleNotFoundError:
         fetch_kr_bond_history,
         fetch_us_bond_data,
     )
-from .api import auth, billing, chat, community
+from .api import auth, billing, chat, community, favorites, notifications, profile
 from .models import User
 from .api.deps import get_current_user, require_report_access
 
@@ -50,6 +51,12 @@ REQUIRED_TABLES = {
     "comment_reports",
     "subscriptions",
     "billing_events",
+    "user_favorite_assets",
+    "notification_preferences",
+    "notification_channel_connections",
+    "notification_rules",
+    "asset_notification_snapshots",
+    "notification_events",
 }
 
 REQUIRED_AI_REPORT_COLUMNS = {
@@ -64,6 +71,10 @@ REQUIRED_AI_REPORT_COLUMNS = {
     "risk_summary",
     "analysis_framework",
     "metadata_json",
+}
+
+REQUIRED_USER_COLUMNS = {
+    "nickname_confirmed_at",
 }
 
 
@@ -85,6 +96,14 @@ async def ensure_ai_report_metadata_columns(conn) -> None:
         await conn.execute(text(statement))
 
 
+async def ensure_user_profile_columns(conn) -> None:
+    statements = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname_confirmed_at TIMESTAMP",
+    ]
+    for statement in statements:
+        await conn.execute(text(statement))
+
+
 def get_schema_gaps(sync_conn) -> list[str]:
     inspector = inspect(sync_conn)
     table_names = set(inspector.get_table_names())
@@ -95,6 +114,11 @@ def get_schema_gaps(sync_conn) -> list[str]:
         ai_report_columns = {column["name"] for column in inspector.get_columns("ai_reports")}
         missing_columns = sorted(REQUIRED_AI_REPORT_COLUMNS - ai_report_columns)
         gaps.extend(f"missing ai_reports column: {column}" for column in missing_columns)
+
+    if "users" in table_names:
+        user_columns = {column["name"] for column in inspector.get_columns("users")}
+        missing_columns = sorted(REQUIRED_USER_COLUMNS - user_columns)
+        gaps.extend(f"missing users column: {column}" for column in missing_columns)
 
     return gaps
 
@@ -111,6 +135,7 @@ async def prepare_database_on_startup() -> None:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
                 await ensure_ai_report_metadata_columns(conn)
+                await ensure_user_profile_columns(conn)
             logger.info("Database bootstrap completed")
         except Exception:
             logger.warning("Database bootstrap skipped after startup initialization failure")
@@ -182,6 +207,53 @@ async def lifespan(app: FastAPI):
             coalesce=True,
             max_instances=1,
         )
+        if settings.ENABLE_NOTIFICATION_SCHEDULER:
+            async def run_notification_evaluation_job() -> None:
+                logger.info("Notification evaluation started")
+                async for db in get_db():
+                    try:
+                        created = await evaluate_notifications(db)
+                        sent, failed = await send_pending_notifications(db)
+                        logger.info(
+                            "Notification evaluation completed (created=%s, sent=%s, failed=%s)",
+                            created,
+                            sent,
+                            failed,
+                        )
+                    except Exception as exc:
+                        logger.error("Notification evaluation failed: %s", exc, exc_info=True)
+                    finally:
+                        break
+
+            async def run_notification_delivery_job() -> None:
+                logger.info("Notification delivery started")
+                async for db in get_db():
+                    try:
+                        sent, failed = await send_pending_notifications(db)
+                        logger.info("Notification delivery completed (sent=%s, failed=%s)", sent, failed)
+                    except Exception as exc:
+                        logger.error("Notification delivery failed: %s", exc, exc_info=True)
+                    finally:
+                        break
+
+            scheduler.add_job(
+                run_notification_evaluation_job,
+                "interval",
+                minutes=settings.NOTIFICATION_EVALUATION_INTERVAL_MINUTES,
+                id="notification_evaluation",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+            )
+            scheduler.add_job(
+                run_notification_delivery_job,
+                "interval",
+                minutes=settings.NOTIFICATION_DELIVERY_INTERVAL_MINUTES,
+                id="notification_delivery",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+            )
         scheduler.start()
         print(
             "[lifespan] scheduler started "
@@ -215,6 +287,9 @@ app.include_router(auth.router)
 app.include_router(billing.router)
 app.include_router(community.router)
 app.include_router(chat.router)
+app.include_router(favorites.router)
+app.include_router(notifications.router)
+app.include_router(profile.router)
 
 
 @app.get("/health")

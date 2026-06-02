@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalendarDays, ExternalLink, Flag, Heart, Newspaper, RefreshCw, Send, Star } from "lucide-react";
 
@@ -48,6 +48,15 @@ export default function AssetDetail() {
   const reportRequestCacheRef = useRef(new Set());
 
   const authHeaders = useMemo(() => authHeader(authToken), [authToken]);
+  const profileComplete = Boolean(user?.nickname_confirmed || user?.profile_complete);
+  const needsNicknameSetup = Boolean(authToken && !profileComplete);
+  const myPageNextPath = `/mypage?next=/detail/${encodeURIComponent(assetTicker)}`;
+
+  const getApiDetailMessage = (detail, fallback) => {
+    if (typeof detail === "string") return detail;
+    if (detail?.message) return detail.message;
+    return fallback;
+  };
 
   const fetchComments = useCallback(async () => {
     try {
@@ -214,6 +223,10 @@ export default function AssetDetail() {
   const handlePostComment = async (e) => {
     e.preventDefault();
     if (!authToken || !newComment.trim()) return;
+    if (!profileComplete) {
+      setCommentActionMessage("댓글을 작성하려면 마이페이지에서 닉네임을 먼저 설정해주세요.");
+      return;
+    }
 
     try {
       await apiClient.post(
@@ -225,7 +238,9 @@ export default function AssetDetail() {
       setCommentActionMessage("");
       await fetchComments();
     } catch (error) {
-      setCommentActionMessage(error?.response?.data?.detail || "댓글 작성에 실패했습니다.");
+      setCommentActionMessage(
+        getApiDetailMessage(error?.response?.data?.detail, "댓글 작성에 실패했습니다.")
+      );
       console.error("Failed to post comment:", error);
     }
   };
@@ -573,7 +588,13 @@ export default function AssetDetail() {
               type="text"
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
-              placeholder={authToken ? "이 종목에 대한 생각을 남겨보세요" : "로그인 후 댓글 작성이 가능합니다"}
+              placeholder={
+                !authToken
+                  ? "로그인 후 댓글 작성이 가능합니다"
+                  : needsNicknameSetup
+                  ? "마이페이지에서 닉네임을 설정하면 댓글 작성이 가능합니다"
+                  : "이 종목에 대한 생각을 남겨보세요"
+              }
               disabled={!authToken}
               className="flex-1 rounded-xl bg-slate-700/50 p-3 text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
             />
@@ -585,6 +606,14 @@ export default function AssetDetail() {
               <Send size={20} className="ml-1" />
             </button>
           </form>
+          {needsNicknameSetup && (
+            <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-100">
+              <span>댓글 작성 전 닉네임 설정이 필요합니다.</span>
+              <Link to={myPageNextPath} className="font-semibold text-emerald-200 hover:text-emerald-100">
+                마이페이지에서 설정
+              </Link>
+            </div>
+          )}
           {commentActionMessage && <p className="mt-3 text-sm text-slate-300">{commentActionMessage}</p>}
         </div>
 

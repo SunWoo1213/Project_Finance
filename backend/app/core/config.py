@@ -49,6 +49,25 @@ class Settings(BaseSettings):
     PAYMENT_PRO_PLAN_ID: str | None = None
     PAYMENT_MOCK_CHECKOUT_BASE_URL: str | None = None
 
+    # Favorite asset notification boundary. Provider secrets must stay in env only.
+    ENABLE_NOTIFICATION_SCHEDULER: bool = False
+    NOTIFICATION_EVALUATION_INTERVAL_MINUTES: int = 10
+    NOTIFICATION_DELIVERY_INTERVAL_MINUTES: int = 1
+    NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT: float = 3
+    NOTIFICATION_DEFAULT_COOLDOWN_MINUTES: int = 180
+    TELEGRAM_BOT_TOKEN: str | None = None
+    TELEGRAM_WEBHOOK_SECRET: str | None = None
+    EMAIL_PROVIDER: str | None = None
+    EMAIL_FROM_ADDRESS: str | None = None
+    GMAIL_CLIENT_ID: str | None = None
+    GMAIL_CLIENT_SECRET: str | None = None
+    GMAIL_REFRESH_TOKEN: str | None = None
+    EMAIL_SMTP_HOST: str | None = None
+    EMAIL_SMTP_PORT: int = 587
+    EMAIL_SMTP_USERNAME: str | None = None
+    EMAIL_SMTP_PASSWORD: str | None = None
+    EMAIL_SMTP_USE_TLS: bool = True
+
     model_config = SettingsConfigDict(
         env_file=str(ROOT_ENV_FILE),
         extra="ignore",

@@ -33,13 +33,15 @@ Local email/password registration and login are not part of the current UI flow.
 7. Protected API calls send `Authorization: Bearer <token>`.
 8. JWTs with missing or non-numeric `sub` claims are rejected with HTTP 401 before any user lookup.
 9. The chatbot endpoint now requires authenticated Pro entitlement. Missing or invalid chat tokens return 401, and authenticated users without Pro return 403.
+10. Logged-in users can sync browser-local favorites to the backend and use their Google login email as the default notification email destination.
 
 ## Contracts
 
 - Frontend environment variable name: `VITE_GOOGLE_CLIENT_ID`
 - Backend environment variable name: `GOOGLE_CLIENT_ID`
 - Login endpoint: `POST /api/auth/google`
-- Login response user metadata: `id`, `email`, `nickname`
+- Login response user metadata: `id`, `email`, `nickname`, `nickname_confirmed`, `profile_complete`
+- Authenticated profile endpoints: `GET /api/profile/me`, `GET /api/profile/nickname-availability`, `PATCH /api/profile/nickname`
 - Protected report endpoint: `GET /api/reports/{ticker}`
 - Tier entitlement behavior: report access requires active Plus or Pro, and chatbot access requires active Pro.
 - Protected community write endpoints:
@@ -49,6 +51,8 @@ Local email/password registration and login are not part of the current UI flow.
   - `POST /api/community/comments/{comment_id}/like`
   - `POST /api/community/comments/{comment_id}/report`
 - Protected chatbot endpoint: `POST /api/chat/message`. It requires a valid JWT and active Pro entitlement.
+- Protected favorites endpoints: `GET /api/favorites`, `POST /api/favorites`, `DELETE /api/favorites/{ticker}`, `POST /api/favorites/import-local`.
+- Protected notifications endpoints: all `/api/notifications/*` routes.
 
 Document variable names only. Do not write actual client IDs, JWT secrets, tokens, or `.env` contents into docs.
 
@@ -76,6 +80,8 @@ Document variable names only. Do not write actual client IDs, JWT secrets, token
 - `docs/harness/chatbot-feature-implementation-2026-05-31.md`
 - `docs/harness/subscription-tier-payment-plan-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-implementation-2026-06-01.md`
+- `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
+- `docs/harness/mypage-profile-implementation-2026-06-02.md`
 
 ## Open Risks
 

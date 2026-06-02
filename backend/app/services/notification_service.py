@@ -1,0 +1,598 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import secrets
+import smtplib
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from email.message import EmailMessage
+from typing import Any
+
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..core.cache import market_cache
+from ..core.config import settings
+from ..models import (
+    AIReport,
+    Asset,
+    AssetNotificationSnapshot,
+    NotificationChannelConnection,
+    NotificationEvent,
+    NotificationPreference,
+    UserFavoriteAsset,
+)
+
+
+DEFAULT_CHANNELS = ("in_app",)
+DELIVERY_CHANNELS = ("telegram", "email")
+
+
+@dataclass
+class DeliveryResult:
+    success: bool
+    error_message: str | None = None
+
+
+def _now() -> datetime:
+    return datetime.utcnow()
+
+
+def _verification_code() -> str:
+    return secrets.token_urlsafe(8).replace("-", "").replace("_", "")[:10].upper()
+
+
+def _news_fingerprint(item: dict[str, Any]) -> str:
+    raw = "|".join(
+        str(item.get(key) or "").strip()
+        for key in ("title", "source", "link", "published_at")
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _find_price_payload(ticker: str) -> dict[str, Any] | None:
+    for group in (market_cache.get("prices") or {}).values():
+        if not isinstance(group, dict):
+            continue
+        for item in group.values():
+            if not isinstance(item, dict):
+                continue
+            if item.get("symbol") == ticker:
+                return item
+    return None
+
+
+def _find_news_items(ticker: str) -> list[dict[str, Any]]:
+    latest_context = (market_cache.get("latest_context") or {}).get(ticker)
+    if isinstance(latest_context, dict) and isinstance(latest_context.get("news"), list):
+        return [item for item in latest_context["news"] if isinstance(item, dict)]
+
+    for group in (market_cache.get("news") or {}).values():
+        if not isinstance(group, dict):
+            continue
+        for label, payload in group.items():
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("symbol") == ticker or label == ticker:
+                items = payload.get("items") or []
+                return [item for item in items if isinstance(item, dict)]
+    return []
+
+
+async def get_or_create_preferences(db: AsyncSession, user_id: int) -> NotificationPreference:
+    preference = await db.get(NotificationPreference, user_id)
+    if preference is not None:
+        return preference
+
+    preference = NotificationPreference(
+        user_id=user_id,
+        price_change_threshold_percent=settings.NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT,
+    )
+    db.add(preference)
+    await db.commit()
+    await db.refresh(preference)
+    return preference
+
+
+async def update_preferences(
+    db: AsyncSession,
+    user_id: int,
+    updates: dict[str, Any],
+) -> NotificationPreference:
+    preference = await get_or_create_preferences(db, user_id)
+    for key, value in updates.items():
+        if value is not None and hasattr(preference, key):
+            setattr(preference, key, value)
+    await db.commit()
+    await db.refresh(preference)
+    return preference
+
+
+async def list_channels(db: AsyncSession, user_id: int) -> list[NotificationChannelConnection]:
+    result = await db.execute(
+        select(NotificationChannelConnection)
+        .where(NotificationChannelConnection.user_id == user_id)
+        .order_by(NotificationChannelConnection.channel.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def create_channel_verification(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    channel: str,
+    destination: str | None = None,
+) -> NotificationChannelConnection:
+    result = await db.execute(
+        select(NotificationChannelConnection).where(
+            NotificationChannelConnection.user_id == user_id,
+            NotificationChannelConnection.channel == channel,
+        )
+    )
+    connection = result.scalar_one_or_none()
+    code = _verification_code()
+    expires_at = _now() + timedelta(minutes=30)
+
+    if connection is None:
+        connection = NotificationChannelConnection(
+            user_id=user_id,
+            channel=channel,
+            destination=destination,
+        )
+        db.add(connection)
+
+    connection.destination = destination or connection.destination
+    connection.verified = False
+    connection.verification_status = "pending"
+    connection.verification_code = code
+    connection.verification_expires_at = expires_at
+    connection.verified_at = None
+
+    await db.commit()
+    await db.refresh(connection)
+    return connection
+
+
+async def verify_channel(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    channel: str,
+    code: str,
+    destination: str,
+) -> NotificationChannelConnection:
+    result = await db.execute(
+        select(NotificationChannelConnection).where(
+            NotificationChannelConnection.user_id == user_id,
+            NotificationChannelConnection.channel == channel,
+        )
+    )
+    connection = result.scalar_one_or_none()
+    if connection is None:
+        raise ValueError("Verification code was not requested.")
+    if connection.verification_code != code:
+        connection.verification_status = "invalid_code"
+        await db.commit()
+        raise ValueError("Invalid verification code.")
+    if connection.verification_expires_at and connection.verification_expires_at < _now():
+        connection.verification_status = "expired"
+        await db.commit()
+        raise ValueError("Verification code expired.")
+
+    connection.destination = destination
+    connection.verified = True
+    connection.verification_status = "verified"
+    connection.verification_code = None
+    connection.verification_expires_at = None
+    connection.verified_at = _now()
+    await db.commit()
+    await db.refresh(connection)
+    return connection
+
+
+async def delete_channel(db: AsyncSession, *, user_id: int, channel: str) -> bool:
+    result = await db.execute(
+        select(NotificationChannelConnection).where(
+            NotificationChannelConnection.user_id == user_id,
+            NotificationChannelConnection.channel == channel,
+        )
+    )
+    connection = result.scalar_one_or_none()
+    if connection is None:
+        return False
+    await db.delete(connection)
+    await db.commit()
+    return True
+
+
+async def list_history(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    limit: int = 50,
+) -> list[NotificationEvent]:
+    result = await db.execute(
+        select(NotificationEvent)
+        .where(NotificationEvent.user_id == user_id)
+        .order_by(NotificationEvent.created_at.desc(), NotificationEvent.id.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def _active_channels(
+    db: AsyncSession,
+    user_id: int,
+    preference: NotificationPreference,
+) -> list[str]:
+    channels = list(DEFAULT_CHANNELS)
+    result = await db.execute(
+        select(NotificationChannelConnection).where(
+            NotificationChannelConnection.user_id == user_id,
+            NotificationChannelConnection.verified.is_(True),
+        )
+    )
+    for connection in result.scalars().all():
+        if connection.channel == "telegram" and preference.telegram_enabled:
+            channels.append("telegram")
+        if connection.channel == "email" and preference.email_enabled:
+            channels.append("email")
+    return channels
+
+
+async def _already_in_cooldown(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    ticker: str,
+    event_type: str,
+    cooldown_minutes: int,
+) -> bool:
+    since = _now() - timedelta(minutes=cooldown_minutes)
+    result = await db.execute(
+        select(NotificationEvent.id)
+        .where(
+            NotificationEvent.user_id == user_id,
+            NotificationEvent.ticker == ticker,
+            NotificationEvent.event_type == event_type,
+            NotificationEvent.created_at >= since,
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def create_notification_events(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    ticker: str,
+    event_type: str,
+    title: str,
+    body: str,
+    payload: dict[str, Any] | None,
+    dedupe_key: str,
+    channels: list[str],
+    severity: str = "info",
+) -> int:
+    created = 0
+    for channel in channels:
+        result = await db.execute(
+            select(NotificationEvent.id).where(
+                NotificationEvent.user_id == user_id,
+                NotificationEvent.dedupe_key == dedupe_key,
+                NotificationEvent.channel == channel,
+            )
+        )
+        if result.scalar_one_or_none() is not None:
+            continue
+
+        event = NotificationEvent(
+            user_id=user_id,
+            ticker=ticker,
+            event_type=event_type,
+            severity=severity,
+            title=title,
+            body=body,
+            payload_json=payload or {},
+            dedupe_key=dedupe_key,
+            channel=channel,
+            status="sent" if channel == "in_app" else "pending",
+            sent_at=_now() if channel == "in_app" else None,
+        )
+        db.add(event)
+        created += 1
+
+    if created:
+        await db.commit()
+    return created
+
+
+async def create_test_notification(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    ticker: str | None,
+    message: str | None,
+) -> tuple[int, int, int]:
+    preference = await get_or_create_preferences(db, user_id)
+    channels = await _active_channels(db, user_id, preference)
+    target_ticker = (ticker or "TEST").strip() or "TEST"
+    created = await create_notification_events(
+        db,
+        user_id=user_id,
+        ticker=target_ticker,
+        event_type="test",
+        title=f"{target_ticker} 테스트 알림",
+        body=message or "알림 채널이 정상적으로 연결되어 있는지 확인하는 테스트입니다.",
+        payload={"manual": True},
+        dedupe_key=f"test:{user_id}:{target_ticker}:{int(_now().timestamp())}",
+        channels=channels,
+    )
+    sent, failed = await send_pending_notifications(db, limit=20)
+    return created, sent, failed
+
+
+async def evaluate_notifications(db: AsyncSession) -> int:
+    result = await db.execute(select(UserFavoriteAsset).order_by(UserFavoriteAsset.user_id.asc()))
+    favorites = list(result.scalars().all())
+    created = 0
+
+    for favorite in favorites:
+        preference = await get_or_create_preferences(db, favorite.user_id)
+        channels = await _active_channels(db, favorite.user_id, preference)
+        snapshot = await db.get(AssetNotificationSnapshot, favorite.ticker)
+        if snapshot is None:
+            snapshot = AssetNotificationSnapshot(ticker=favorite.ticker)
+            db.add(snapshot)
+
+        if preference.price_change_enabled:
+            created += await _evaluate_price_change(db, favorite, preference, snapshot, channels)
+        if preference.news_enabled:
+            created += await _evaluate_news(db, favorite, preference, snapshot, channels)
+        if preference.report_enabled:
+            created += await _evaluate_report(db, favorite, preference, snapshot, channels)
+
+        snapshot.evaluated_at = _now()
+        await db.commit()
+
+    return created
+
+
+async def _evaluate_price_change(
+    db: AsyncSession,
+    favorite: UserFavoriteAsset,
+    preference: NotificationPreference,
+    snapshot: AssetNotificationSnapshot,
+    channels: list[str],
+) -> int:
+    payload = _find_price_payload(favorite.ticker)
+    if payload is None:
+        return 0
+
+    price = float(payload.get("currentPrice", payload.get("price", 0)) or 0)
+    change_percent = float(payload.get("changePercent", payload.get("change_pct", 0)) or 0)
+    snapshot.last_price = price
+    snapshot.last_change_percent = change_percent
+
+    threshold = float(preference.price_change_threshold_percent or settings.NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT)
+    if abs(change_percent) < threshold:
+        return 0
+    if await _already_in_cooldown(
+        db,
+        user_id=favorite.user_id,
+        ticker=favorite.ticker,
+        event_type="price_change",
+        cooldown_minutes=settings.NOTIFICATION_DEFAULT_COOLDOWN_MINUTES,
+    ):
+        return 0
+
+    direction = "상승" if change_percent >= 0 else "하락"
+    bucket = int(abs(change_percent) // max(threshold, 0.1))
+    day_key = _now().strftime("%Y%m%d")
+    return await create_notification_events(
+        db,
+        user_id=favorite.user_id,
+        ticker=favorite.ticker,
+        event_type="price_change",
+        title=f"{favorite.display_name} {direction} 알림",
+        body=f"{favorite.ticker} 변동률이 {change_percent:.2f}%로 설정 기준 {threshold:.2f}%를 넘었습니다.",
+        payload={"price": price, "change_percent": change_percent, "threshold": threshold},
+        dedupe_key=f"price:{favorite.ticker}:{day_key}:{bucket}",
+        channels=channels,
+        severity="warning" if abs(change_percent) >= threshold * 2 else "info",
+    )
+
+
+async def _evaluate_news(
+    db: AsyncSession,
+    favorite: UserFavoriteAsset,
+    preference: NotificationPreference,
+    snapshot: AssetNotificationSnapshot,
+    channels: list[str],
+) -> int:
+    items = _find_news_items(favorite.ticker)
+    if not items:
+        return 0
+
+    previous = set(snapshot.last_news_fingerprints or [])
+    current = [_news_fingerprint(item) for item in items[:5]]
+    snapshot.last_news_fingerprints = current
+
+    new_items = [
+        item for item in items[:5]
+        if _news_fingerprint(item) not in previous
+    ]
+    if not previous or not new_items:
+        return 0
+    if await _already_in_cooldown(
+        db,
+        user_id=favorite.user_id,
+        ticker=favorite.ticker,
+        event_type="news",
+        cooldown_minutes=settings.NOTIFICATION_DEFAULT_COOLDOWN_MINUTES,
+    ):
+        return 0
+
+    first = new_items[0]
+    fingerprint = _news_fingerprint(first)
+    title = str(first.get("title") or f"{favorite.display_name} 새 뉴스")
+    link = str(first.get("link") or "")
+    return await create_notification_events(
+        db,
+        user_id=favorite.user_id,
+        ticker=favorite.ticker,
+        event_type="news",
+        title=f"{favorite.display_name} 새 뉴스",
+        body=f"{title}{f' ({link})' if link else ''}",
+        payload={"item": first},
+        dedupe_key=f"news:{favorite.ticker}:{fingerprint}",
+        channels=channels,
+    )
+
+
+async def _evaluate_report(
+    db: AsyncSession,
+    favorite: UserFavoriteAsset,
+    preference: NotificationPreference,
+    snapshot: AssetNotificationSnapshot,
+    channels: list[str],
+) -> int:
+    query = (
+        select(AIReport, Asset)
+        .join(Asset, AIReport.asset_id == Asset.id)
+        .where(Asset.ticker == favorite.ticker)
+        .order_by(AIReport.created_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(query)
+    row = result.first()
+    if row is None:
+        return 0
+
+    report, asset = row
+    if snapshot.last_report_id is None:
+        snapshot.last_report_id = report.id
+        return 0
+    if snapshot.last_report_id == report.id:
+        return 0
+
+    snapshot.last_report_id = report.id
+    return await create_notification_events(
+        db,
+        user_id=favorite.user_id,
+        ticker=favorite.ticker,
+        event_type="report",
+        title=f"{asset.name} AI 리포트 갱신",
+        body=f"{asset.ticker}에 대한 저장된 AI 리포트가 새로 갱신되었습니다.",
+        payload={"report_id": report.id, "created_at": report.created_at.isoformat()},
+        dedupe_key=f"report:{asset.ticker}:{report.id}",
+        channels=channels,
+    )
+
+
+async def send_pending_notifications(db: AsyncSession, *, limit: int = 50) -> tuple[int, int]:
+    now = _now()
+    result = await db.execute(
+        select(NotificationEvent)
+        .where(
+            NotificationEvent.status == "pending",
+            NotificationEvent.channel.in_(DELIVERY_CHANNELS),
+            or_(NotificationEvent.next_attempt_at.is_(None), NotificationEvent.next_attempt_at <= now),
+        )
+        .order_by(NotificationEvent.created_at.asc())
+        .limit(limit)
+    )
+    events = list(result.scalars().all())
+
+    sent = 0
+    failed = 0
+    for event in events:
+        channel_result = await db.execute(
+            select(NotificationChannelConnection).where(
+                NotificationChannelConnection.user_id == event.user_id,
+                NotificationChannelConnection.channel == event.channel,
+                NotificationChannelConnection.verified.is_(True),
+            )
+        )
+        connection = channel_result.scalar_one_or_none()
+        if connection is None or not connection.destination:
+            event.status = "failed"
+            event.error_message = "Notification channel is not verified."
+            event.attempts += 1
+            failed += 1
+            continue
+
+        if event.channel == "telegram":
+            delivery = await _send_telegram(connection.destination, event)
+        elif event.channel == "email":
+            delivery = await _send_email(connection.destination, event)
+        else:
+            delivery = DeliveryResult(success=False, error_message="Unsupported channel.")
+
+        event.attempts += 1
+        if delivery.success:
+            event.status = "sent"
+            event.sent_at = _now()
+            event.error_message = None
+            sent += 1
+        else:
+            failed += 1
+            event.error_message = delivery.error_message
+            if event.attempts >= 3:
+                event.status = "failed"
+            else:
+                event.next_attempt_at = _now() + timedelta(minutes=2 ** event.attempts)
+
+    if events:
+        await db.commit()
+    return sent, failed
+
+
+async def _send_telegram(chat_id: str, event: NotificationEvent) -> DeliveryResult:
+    token = settings.TELEGRAM_BOT_TOKEN
+    if not token:
+        return DeliveryResult(success=False, error_message="Telegram bot token is not configured.")
+
+    text = f"{event.title}\n\n{event.body}"
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        data=json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            if 200 <= response.status < 300:
+                return DeliveryResult(success=True)
+            return DeliveryResult(success=False, error_message=f"Telegram returned HTTP {response.status}.")
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return DeliveryResult(success=False, error_message=str(exc))
+
+
+async def _send_email(destination: str, event: NotificationEvent) -> DeliveryResult:
+    if settings.EMAIL_PROVIDER != "smtp":
+        return DeliveryResult(success=False, error_message="SMTP email provider is not configured.")
+    if not settings.EMAIL_FROM_ADDRESS or not settings.EMAIL_SMTP_HOST:
+        return DeliveryResult(success=False, error_message="SMTP email settings are incomplete.")
+
+    message = EmailMessage()
+    message["From"] = settings.EMAIL_FROM_ADDRESS
+    message["To"] = destination
+    message["Subject"] = event.title
+    message.set_content(event.body)
+
+    try:
+        with smtplib.SMTP(settings.EMAIL_SMTP_HOST, settings.EMAIL_SMTP_PORT, timeout=8) as smtp:
+            if settings.EMAIL_SMTP_USE_TLS:
+                smtp.starttls()
+            if settings.EMAIL_SMTP_USERNAME and settings.EMAIL_SMTP_PASSWORD:
+                smtp.login(settings.EMAIL_SMTP_USERNAME, settings.EMAIL_SMTP_PASSWORD)
+            smtp.send_message(message)
+        return DeliveryResult(success=True)
+    except Exception as exc:  # pragma: no cover - provider errors are environment-specific
+        return DeliveryResult(success=False, error_message=str(exc))

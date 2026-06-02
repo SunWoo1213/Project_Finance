@@ -110,6 +110,17 @@ def _comment_response_payload(comment: Comment, author_nickname: str, likes_coun
     }
 
 
+def _ensure_comment_profile_complete(user: User) -> None:
+    if user.nickname_confirmed_at is None:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "NICKNAME_REQUIRED",
+                "message": "댓글을 작성하려면 마이페이지에서 닉네임을 먼저 설정해주세요.",
+            },
+        )
+
+
 @router.post("/{asset_id}/comments", response_model=CommentResponseWithAuthor)
 async def create_comment(
     asset_id: str,
@@ -117,6 +128,8 @@ async def create_comment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    _ensure_comment_profile_complete(current_user)
+
     asset = await _resolve_or_create_asset_for_comment(db, asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="자산을 찾을 수 없습니다")

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { Link, useNavigate } from 'react-router-dom';
 import { Star } from 'lucide-react';
 import SparklineChart from '../components/SparklineChart';
+import useAuthStore from '../store/authStore';
 import useFavoriteStore from '../store/favoriteStore';
+import { apiClient } from '../utils/apiClient';
 import { getUiCategory } from '../utils/assetCategories';
 import { formatChangeBadge, formatMarketCap, formatPrice, formatTicker } from '../utils/formatters';
 import { resolveAssetName } from '../utils/constants';
@@ -12,13 +13,14 @@ export default function CategoryView({ categoryKey, title }) {
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
-  const { favorites, isFavorite, toggleFavorite, removeFavorite } = useFavoriteStore();
+  const { token } = useAuthStore();
+  const { favorites, isFavorite, toggleFavorite, removeFavorite, isSyncing, syncError } = useFavoriteStore();
 
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        const response = await axios.get('http://localhost:8000/api/market/prices');
+        const response = await apiClient.get('/api/market/prices');
         const categoryData = response.data[categoryKey] || {};
         
         const list = Object.entries(categoryData).map(([label, info]) => ({
@@ -121,6 +123,16 @@ export default function CategoryView({ categoryKey, title }) {
             <Star size={18} className="text-amber-300" fill="currentColor" />
             <h3 className="text-base font-bold text-slate-100">즐겨찾기</h3>
           </div>
+
+          {token && (
+            <div className="mb-3 rounded-lg border border-slate-700/70 bg-slate-900/35 p-3 text-xs text-slate-400">
+              <div>{isSyncing ? '계정 즐겨찾기 동기화 중...' : '계정 즐겨찾기와 동기화됩니다.'}</div>
+              {syncError && <div className="mt-1 text-amber-300">{syncError}</div>}
+              <Link to="/mypage" className="mt-2 inline-flex text-emerald-300 hover:text-emerald-200">
+                알림 설정
+              </Link>
+            </div>
+          )}
 
           {favorites.length === 0 ? (
             <p className="py-6 text-sm leading-6 text-slate-400">

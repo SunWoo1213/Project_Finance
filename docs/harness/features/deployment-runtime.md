@@ -33,6 +33,7 @@ The backend can still bootstrap local schemas with `Base.metadata.create_all` wh
 5. Hosted releases should run `python -m alembic upgrade head` before app startup.
 6. With `ENABLE_DB_SCHEMA_BOOTSTRAP=false`, backend startup checks for required tables and AI report metadata columns without creating or altering schema.
 7. Scheduler and market warm-up remain controlled by `ENABLE_SCHEDULER`, `ENABLE_MARKET_WARMUP`, and report scheduler environment variables.
+8. Favorite notification scheduler is controlled separately by `ENABLE_NOTIFICATION_SCHEDULER`, which defaults to false. Provider secrets for Telegram/email are backend-only environment variables.
 
 ## Contracts
 
@@ -46,6 +47,9 @@ The backend can still bootstrap local schemas with `Base.metadata.create_all` wh
   - `SQLALCHEMY_ECHO`: default false so production does not log SQL statements.
   - `DB_POOL_PRE_PING`: default true for connection health checks.
   - `DB_PREPARED_STATEMENT_CACHE_SIZE`: optional asyncpg prepared-statement cache override for pooler compatibility testing.
+  - `ENABLE_NOTIFICATION_SCHEDULER`: enables favorite notification evaluation/delivery jobs when true.
+  - `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`, `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`, `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`, `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`: notification scheduler and default rule controls.
+  - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`, `EMAIL_SMTP_USE_TLS`: backend-only delivery configuration names.
 
 ## Change Rules
 
@@ -64,6 +68,7 @@ The backend can still bootstrap local schemas with `Base.metadata.create_all` wh
 
 - `docs/harness/vercel-supabase-deployment-plan-2026-06-01.md`
 - `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md`
+- `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
 
 ## Open Risks
 

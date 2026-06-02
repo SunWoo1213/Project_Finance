@@ -33,10 +33,24 @@ const useAuthStore = create((set) => ({
         const nextUser = {
             ...user,
             id: user?.id ?? getUserIdFromToken(token),
+            nickname_confirmed: Boolean(user?.nickname_confirmed || user?.profile_complete),
+            profile_complete: Boolean(user?.profile_complete || user?.nickname_confirmed),
         };
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(nextUser));
         set({ token, user: nextUser });
+    },
+    updateUser: (patch) => {
+        set((state) => {
+            const nextUser = {
+                ...(state.user || {}),
+                ...patch,
+                nickname_confirmed: Boolean(patch?.nickname_confirmed ?? patch?.profile_complete ?? state.user?.nickname_confirmed),
+                profile_complete: Boolean(patch?.profile_complete ?? patch?.nickname_confirmed ?? state.user?.profile_complete),
+            };
+            localStorage.setItem('user', JSON.stringify(nextUser));
+            return { user: nextUser };
+        });
     },
     logout: () => {
         localStorage.removeItem('token');

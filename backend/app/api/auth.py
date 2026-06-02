@@ -124,4 +124,6 @@ async def login_with_google(payload: GoogleLoginRequest, db: AsyncSession = Depe
         id=user.id,
         email=user.email,
         nickname=user.nickname,
+        nickname_confirmed=user.nickname_confirmed_at is not None,
+        profile_complete=user.nickname_confirmed_at is not None,
     )

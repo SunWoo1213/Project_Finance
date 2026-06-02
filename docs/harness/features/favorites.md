@@ -6,7 +6,9 @@ Date: 2026-05-30
 
 Users can mark assets as favorites from category asset lists or from the asset detail header. Favorites are stored in browser `localStorage` through a small Zustand store, so they persist for the same browser without requiring a backend schema change.
 
-The category list shows a favorites panel on the right side of the asset list. Clicking a favorite navigates directly to `/detail/:ticker`.
+The category list shows a favorites panel on the right side of the asset list. Clicking a favorite navigates directly to `/detail/:ticker`. MyPage also lists favorite assets as removable tags and lets authenticated users add favorites from the current market asset list.
+
+As of 2026-06-02, logged-in users also sync favorites to the backend. On login, existing browser-local favorites are imported to `user_favorite_assets`, then localStorage is refreshed from the server response. Anonymous users continue to use browser-local favorites.
 
 ## Ownership Map
 
@@ -14,6 +16,8 @@ The category list shows a favorites panel on the right side of the asset list. C
 - Favorite toggle and right-side panel: `frontend/src/pages/CategoryView.jsx`
 - Detail page favorite toggle: `frontend/src/pages/AssetDetail.jsx`
 - Asset display names and ticker fallback: `frontend/src/utils/constants.js`, `frontend/src/utils/formatters.js`
+- Backend favorite API: `backend/app/api/favorites.py`
+- Backend favorite service/model: `backend/app/services/favorite_service.py`, `backend/app/models.py`
 
 ## Data Flow
 
@@ -22,6 +26,8 @@ The category list shows a favorites panel on the right side of the asset list. C
 3. The detail page can also call `toggleFavorite` for the current ticker.
 4. The category favorite panel reads the shared `favorites` array and routes clicks to `/detail/:ticker`.
 5. Removing a favorite updates Zustand state and writes the updated array back to localStorage.
+6. When authenticated, `App.jsx` calls `syncWithServer(token)` to merge local favorites into the backend account list.
+7. Authenticated toggle/remove actions optimistically update localStorage, then call the backend favorite API.
 
 ## Contracts
 
@@ -47,6 +53,8 @@ The category list shows a favorites panel on the right side of the asset list. C
 ## Change Records
 
 - `docs/harness/asset-favorites.md`
+- `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
+- `docs/harness/mypage-profile-implementation-2026-06-02.md`
 
 ## Open Risks
 

@@ -30,3 +30,7 @@ API 호출이 많아질 경우 페이지 내부에 계속 쌓지 말고 공통 A
 - 라우트 추가/삭제: `docs/harness/features/frontend-routing-shell.md`
 
 페이지의 API 호출, route param, 로그인 필요 여부, fallback UI가 바뀌면 변경 기록을 `docs/harness/`에 남기고 기능 문서의 `Data Flow`와 `Contracts`를 수정합니다.
+
+## MyPage Note
+
+- `MyPage.jsx`: 프로필 닉네임 확정, 즐겨찾기 태그 관리, Telegram/Google Mail 수신 동의 화면을 담당한다.

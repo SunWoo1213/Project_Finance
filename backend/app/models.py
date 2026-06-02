@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from sqlalchemy import Boolean, Column, Integer, JSON, String, Text, DateTime, ForeignKey, Enum as SQLEnum, Index, UniqueConstraint
+from sqlalchemy import Boolean, Column, Float, Integer, JSON, String, Text, DateTime, ForeignKey, Enum as SQLEnum, Index, UniqueConstraint
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from typing import List, Optional
 
@@ -34,6 +34,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
     google_sub: Mapped[Optional[str]] = mapped_column(String, unique=True, index=True, nullable=True)
     nickname: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    nickname_confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # 양방향 관계 맵핑
@@ -42,6 +43,28 @@ class User(Base):
     reported_comments: Mapped[List["CommentReport"]] = relationship("CommentReport", back_populates="user", cascade="all, delete-orphan")
     subscriptions: Mapped[List["Subscription"]] = relationship("Subscription", back_populates="user", cascade="all, delete-orphan")
     billing_events: Mapped[List["BillingEvent"]] = relationship("BillingEvent", back_populates="user")
+    favorite_assets: Mapped[List["UserFavoriteAsset"]] = relationship("UserFavoriteAsset", back_populates="user", cascade="all, delete-orphan")
+    notification_preferences: Mapped[Optional["NotificationPreference"]] = relationship(
+        "NotificationPreference",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    notification_channels: Mapped[List["NotificationChannelConnection"]] = relationship(
+        "NotificationChannelConnection",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    notification_rules: Mapped[List["NotificationRule"]] = relationship(
+        "NotificationRule",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    notification_events: Mapped[List["NotificationEvent"]] = relationship(
+        "NotificationEvent",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class Asset(Base):
@@ -60,6 +83,7 @@ class Asset(Base):
     # 양방향 관계 맵핑
     reports: Mapped[List["AIReport"]] = relationship("AIReport", back_populates="asset", cascade="all, delete-orphan")
     comments: Mapped[List["Comment"]] = relationship("Comment", back_populates="asset", cascade="all, delete-orphan")
+    favorite_links: Mapped[List["UserFavoriteAsset"]] = relationship("UserFavoriteAsset", back_populates="asset")
 
 
 class AIReport(Base):
@@ -195,3 +219,125 @@ class BillingEvent(Base):
 
     subscription: Mapped[Optional["Subscription"]] = relationship("Subscription", back_populates="billing_events")
     user: Mapped[Optional["User"]] = relationship("User", back_populates="billing_events")
+
+
+class UserFavoriteAsset(Base):
+    __tablename__ = "user_favorite_assets"
+    __table_args__ = (
+        UniqueConstraint("user_id", "ticker", name="uq_user_favorite_assets_user_ticker"),
+        Index("ix_user_favorite_assets_user_id", "user_id"),
+        Index("ix_user_favorite_assets_ticker", "ticker"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    asset_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("assets.id"), nullable=True)
+    ticker: Mapped[str] = mapped_column(String(80), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category_key: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="manual")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user: Mapped["User"] = relationship("User", back_populates="favorite_assets")
+    asset: Mapped[Optional["Asset"]] = relationship("Asset", back_populates="favorite_links")
+
+
+class NotificationPreference(Base):
+    __tablename__ = "notification_preferences"
+
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), primary_key=True)
+    telegram_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    email_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    price_change_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    news_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    report_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    daily_digest_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    price_change_threshold_percent: Mapped[float] = mapped_column(Float, nullable=False, default=3)
+    quiet_hours_start: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    quiet_hours_end: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    timezone: Mapped[str] = mapped_column(String(80), nullable=False, default="Asia/Seoul")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user: Mapped["User"] = relationship("User", back_populates="notification_preferences")
+
+
+class NotificationChannelConnection(Base):
+    __tablename__ = "notification_channel_connections"
+    __table_args__ = (
+        UniqueConstraint("user_id", "channel", name="uq_notification_channel_user_channel"),
+        Index("ix_notification_channel_connections_user_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    channel: Mapped[str] = mapped_column(String(30), nullable=False)
+    destination: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    verification_status: Mapped[str] = mapped_column(String(40), nullable=False, default="pending")
+    verification_code: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    verification_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user: Mapped["User"] = relationship("User", back_populates="notification_channels")
+
+
+class NotificationRule(Base):
+    __tablename__ = "notification_rules"
+    __table_args__ = (
+        Index("ix_notification_rules_user_id", "user_id"),
+        Index("ix_notification_rules_ticker", "ticker"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    ticker: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    threshold_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user: Mapped["User"] = relationship("User", back_populates="notification_rules")
+
+
+class AssetNotificationSnapshot(Base):
+    __tablename__ = "asset_notification_snapshots"
+
+    ticker: Mapped[str] = mapped_column(String(80), primary_key=True)
+    last_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    last_change_percent: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    last_news_fingerprints: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    last_report_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("ai_reports.id"), nullable=True)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class NotificationEvent(Base):
+    __tablename__ = "notification_events"
+    __table_args__ = (
+        UniqueConstraint("user_id", "dedupe_key", "channel", name="uq_notification_events_user_dedupe_channel"),
+        Index("ix_notification_events_user_id", "user_id"),
+        Index("ix_notification_events_ticker", "ticker"),
+        Index("ix_notification_events_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    ticker: Mapped[str] = mapped_column(String(80), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="info")
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
+    channel: Mapped[str] = mapped_column(String(30), nullable=False, default="in_app")
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["User"] = relationship("User", back_populates="notification_events")

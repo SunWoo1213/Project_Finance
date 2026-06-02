@@ -74,6 +74,7 @@ If an authenticated user requests a report and the latest report is missing, the
 - Comment list: `GET /api/community/{asset_id}/comments`
 - Chat guidance: `POST /api/chat/message`
 - Comment create: `POST /api/community/{asset_id}/comments`
+- Comment create requires `users.nickname_confirmed_at`; unconfirmed users receive HTTP 403 with `NICKNAME_REQUIRED`.
 - Comment update: `PUT /api/community/{asset_id}/comments/{comment_id}`
 - Comment delete: `DELETE /api/community/{asset_id}/comments/{comment_id}`
 - Like toggle: `POST /api/community/comments/{comment_id}/like`
@@ -136,6 +137,7 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/subscription-tier-payment-provider-db-implementation-plan-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md`
 - `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md`
+- `docs/harness/mypage-profile-implementation-2026-06-02.md`
 
 ## Open Risks
 

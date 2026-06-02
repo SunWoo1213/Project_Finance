@@ -40,3 +40,7 @@
 - 시장 또는 리포트 라우터를 새로 분리하는 경우: `docs/harness/features/market-data.md`, `docs/harness/features/asset-detail-ai-community.md`
 
 엔드포인트 path, 인증 필요 여부, request/response shape가 바뀌면 변경 기록을 `docs/harness/`에 작성하고 기능 문서의 `Contracts`와 `Change Records`를 수정합니다.
+
+## Profile API Note
+
+- `profile.py`: `/api/profile/*` 프로필 조회, 닉네임 중복 확인, 닉네임 확정 저장을 담당한다.
