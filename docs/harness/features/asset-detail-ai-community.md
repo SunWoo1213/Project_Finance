@@ -51,13 +51,14 @@ AI report generation is now additionally controlled by backend-only `ENABLE_AI_R
 20. Failed format checker, fact checker, qualitative checker, or evaluator results raise a quality failure and are not committed to the database.
 21. Scheduled report generation runs only when both `ENABLE_SCHEDULER=true` and `ENABLE_AI_REPORT_GENERATION=true`.
 22. Scheduled report generation seeds and covers only the configured representative target list by default: `DGS10`, `XAU`, `BTC-USD`, `NVDA`, and `005930.KS`.
-23. Passing reports persist quality/source metadata, fact matrix summaries, source-table entries, and research packet metadata on `AIReport`, and existing report fetches return the stored metadata to `ReportCard.jsx`.
-24. The page fetches comments using the ticker or asset key.
-25. Community writes send the JWT and the backend resolves the asset, creating an asset row from the warm market cache when a comment is posted before a report has created one.
-26. Edit/delete ownership checks happen on the backend.
-27. The frontend asks the user to pick a short report reason before sending the report. The selected reason is a UI confirmation only and is not stored by the current backend contract.
-28. Comment reports are stored separately from likes and can auto-delete the comment at the 100-report threshold.
-29. The chatbot can guide users to detail, report, and community areas. For authenticated users it can summarize an already stored report, but it does not call the report-generation endpoint.
+23. If a scheduled report starts before market warm-up has populated the target ticker, `generate_report_for_ticker()` asks `market_service.ensure_price_cache_for_ticker()` to fill that ticker's price cache once, then rechecks the cache before building report facts. This is a scheduler/background safeguard only; user-facing report pages and chatbot requests still do not trigger report generation.
+24. Passing reports persist quality/source metadata, fact matrix summaries, source-table entries, and research packet metadata on `AIReport`, and existing report fetches return the stored metadata to `ReportCard.jsx`.
+25. The page fetches comments using the ticker or asset key.
+26. Community writes send the JWT and the backend resolves the asset, creating an asset row from the warm market cache when a comment is posted before a report has created one.
+27. Edit/delete ownership checks happen on the backend.
+28. The frontend asks the user to pick a short report reason before sending the report. The selected reason is a UI confirmation only and is not stored by the current backend contract.
+29. Comment reports are stored separately from likes and can auto-delete the comment at the 100-report threshold.
+30. The chatbot can guide users to detail, report, and community areas. For authenticated users it can summarize an already stored report, but it does not call the report-generation endpoint.
 
 ## Contracts
 
@@ -146,6 +147,7 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/report-scheduler-structured-output-error-fix-2026-06-02.md`
 - `docs/harness/report-generation-env-switch-plan-2026-06-03.md`
 - `docs/harness/report-generation-env-switch-implementation-2026-06-03.md`
+- `docs/harness/report-scheduler-market-cache-miss-fallback-2026-06-04.md`
 
 ## Open Risks
 
@@ -159,6 +161,7 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - Bull, Bear, and Risk role outputs are deterministic graph state for now; fully independent LLM-backed debate agents would increase token cost and need explicit approval.
 - Asset-specific framework depth validation is deterministic and conservative; it checks section placement and minimal evidence/limitation text, not full analytical quality.
 - Broadening scheduled AI report generation beyond the five representative target tickers remains disabled because it would increase LLM call volume.
+- Startup scheduled report generation can still encounter missing provider keys or slow providers. A ticker-level market cache fill now handles warm-up race conditions, but provider failures still lead to readiness-blocked reports instead of fabricated data.
 - Detail pages no longer trigger manual report generation on 404, so unsupported or not-yet-generated assets can show a pending report state until the scheduler produces a stored report.
 - Free users and users without loaded report entitlement now see a paywall and should not trigger report fetches from the detail page.
 - Remaining report-quality follow-ups are prioritized in `docs/harness/report-quality-follow-up-plan-2026-05-31.md`.

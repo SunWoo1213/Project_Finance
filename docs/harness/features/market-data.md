@@ -48,6 +48,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 14. The chatbot can summarize the existing `market_cache` and ticker latest-context data, using existing cache/TTL/cooldown behavior rather than adding a fresh report generation path.
 15. Favorite asset notifications evaluate cached price/news data only. The evaluator does not call external market providers directly and does not generate AI reports.
 16. Frontend market pages use the shared API client, so hosted API origin is controlled by `VITE_API_BASE_URL` instead of page-level localhost literals.
+17. Scheduled AI report generation can request a ticker-level price cache fill through `ensure_price_cache_for_ticker()` when the startup report job beats the non-blocking market warm-up. This only fills the configured report target ticker and keeps the public market cache shape unchanged.
 
 ## Contracts
 
@@ -116,6 +117,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/market-data-warmup-provider-throttle-timeout-plan-2026-06-03.md`
 - `docs/harness/market-data-warmup-provider-throttle-timeout-implementation-2026-06-04.md`
 - `docs/harness/market-data-kr-data-go-index-name-throttle-fix-2026-06-04.md`
+- `docs/harness/report-scheduler-market-cache-miss-fallback-2026-06-04.md`
 
 ## Open Risks
 
@@ -129,3 +131,4 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `data_go_kr` uses `DATA_GO_KR_MAX_CONCURRENCY` (default 2) rather than `Semaphore(1)`. data.go.kr `getStockPriceInfo` can spike to ~20s and the snapshot makes two calls; the concurrency bump + date-window queries + longer internal timeout (`DATA_GO_KR_FETCH_TIMEOUT_SECONDS`) let the KR queue drain across cycles. data.go.kr rate-limits aggressively and returns a `오류발생 알림화면(허용되지 않는 요청)` 404 HTML gateway block under load; the code degrades to DEFAULT + cooldown, but raising concurrency too high increases block frequency. The `getStockMarketIndex` endpoint is slower/flakier than the stock endpoint and may intermittently 404. Use `backend/scripts/probe_data_go.py` to classify data.go.kr reachability. See `docs/harness/market-data-kr-data-go-index-name-throttle-fix-2026-06-04.md`.
 - Full scheduled report coverage is intentionally not enabled; changing `REPORT_SCHEDULER_COVERAGE` away from `conservative` currently logs a warning and still avoids broad seeding because broader LLM/API usage needs product approval.
 - The report scheduler now wakes every 6 hours and uses a 6-hour per-asset cooldown, but coverage is limited to the configured representative ticker list.
+- Startup report jobs may run before the broad market warm-up completes. `ensure_price_cache_for_ticker()` now fills a single report target on cache miss, but provider key absence or provider outage still degrades to empty data/readiness block.
