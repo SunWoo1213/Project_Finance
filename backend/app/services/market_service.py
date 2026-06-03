@@ -266,6 +266,54 @@ async def fetch_latest_asset_context(ticker: str, *, force_refresh: bool = False
     return payload
 
 
+PRICE_CACHE_ASSET_GROUPS = {
+    "macro": MACRO_ASSETS,
+    "us_top10": US_TOP10_ASSETS,
+    "kr_top10": KR_TOP10_ASSETS,
+    "bonds": BOND_ASSETS,
+    "commodities": COMMODITY_ASSETS,
+    "cryptos": CRYPTO_ASSETS,
+}
+
+
+async def ensure_price_cache_for_ticker(ticker: str) -> dict[str, Any] | None:
+    """Populate one cached price payload when a scheduled report beats warm-up."""
+    asset_ticker = (ticker or "").strip().upper()
+    if not asset_ticker:
+        return None
+
+    for group_name, assets in PRICE_CACHE_ASSET_GROUPS.items():
+        for label, payload in assets.items():
+            if payload["ticker"].upper() != asset_ticker:
+                continue
+
+            existing = (market_cache.get("prices") or {}).get(group_name, {}).get(label)
+            if existing:
+                return existing
+
+            try:
+                normalized = await asyncio.wait_for(
+                    fetch_asset_data(payload["ticker"], payload["category"]),
+                    timeout=settings.MARKET_PRICE_FETCH_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                print(
+                    f"[ensure_price_cache_for_ticker] {label}({asset_ticker}, {payload['category']}) failed: "
+                    f"timeout after {settings.MARKET_PRICE_FETCH_TIMEOUT_SECONDS}s"
+                )
+                return None
+            except Exception as exc:
+                print(f"[ensure_price_cache_for_ticker] {label}({asset_ticker}, {payload['category']}) failed: {exc!r}")
+                return None
+
+            cached_payload = {"symbol": payload["ticker"], **_to_frontend_shape(normalized)}
+            market_cache.setdefault("prices", {}).setdefault(group_name, {})[label] = cached_payload
+            market_cache.setdefault("last_updated", {})["prices"] = datetime.now(timezone.utc).isoformat()
+            return cached_payload
+
+    return None
+
+
 async def _collect_prices_group(
     group_name: str, assets: dict[str, dict[str, str]]
 ) -> tuple[str, dict[str, Any]]:

@@ -11,7 +11,16 @@ from ..core.config import settings
 from ..db.session import AsyncSessionLocal
 from ..models import AIReport, Asset, AssetCategory
 from .graph.graph import app as graph_app
-from .market_service import BONDS, COMMODITIES, CRYPTOS, INDICES, KR_BONDS, KR_TOP10, fetch_latest_asset_context
+from .market_service import (
+    BONDS,
+    COMMODITIES,
+    CRYPTOS,
+    INDICES,
+    KR_BONDS,
+    KR_TOP10,
+    ensure_price_cache_for_ticker,
+    fetch_latest_asset_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -713,6 +722,11 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
 
     price_payload = find_cached_payload(market_cache["prices"], ticker)
     news_payload = find_cached_payload(market_cache["news"], ticker)
+    if not price_payload:
+        logger.info("%s market cache miss before report generation; attempting ticker-level cache fill", ticker)
+        await ensure_price_cache_for_ticker(ticker)
+        price_payload = find_cached_payload(market_cache["prices"], ticker)
+
     if not price_payload:
         raise ValueError(f"No cached market data found for ticker: {ticker}")
 

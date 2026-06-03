@@ -180,6 +180,41 @@ async def test_generate_report_saves_only_when_evaluator_passes(monkeypatch, cac
 
 
 @pytest.mark.asyncio
+async def test_generate_report_fills_missing_price_cache_before_failing(monkeypatch, cached_aapl):
+    monkeypatch.setitem(market_cache, "prices", {"us_top10": {}})
+
+    async def fake_ensure_price_cache_for_ticker(ticker):
+        assert ticker == "AAPL"
+        market_cache["prices"]["us_top10"]["AAPL"] = {
+            "symbol": "AAPL",
+            "price": 200.0,
+            "change_pct": 1.25,
+        }
+        return market_cache["prices"]["us_top10"]["AAPL"]
+
+    graph = FakeGraph(
+        {
+            "is_pass": False,
+            "feedback": "stop after cache fill",
+            "revision_count": 1,
+            "analysis_result": "draft",
+            "final_report": "# final",
+            "structured_facts": {},
+        }
+    )
+    monkeypatch.setattr(ai_service, "ensure_price_cache_for_ticker", fake_ensure_price_cache_for_ticker)
+    monkeypatch.setattr(ai_service, "graph_app", graph)
+
+    with pytest.raises(ai_service.ReportQualityError):
+        await ai_service.generate_report_for_ticker(
+            "AAPL",
+            FakeDbSession(asset=Asset(id=1, ticker="AAPL", name="AAPL", category=AssetCategory.STOCK_US)),
+        )
+
+    assert graph.received_state["price_data"]["price"] == 200.0
+
+
+@pytest.mark.asyncio
 async def test_generate_report_rejects_failed_evaluation_without_saving(monkeypatch, cached_aapl):
     graph = FakeGraph(
         {
