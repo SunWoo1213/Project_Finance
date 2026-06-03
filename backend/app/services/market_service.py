@@ -4,14 +4,18 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
-import yfinance as yf
-
 from ..core.cache import market_cache
 from ..core.config import settings
 try:
     from app.services.macro_service import fetch_commodity_data, fetch_kr_bond_data, fetch_us_bond_data
+    from app.services.price_providers import (
+        fetch_latest_provider_context,
+        fetch_market_news_items,
+        fetch_market_snapshot,
+    )
 except ModuleNotFoundError:
     from .macro_service import fetch_commodity_data, fetch_kr_bond_data, fetch_us_bond_data
+    from .price_providers import fetch_latest_provider_context, fetch_market_news_items, fetch_market_snapshot
 
 INDICES = {
     "S&P 500": "^GSPC",
@@ -140,40 +144,7 @@ def _to_frontend_shape(normalized: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _fetch_price_sync(symbol: str) -> dict[str, Any]:
-    ticker = yf.Ticker(symbol)
-    info = ticker.info or {}
-    history = ticker.history(period="1mo", interval="1d")
-    if history.empty:
-        raise ValueError(f"No price history for {symbol}")
-
-    current_price = float(history["Close"].iloc[-1])
-    prev_close = float(history["Close"].iloc[-2]) if len(history) >= 2 else current_price
-    change_pct = 0.0 if prev_close == 0 else ((current_price - prev_close) / prev_close) * 100
-    history_prices = [float(p) for p in history["Close"]]
-    market_cap = float(info.get("marketCap", 0) or 0)
-    return _normalize_payload(current_price, change_pct, history_prices, market_cap)
-
-
-def _fetch_news_sync(symbol: str, limit: int = 5) -> list[dict[str, str]]:
-    ticker = yf.Ticker(symbol)
-    raw_news = ticker.news or []
-    parsed: list[dict[str, str]] = []
-
-    for item in raw_news[:limit]:
-        title = item.get("title") or ""
-        link = item.get("link") or item.get("url") or ""
-        source = item.get("publisher") or item.get("provider") or "unknown"
-        if not title and not link:
-            continue
-        parsed.append({"title": title, "link": link, "source": source})
-    return parsed
-
-
 async def fetch_asset_data(ticker: str, category: str) -> dict[str, Any]:
-    async def fetch_yfinance_data(symbol: str) -> dict[str, Any]:
-        return await asyncio.to_thread(_fetch_price_sync, symbol)
-
     if category == "COMMODITY":
         raw = await fetch_commodity_data(ticker)
     elif category == "KR_BOND":
@@ -181,7 +152,7 @@ async def fetch_asset_data(ticker: str, category: str) -> dict[str, Any]:
     elif category == "US_BOND":
         raw = await fetch_us_bond_data(ticker)
     else:
-        raw = await fetch_yfinance_data(ticker)
+        raw = await fetch_market_snapshot(ticker, category)
 
     return _coerce_normalized_payload(raw)
 
@@ -217,84 +188,16 @@ def _latest_context_ttl_seconds() -> int:
     return settings.MARKET_LATEST_CONTEXT_TTL_MINUTES * 60
 
 
-def _resolve_yfinance_news_symbol(ticker: str) -> str:
+LATEST_CONTEXT_FORCE_REFRESH_COOLDOWN_SECONDS = 300
+
+
+def _resolve_provider_news_symbol(ticker: str) -> str:
     normalized = (ticker or "").strip().upper()
     if normalized == "XAU":
         return "GC=F"
     if normalized == "XAG":
         return "SI=F"
     return ticker
-
-
-def _parse_yfinance_news_item(item: dict[str, Any]) -> dict[str, Any] | None:
-    content = item.get("content") if isinstance(item.get("content"), dict) else {}
-    canonical_url = content.get("canonicalUrl") if isinstance(content.get("canonicalUrl"), dict) else {}
-    provider = content.get("provider") if isinstance(content.get("provider"), dict) else {}
-
-    title = item.get("title") or content.get("title") or ""
-    link = item.get("link") or item.get("url") or canonical_url.get("url") or ""
-    source = item.get("publisher") or item.get("provider") or provider.get("displayName") or "unknown"
-    published_at = (
-        item.get("providerPublishTime")
-        or item.get("pubDate")
-        or content.get("pubDate")
-        or content.get("displayTime")
-        or ""
-    )
-    summary = item.get("summary") or content.get("summary") or content.get("description") or ""
-
-    if not title and not link:
-        return None
-
-    return {
-        "title": str(title),
-        "link": str(link),
-        "source": str(source),
-        "published_at": str(published_at),
-        "summary": str(summary),
-        "type": "news",
-    }
-
-
-def _fetch_latest_context_sync(symbol: str, limit: int = 8) -> dict[str, Any]:
-    ticker = yf.Ticker(symbol)
-    raw_news = ticker.news or []
-    news_items: list[dict[str, Any]] = []
-    for item in raw_news[:limit]:
-        if not isinstance(item, dict):
-            continue
-        parsed = _parse_yfinance_news_item(item)
-        if parsed:
-            news_items.append(parsed)
-
-    events: list[dict[str, Any]] = []
-    try:
-        calendar = ticker.calendar
-        if isinstance(calendar, dict):
-            calendar_items = calendar.items()
-        elif hasattr(calendar, "to_dict"):
-            calendar_items = calendar.to_dict().items()
-        else:
-            calendar_items = []
-
-        for label, value in calendar_items:
-            if value in (None, "", [], {}):
-                continue
-            events.append(
-                {
-                    "title": str(label),
-                    "value": str(value),
-                    "source": "yfinance calendar",
-                    "type": "event",
-                }
-            )
-    except Exception:
-        events = []
-
-    return {
-        "news": news_items,
-        "events": events[:8],
-    }
 
 
 def _is_latest_context_fresh(payload: dict[str, Any] | None, now: datetime) -> bool:
@@ -312,6 +215,21 @@ def _is_latest_context_fresh(payload: dict[str, Any] | None, now: datetime) -> b
     return (now - fetched_at).total_seconds() < _latest_context_ttl_seconds()
 
 
+def _is_latest_context_force_refresh_cooldown(payload: dict[str, Any] | None, now: datetime) -> bool:
+    if not payload:
+        return False
+    fetched_at_raw = payload.get("fetched_at")
+    if not fetched_at_raw:
+        return False
+    try:
+        fetched_at = datetime.fromisoformat(str(fetched_at_raw))
+    except ValueError:
+        return False
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    return (now - fetched_at).total_seconds() < LATEST_CONTEXT_FORCE_REFRESH_COOLDOWN_SECONDS
+
+
 async def fetch_latest_asset_context(ticker: str, *, force_refresh: bool = False) -> dict[str, Any]:
     asset_ticker = (ticker or "").strip()
     now = datetime.now(timezone.utc)
@@ -319,11 +237,13 @@ async def fetch_latest_asset_context(ticker: str, *, force_refresh: bool = False
     cached = cache_bucket.get(asset_ticker)
     if not force_refresh and _is_latest_context_fresh(cached, now):
         return cached
+    if force_refresh and _is_latest_context_force_refresh_cooldown(cached, now):
+        return cached
 
-    symbol = _resolve_yfinance_news_symbol(asset_ticker)
+    symbol = _resolve_provider_news_symbol(asset_ticker)
     try:
         fetched = await asyncio.wait_for(
-            asyncio.to_thread(_fetch_latest_context_sync, symbol),
+            fetch_latest_provider_context(symbol),
             timeout=8,
         )
         source_status = "fresh"
@@ -336,7 +256,7 @@ async def fetch_latest_asset_context(ticker: str, *, force_refresh: bool = False
         "symbol": symbol,
         "fetched_at": now.isoformat(),
         "ttl_seconds": _latest_context_ttl_seconds(),
-        "source": "yfinance",
+        "source": "multi-provider",
         "source_status": source_status,
         "news": fetched.get("news", []),
         "events": fetched.get("events", []),
@@ -369,7 +289,7 @@ async def _collect_news_group(group_name: str, tickers: dict[str, str]) -> tuple
 
     async def collect_one(label: str, symbol: str) -> None:
         try:
-            news_data = await asyncio.wait_for(asyncio.to_thread(_fetch_news_sync, symbol), timeout=8)
+            news_data = await asyncio.wait_for(fetch_market_news_items(symbol), timeout=8)
             results[label] = {"symbol": symbol, "items": news_data}
         except Exception as exc:
             print(f"[update_news_task] {label}({symbol}) failed: {exc}")

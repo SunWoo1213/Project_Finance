@@ -19,7 +19,7 @@ Browser
 - Frontend: React 19, Vite, JavaScript, Tailwind CSS, Zustand, React Router, Axios, Recharts, React Markdown.
 - Backend: Python, FastAPI, async SQLAlchemy, Alembic, APScheduler, Pydantic settings.
 - AI/report pipeline: LangGraph, LangChain, OpenAI 호환 설정, deterministic quality checks, optional LLM critics.
-- Data sources: `yfinance`, macro/bond/commodity helpers, 설정된 경우 search/context providers.
+- Data sources: Finnhub, CoinGecko Demo, 공공데이터포털, Stooq key 기반 daily CSV, open.er-api.com, Naver 뉴스, FRED/ECOS macro helpers, 설정된 경우 search/context providers.
 - Database: 일반 런타임은 PostgreSQL을 사용하며, 일부 테스트는 SQLite를 사용한다.
 
 ## 저장소 구조

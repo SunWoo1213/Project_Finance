@@ -23,6 +23,7 @@ Date: 2026-06-03
 | 6 | DB/Docker | Docker DB 값 불일치 + bootstrap 실패가 조용히 통과 | compose 하드코딩 vs `.env` 불일치, 기존 volume 잔존 | [docker-database-compatibility-implementation](docker-database-compatibility-implementation-2026-06-02.md) |
 | 7 | 정책/테스트 | 리포트 생성 권한 helper 테스트 401 vs 403 불일치 | endpoint 계약과 helper 단위 계약 혼재 | [project-defect-audit-report](project-defect-audit-report-2026-06-02.md) (D1) |
 | 8 | DB/로컬 | `/health`는 정상인데 DB 미연결 (startup warning) | 로컬 PostgreSQL 미기동 + bootstrap 실패 무시 설정 | 런타임 로그(아래 8번) |
+| 9 | 시장데이터/배포 | Render에서 Yahoo Finance 401 `Invalid Crumb` 또는 429 | 데이터센터 IP 기반 차단/제한과 동시 provider 호출 폭주 | [market-data-provider-migration-implementation](market-data-provider-migration-implementation-2026-06-03.md) |
 
 ---
 
@@ -89,6 +90,14 @@ Date: 2026-06-03
 - **원인**: 로컬 DB 미기동/연결 불가 상태에서 `ENABLE_DB_SCHEMA_BOOTSTRAP=true`라 bootstrap 실패를 warning으로 흡수하고 계속 진행. 이후 마켓 API가 DB 의존 시 런타임 오류로 이어짐.
 - **수정/대응**: 코드 변경 아님. 작업 전 `docker compose up -d db`로 DB 기동, `/db-check`로 연결 확인(503 + sanitized 진단이면 미연결). 6번 항목의 분리 정책과 한 쌍.
 - **예방**: DB 의존 작업 전 `/health`가 아닌 **`/db-check`로 readiness 확인**. 프로덕션은 `ENABLE_DB_SCHEMA_BOOTSTRAP=false`로 두어 실패 시 빠르게 드러나게 함.
+
+## 9. Render 시장 데이터 yfinance/Yahoo 차단
+
+- **증상/맥락**: Render 배포 환경에서 시장 가격/뉴스 warm-up 또는 scheduler 실행 시.
+- **에러**: `HTTP Error 401: ... "Invalid Crumb"`, `"User is unable to access this feature"`, `Too Many Requests. Rate limited.`, `argument of type 'NoneType' is not a container or iterable`.
+- **원인**: Yahoo Finance가 Render 데이터센터 IP에서 들어오는 yfinance 요청을 차단하거나 제한. 기존 가격 작업은 여러 자산군을 동시에 `gather`해 무료 provider rate limit에도 취약했다.
+- **수정**: production code path와 `backend/requirements.txt`에서 yfinance 제거. `price_providers.py`로 Finnhub, CoinGecko Demo, 공공데이터포털, Stooq key 기반 daily CSV, open.er-api.com, Naver 뉴스 provider를 분리하고 provider별 cache/cooldown을 적용. 파일: [price_providers.py](../../backend/app/services/price_providers.py), [market_service.py](../../backend/app/services/market_service.py), [macro_service.py](../../backend/app/services/macro_service.py), [main.py](../../backend/app/main.py).
+- **예방**: 데이터센터 IP에서 차단될 수 있는 비공식 scraping/provider를 production 핵심 경로로 두지 않는다. 무료 API는 key 미설정/429/빈 응답을 정상 edge case로 보고 cache, cooldown, degrade를 함께 구현한다.
 
 ---
 

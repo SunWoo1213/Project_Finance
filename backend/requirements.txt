@@ -5,7 +5,6 @@ sqlalchemy
 asyncpg
 aiosqlite
 alembic
-yfinance
 pandas
 apscheduler
 langchain-openai

@@ -42,21 +42,21 @@ const normalizeTicker = (value) => {
   }
 };
 
-const toHourlyPoints = (points) => {
+const toDailyPoints = (points) => {
   if (!Array.isArray(points)) return [];
 
-  const byHour = new Map();
+  const byDate = new Map();
   points.forEach((point) => {
     const rawDate = String(point.date || "");
-    const hourKey = rawDate.includes(" ") ? rawDate.slice(0, 13) : rawDate;
-    byHour.set(hourKey, {
+    const dateKey = rawDate.slice(0, 10) || rawDate;
+    byDate.set(dateKey, {
       date: rawDate,
-      time: rawDate.includes(" ") ? rawDate.slice(11, 16) : rawDate,
+      label: dateKey,
       value: Number(point.value ?? point.close),
     });
   });
 
-  return Array.from(byHour.values()).filter((point) => Number.isFinite(point.value));
+  return Array.from(byDate.values()).filter((point) => Number.isFinite(point.value));
 };
 
 export default function MarketSnapshot() {
@@ -100,7 +100,7 @@ export default function MarketSnapshot() {
           : [];
 
         setMarketInfo(matched);
-        setChartData(toHourlyPoints(points));
+        setChartData(toDailyPoints(points));
       } catch (error) {
         console.error("Failed to load market snapshot:", error);
         setMarketInfo(null);
@@ -123,7 +123,7 @@ export default function MarketSnapshot() {
   const latestPoint = useMemo(() => chartData.at(-1), [chartData]);
 
   if (isLoading) {
-    return <div className="py-20 text-center text-slate-400">시간 단위 데이터를 불러오는 중입니다...</div>;
+    return <div className="py-20 text-center text-slate-400">일별 흐름 데이터를 불러오는 중입니다...</div>;
   }
 
   if (!marketInfo) {
@@ -134,7 +134,7 @@ export default function MarketSnapshot() {
     <div className="mx-auto flex max-w-screen-md flex-col gap-8 px-4 py-8">
       <section>
         <div className="mb-5">
-          <div className="mb-2 text-sm font-semibold text-emerald-400">시간 단위 변화</div>
+          <div className="mb-2 text-sm font-semibold text-emerald-400">최근 일별 흐름</div>
           <h1 className="text-3xl font-bold text-slate-100">
             {displayName}
             <span className="ml-2 align-middle text-lg font-medium text-slate-400">({formatTicker(assetTicker)})</span>
@@ -147,15 +147,15 @@ export default function MarketSnapshot() {
 
         <div className="relative flex h-[420px] flex-col rounded-2xl border border-slate-700 bg-slate-800/60 p-5 shadow-inner">
           <div className="mb-4 flex items-center justify-between gap-3 text-sm text-slate-400">
-            <span>1일 장중 데이터</span>
-            {latestPoint && <span>최근 {latestPoint.time}</span>}
+            <span>Provider 기준 일별 데이터</span>
+            {latestPoint && <span>최근 {latestPoint.label}</span>}
           </div>
 
           <div className="h-[330px] w-full">
             {chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 20, right: 28, left: 6, bottom: 8 }}>
-                  <XAxis dataKey="time" stroke="#94a3b8" tick={{ fontSize: 12 }} minTickGap={24} />
+                  <XAxis dataKey="label" stroke="#94a3b8" tick={{ fontSize: 12 }} minTickGap={24} />
                   <YAxis
                     domain={["dataMin", "dataMax"]}
                     orientation="right"
@@ -174,13 +174,13 @@ export default function MarketSnapshot() {
                     }}
                     itemStyle={{ color: strokeColor }}
                     formatter={(value) => [formatPrice(value, meta.category), "Price"]}
-                    labelFormatter={(value) => `시간 ${value}`}
+                    labelFormatter={(value) => `기준일 ${value}`}
                   />
                   <Line type="monotone" dataKey="value" stroke={strokeColor} strokeWidth={3} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex h-full items-center justify-center text-slate-400">시간 단위 차트 데이터가 없습니다.</div>
+              <div className="flex h-full items-center justify-center text-slate-400">일별 차트 데이터가 없습니다.</div>
             )}
           </div>
         </div>

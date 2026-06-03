@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     ECOS_API_KEY: str | None = None
     FMP_API_KEY: str | None = None
     FINNHUB_API_KEY: str | None = None
+    COINGECKO_DEMO_API_KEY: str | None = None
+    DATA_GO_KR_API_KEY: str | None = None
+    STOOQ_API_KEY: str | None = None
     GOOGLE_CLIENT_ID: str | None = None
 
     # Deployment/runtime environment

@@ -13,6 +13,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - App startup and public market endpoints: `backend/app/main.py`
 - In-memory cache object: `backend/app/core/cache.py`
 - Price/news collection and normalization: `backend/app/services/market_service.py`
+- Free market provider routing, symbol mapping, history/news normalization, provider cache/cooldown: `backend/app/services/price_providers.py`
 - Bond and commodity macro data: `backend/app/services/macro_service.py`
 - Home page: `frontend/src/pages/Home.jsx`
 - Main market snapshot page: `frontend/src/pages/MarketSnapshot.jsx`
@@ -32,17 +33,19 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 5. `GET /api/market/prices` returns the cached category object.
 6. `GET /api/market/news` returns the cached news object.
 7. The home page renders S&P 500, Nasdaq 100, USD/KRW, and KOSPI from the `macro` cache and lists cached global news below the market cards.
-8. Main market cards route to `/market/:ticker`, which shows a 1-day time-based chart and a link to the related dashboard instead of the AI report/community detail flow.
-9. `GET /api/market/latest-context/{ticker}` fetches ticker-specific news and calendar events with a short per-ticker TTL cache. The TTL is configurable in minutes via `MARKET_LATEST_CONTEXT_TTL_MINUTES` (default 10, minimum 1); `_latest_context_ttl_seconds()` in `market_service.py` reads it at call time.
+8. Main market cards route to `/market/:ticker`, which shows provider-dated daily history and a link to the related dashboard instead of the AI report/community detail flow.
+9. `GET /api/market/latest-context/{ticker}` fetches ticker-specific news and calendar events with a short per-ticker TTL cache. The TTL is configurable in minutes via `MARKET_LATEST_CONTEXT_TTL_MINUTES` (default 10, minimum 1); `_latest_context_ttl_seconds()` in `market_service.py` reads it at call time. `force_refresh=true` still respects a 5-minute minimum cooldown.
 10. `GET /api/market/history/{ticker}?period=...` routes by ticker type:
    - Korean bonds use `fetch_kr_bond_history`.
    - US bonds use `fetch_us_bond_data`.
-   - Commodities use `fetch_commodity_data`.
-   - Other assets use yfinance history.
+   - US stocks, US indices, and commodities use Stooq daily CSV only when `STOOQ_API_KEY` is configured; otherwise they degrade to empty daily history.
+   - Crypto uses CoinGecko Demo API.
+   - Korean stocks and Korean indices use 공공데이터포털 금융위원회 stock/index price APIs.
+   - USD/KRW uses open.er-api.com as daily reference FX and returns a single provider-dated point when no historical provider is configured.
 11. Frontend pages select the relevant group and normalize fallback fields such as `points`, `legacy`, `value`, `currentPrice`, and `changePercent`.
 12. `CategoryView.jsx` and `AssetDetail.jsx` both use `getUiCategory` from `frontend/src/utils/assetCategories.js`, so Korean stocks, crypto, bonds, commodities, FX, and macro index tickers share the same display category rules.
 13. Category lists let users favorite individual assets from the rightmost star button and open favorited assets through the right-side favorites panel.
-14. The chatbot can summarize the existing `market_cache` and ticker latest-context data, using existing cache/TTL behavior rather than adding a new provider path.
+14. The chatbot can summarize the existing `market_cache` and ticker latest-context data, using existing cache/TTL/cooldown behavior rather than adding a fresh report generation path.
 15. Favorite asset notifications evaluate cached price/news data only. The evaluator does not call external market providers directly and does not generate AI reports.
 16. Frontend market pages use the shared API client, so hosted API origin is controlled by `VITE_API_BASE_URL` instead of page-level localhost literals.
 
@@ -54,10 +57,12 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - History endpoint: `GET /api/market/history/{ticker}`
 - Optional runtime controls for local smoke checks: `ENABLE_MARKET_WARMUP=false`, `ENABLE_SCHEDULER=false`
 - Market data refresh cadence controls (minutes, report-independent): `MARKET_PRICES_REFRESH_MINUTES=5`, `MARKET_NEWS_REFRESH_MINUTES=60`, `MARKET_LATEST_CONTEXT_TTL_MINUTES=10`. Values are clamped to a minimum of 1 and loaded at process start (restart required after change).
+- Market provider keys: `FINNHUB_API_KEY` for US stock quote/news/events, `COINGECKO_DEMO_API_KEY` for crypto price/history, `DATA_GO_KR_API_KEY` for Korean stock/index price APIs, and optional `STOOQ_API_KEY` for US stock/index/commodity daily CSV history.
+- USD/KRW uses open.er-api.com open access data as daily reference FX. It is not treated as realtime trading-grade FX.
 - Hosted deployment startup should keep `ENABLE_MARKET_WARMUP=false` and `ENABLE_SCHEDULER=false` for the first smoke release, then enable runtime jobs after API/DB checks and cost review.
 - Optional report scheduler policy controls: `REPORT_SCHEDULER_COVERAGE=conservative`, `REPORT_SCHEDULER_INTERVAL_HOURS=6`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=5`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS=6`, `REPORT_SCHEDULER_TARGET_TICKERS=DGS10,XAU,BTC-USD,NVDA,005930.KS`
 - Target report schedule rule: report generation is backend-scheduled every 6 hours and user/chatbot paths read stored reports only. The 2026-06-01 implementation limits scheduled coverage to five representative assets for API cost control; see `docs/harness/report-generation-schedule-alignment-implementation-2026-06-01.md`.
-- Supported history periods: `1d`, `1mo`, `1y`, `5y`
+- Supported history periods: `1d`, `1mo`, `1y`, `5y`. Free-provider replacement paths return provider-dated daily points for all periods; `1d` is no longer a 5-minute intraday chart.
 - Main market snapshot route: `/market/:ticker`
 - Chat market guidance endpoint: `POST /api/chat/message`
 - Preferred history shape:
@@ -103,11 +108,15 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/project-defect-remediation-plan-2026-06-02.md`
 - `docs/harness/report-scheduler-structured-output-error-fix-2026-06-02.md`
 - `docs/harness/market-data-refresh-cadence-env-switch-2026-06-03.md`
+- `docs/harness/market-data-provider-migration-plan-2026-06-03.md`
+- `docs/harness/market-data-provider-migration-implementation-2026-06-03.md`
 
 ## Open Risks
 
 - Market routes still live in `backend/app/main.py`; growth may justify moving them to `backend/app/api/market.py`.
 - New market page API calls should continue to use `frontend/src/utils/apiClient.js`; avoid reintroducing page-level API origin literals.
 - External provider behavior can change without code changes.
+- Free provider constraints remain: Stooq daily CSV currently requires `STOOQ_API_KEY`, open.er-api.com is daily reference FX with attribution requirements, 공공데이터포털 data can be T+1 despite realtime metadata, and Naver Finance News is a non-contractual page-based source.
+- Missing provider keys intentionally degrade affected asset classes to empty snapshots/history/news instead of retrying aggressively.
 - Full scheduled report coverage is intentionally not enabled; changing `REPORT_SCHEDULER_COVERAGE` away from `conservative` currently logs a warning and still avoids broad seeding because broader LLM/API usage needs product approval.
 - The report scheduler now wakes every 6 hours and uses a 6-hour per-asset cooldown, but coverage is limited to the configured representative ticker list.

@@ -6,6 +6,7 @@
 
 - `market_service.py`: 자산 목록, 가격/뉴스 수집, 프론트용 데이터 형태 정규화, 시장 캐시 갱신
 - `macro_service.py`: 한국/미국 채권, 원자재 등 매크로 데이터 조회
+- `price_providers.py`: Finnhub, CoinGecko, 공공데이터포털, Stooq, open.er-api.com, Naver 뉴스 provider 심볼 매핑·정규화·cache/cooldown
 - `ai_service.py`: AI 리포트 생성 요청의 상위 orchestration
 - `external_api_service.py`: 외부 API 연동 추상화 지점
 - `graph`: LangGraph 기반 멀티 에이전트 리포트 생성 로직
@@ -14,7 +15,7 @@
 
 서비스는 라우터보다 오래 살아남는 도메인 로직입니다. 같은 기능이 여러 API에서 쓰일 가능성이 있으면 서비스 함수로 만듭니다.
 
-외부 API 응답은 이 레이어에서 백엔드 내부 표준 형태로 변환합니다. 프론트는 yfinance, ECOS, FRED의 원본 응답 구조를 알 필요가 없습니다.
+외부 API 응답은 이 레이어에서 백엔드 내부 표준 형태로 변환합니다. 프론트는 Finnhub, CoinGecko, 공공데이터포털, Stooq, open.er-api.com, ECOS, FRED의 원본 응답 구조를 알 필요가 없습니다.
 
 금융 데이터는 빈 값, 휴장일, 지연 응답, provider별 ticker 차이를 고려해야 합니다. 새 provider를 붙일 때는 실패 시 fallback 또는 명확한 빈 응답을 제공합니다.
 
@@ -30,7 +31,7 @@
 
 서비스 변경은 사용자 화면과 API 계약까지 이어지는 경우가 많으므로 기능 문서 갱신을 함께 합니다.
 
-- `market_service.py`, `macro_service.py`, `external_api_service.py`의 시장 데이터 관련 변경: `docs/harness/features/market-data.md`
+- `market_service.py`, `macro_service.py`, `price_providers.py`, `external_api_service.py`의 시장 데이터 관련 변경: `docs/harness/features/market-data.md`
 - `ai_service.py`, `graph/`의 리포트 생성 관련 변경: `docs/harness/features/asset-detail-ai-community.md`
 
 외부 provider, ticker 매핑, 캐시 shape, 리포트 생성 조건, LLM 호출 조건을 바꾸면 `docs/harness/`에 변경 기록을 남기고 기능 문서의 `Data Flow`, `Contracts`, `Open Risks`를 갱신합니다.

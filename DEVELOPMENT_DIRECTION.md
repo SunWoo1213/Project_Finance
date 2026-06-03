@@ -10,7 +10,7 @@
 - Backend: FastAPI + SQLAlchemy Async + APScheduler
 - Database: PostgreSQL
 - AI/Report: LangGraph/LangChain 기반 리포트 생성 파이프라인
-- External Data: yfinance, ECOS/FRED 계열 매크로 데이터, 기타 무료 데이터 소스
+- External Data: Finnhub, CoinGecko Demo, 공공데이터포털, Stooq key 기반 daily CSV, open.er-api.com, Naver 뉴스, ECOS/FRED 계열 매크로 데이터
 
 주의: `ARCHITECTURE.md`에는 Next.js, TypeScript, uv 중심의 미래 청사진이 섞여 있습니다. 실제 코드는 React Vite와 `requirements.txt` 기반 FastAPI 프로젝트입니다. 개발 판단은 현재 실행되는 코드 구조를 우선합니다.
 

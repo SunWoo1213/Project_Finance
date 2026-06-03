@@ -2,7 +2,6 @@ from contextlib import asynccontextmanager
 import logging
 from datetime import datetime, timedelta
 
-import yfinance as yf
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,16 +17,15 @@ from .services.ai_service import (
 )
 from .services.market_service import fetch_latest_asset_context, update_news_task, update_prices_task
 from .services.notification_service import evaluate_notifications, send_pending_notifications
+from .services.price_providers import fetch_market_history
 try:
     from app.services.macro_service import (
-        fetch_commodity_data,
         fetch_kr_bond_data,
         fetch_kr_bond_history,
         fetch_us_bond_data,
     )
 except ModuleNotFoundError:
     from .services.macro_service import (
-        fetch_commodity_data,
         fetch_kr_bond_data,
         fetch_kr_bond_history,
         fetch_us_bond_data,
@@ -377,7 +375,7 @@ async def get_market_history(ticker: str, period: str = Query("1y", pattern="^(1
                 for i, price in enumerate(history_prices)
             ]
 
-        # Macro routing: KR bonds / US bonds / commodities
+        # Bond providers preserve the existing FRED/ECOS routes.
         if asset_ticker in [
             "KTB_1Y",
             "KTB_3Y",
@@ -423,49 +421,14 @@ async def get_market_history(ticker: str, period: str = Query("1y", pattern="^(1
                 "points": points,
                 "legacy": [{"date": p["date"], "close": p["value"], "value": p["value"]} for p in points],
             }
-        elif asset_ticker in ["XAU", "XAG", "GC=F", "SI=F"]:
-            data = await fetch_commodity_data(asset_ticker)
-            history_prices = data.get("history_prices", [])
-            if not history_prices:
-                raise HTTPException(status_code=404, detail=f"No commodity history found for ticker: {asset_ticker}")
-            points = build_points(history_prices)
-            return {
-                "ticker": asset_ticker,
-                "series_type": "price",
-                "unit": "USD",
-                "points": points,
-                "legacy": [{"date": p["date"], "close": p["value"], "value": p["value"]} for p in points],
-            }
 
-        # Default path: yfinance stock/crypto history
-        if period == "1d":
-            interval = "5m"
-        elif period == "1mo" or period == "1y":
-            interval = "1d"
-        elif period == "5y":
-            interval = "1wk"
-        else:
-            interval = "1d"
-
-        stock = yf.Ticker(asset_ticker)
-        df = stock.history(period=period, interval=interval)
-        
-        if df.empty:
-            return []
-
-        result = []
-        for index, row in df.iterrows():
-            date_str = index.strftime("%Y-%m-%d %H:%M") if period == "1d" else index.strftime("%Y-%m-%d")
-            result.append({
-                "date": date_str,
-                "value": float(row["Close"]),
-            })
+        data = await fetch_market_history(asset_ticker, period)
         return {
-            "ticker": asset_ticker,
-            "series_type": "price",
-            "unit": "USD",
-            "points": result,
-            "legacy": [{"date": p["date"], "close": p["value"], "value": p["value"]} for p in result],
+            "ticker": data.get("ticker", asset_ticker),
+            "series_type": data.get("series_type", "price"),
+            "unit": data.get("unit", "USD"),
+            "points": data.get("points", []),
+            "legacy": data.get("legacy", []),
         }
     except HTTPException:
         raise

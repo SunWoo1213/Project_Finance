@@ -9,6 +9,7 @@ from ..core.config import settings
 
 FMP_API_KEY = settings.FMP_API_KEY or ""
 FINNHUB_API_KEY = settings.FINNHUB_API_KEY or ""
+COINGECKO_DEMO_API_KEY = settings.COINGECKO_DEMO_API_KEY or ""
 
 COINGECKO_TICKER_MAP = {
     "BTC-USD": "bitcoin",
@@ -181,6 +182,12 @@ async def fetch_finnhub_news(ticker: str) -> str:
 async def fetch_coingecko_data_structured(ticker: str) -> dict[str, Any]:
     if not ticker:
         return _empty_provider_payload("CoinGecko", "missing", "ticker가 없어 CoinGecko 데이터를 수집하지 않았습니다.")
+    if not COINGECKO_DEMO_API_KEY:
+        return _empty_provider_payload(
+            "CoinGecko",
+            "missing",
+            "COINGECKO_DEMO_API_KEY가 없어 CoinGecko 데이터를 수집하지 않았습니다.",
+        )
 
     coin_id = COINGECKO_TICKER_MAP.get(str(ticker).upper())
     if not coin_id:
@@ -193,7 +200,7 @@ async def fetch_coingecko_data_structured(ticker: str) -> dict[str, Any]:
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(url)
+            response = await client.get(url, headers={"x-cg-demo-api-key": COINGECKO_DEMO_API_KEY})
             response.raise_for_status()
             payload = response.json()
 

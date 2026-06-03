@@ -150,7 +150,7 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 ## Open Risks
 
 - Report generation is coupled to external APIs and LLM configuration.
-- Latest news/calendar coverage depends on yfinance provider availability and may be sparse for Korean assets, bonds, and macro tickers.
+- Latest news/calendar coverage depends on Finnhub, Naver news, and provider-specific cache/cooldown behavior; Korean events, bonds, and macro tickers may still be sparse.
 - `AssetDetail.jsx` still owns several responsibilities and may need future decomposition.
 - Report metadata columns now have Alembic baseline coverage, but existing hosted databases still need `python -m alembic upgrade head` before running with `ENABLE_DB_SCHEMA_BOOTSTRAP=false`.
 - Existing running database instances need the backend lifespan to run again so `comment_reports` is created.

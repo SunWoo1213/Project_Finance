@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from datetime import datetime, timedelta
@@ -8,9 +7,9 @@ from time import monotonic
 from typing import Any
 
 import httpx
-import yfinance as yf
 
 from ..core.config import settings
+from .price_providers import fetch_market_snapshot
 
 FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
 ECOS_BASE_URL = "https://ecos.bok.or.kr/api/StatisticSearch"
@@ -132,23 +131,11 @@ def _mark_failed_call(key: str) -> None:
 
 async def fetch_commodity_data(ticker: str) -> dict[str, Any]:
     normalized_ticker = (ticker or "").strip().upper()
-    if normalized_ticker in {"XAU", "GC=F"}:
-        yf_ticker = "GC=F"
-    elif normalized_ticker in {"XAG", "SI=F"}:
-        yf_ticker = "SI=F"
-    else:
-        yf_ticker = normalized_ticker
 
     try:
-        ticker_obj = yf.Ticker(yf_ticker)
-        hist = await asyncio.to_thread(ticker_obj.history, period="1mo")
-        if hist.empty:
-            logger.warning("Empty commodity history from yfinance: %s", yf_ticker)
-            return DEFAULT_RESPONSE
-        history_prices = [float(v) for v in hist["Close"].tolist()[-30:]]
-        return _normalize_history(history_prices)
+        return await fetch_market_snapshot(normalized_ticker, "COMMODITY")
     except Exception as exc:
-        logger.error("Commodity fetch error (%s): %s", yf_ticker, exc)
+        logger.error("Commodity fetch error (%s): %s", normalized_ticker, exc)
         return DEFAULT_RESPONSE
 
 
