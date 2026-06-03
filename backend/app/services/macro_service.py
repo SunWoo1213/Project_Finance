@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from ..core.config import settings
+from ..core.log_sanitizer import redact_secrets
 from .price_providers import fetch_market_snapshot
 
 FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
@@ -135,7 +136,7 @@ async def fetch_commodity_data(ticker: str) -> dict[str, Any]:
     try:
         return await fetch_market_snapshot(normalized_ticker, "COMMODITY")
     except Exception as exc:
-        logger.error("Commodity fetch error (%s): %s", normalized_ticker, exc)
+        logger.error("Commodity fetch error (%s): %s", normalized_ticker, redact_secrets(repr(exc), [ECOS_API_KEY]))
         return DEFAULT_RESPONSE
 
 
@@ -218,7 +219,7 @@ async def fetch_kr_bond_data(
             normalized_item_code,
             start_date,
             end_date_str,
-            exc,
+            redact_secrets(repr(exc), [ECOS_API_KEY]),
         )
         _mark_failed_call(request_key)
         return DEFAULT_RESPONSE
@@ -297,7 +298,7 @@ async def fetch_kr_bond_history(
             normalized_item_code,
             start_date,
             end_date_str,
-            exc,
+            redact_secrets(repr(exc), [ECOS_API_KEY]),
         )
         _mark_failed_call(request_key)
         return DEFAULT_HISTORY_RESPONSE

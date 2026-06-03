@@ -16,7 +16,7 @@ Local Docker PostgreSQL reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB
 
 `/health` is app liveness only and does not test the database. `/db-check` is the readiness check for DB connectivity and returns a sanitized source/scheme/host/port diagnostic without exposing credentials.
 
-Runtime logging avoids leaking secrets. Root logging stays at INFO, but `httpx`, `httpcore`, and `sqlalchemy.engine` loggers are forced to `WARNING` in `backend/app/main.py` so external request URLs (which carry provider API keys in their query strings) and SQL echo statements are not printed at INFO. `SQLALCHEMY_ECHO` defaults to false and should stay false in production; the logger-level guard is a second line of defense. Any provider key that appeared in logs before this guard is treated as compromised and must be rotated at the issuer with Render env vars updated (operational task).
+Runtime logging avoids leaking secrets in two layers. (1) Root logging stays at INFO, but `httpx`, `httpcore`, and `sqlalchemy.engine` loggers are forced to `WARNING` in `backend/app/main.py` so external request URLs (which carry provider API keys in their query strings) and SQL echo statements are not printed at INFO. (2) Because application loggers still emit external exceptions at WARNING/ERROR and those exception strings embed the full request URL, `backend/app/core/log_sanitizer.py` provides `redact_secrets()`, which masks sensitive query-param values (and literal secrets such as the ECOS key carried in the URL path) before logging. It is applied to provider/macro exception logs (`price_providers.py`, `macro_service.py`) and to the `/api/market/history` 500 handler `detail` in `main.py` so a FRED `HTTPStatusError` cannot leak `api_key` in the HTTP response body. `SQLALCHEMY_ECHO` defaults to false and should stay false in production. Any provider key that appeared in logs before these guards is treated as compromised and must be rotated at the issuer with Render env vars updated (operational task); the 2026-06-03 runtime logs confirmed the data.go.kr `serviceKey` was exposed.
 
 ## Ownership Map
 
@@ -30,7 +30,8 @@ Runtime logging avoids leaking secrets. Root logging stays at INFO, but `httpx`,
 - Vercel SPA routing: `frontend/vercel.json`
 - Frontend API origin: `frontend/src/utils/apiClient.js`
 - Backend runtime settings: `backend/app/core/config.py`
-- Backend CORS and startup checks: `backend/app/main.py`
+- Backend CORS, startup checks, and logger-level guard: `backend/app/main.py`
+- Log/exception secret masking: `backend/app/core/log_sanitizer.py`
 - Backend SQLAlchemy engine: `backend/app/db/session.py`
 - Alembic schema baseline: `backend/alembic/versions/20260601_0001_add_subscription_billing_tables.py`
 - Backend deployment guidance: `backend/DEVELOPMENT_DIRECTION.md`
@@ -126,4 +127,4 @@ Local Docker flow:
 - Supabase direct connection versus pooler mode must be tested with SQLAlchemy asyncpg before production traffic.
 - Scheduler should start disabled for the first smoke release and be enabled only after API, DB, cost, and rate-limit checks.
 - Existing local `postgres_data` volumes can preserve old DB user/password/name values. Resetting a volume is a data-loss action and needs explicit confirmation.
-- Provider API keys (Finnhub token, FRED `api_key`, ECOS key, Stooq `apikey`) that appeared in INFO request logs before the logger-level guard are treated as compromised and must be rotated at the issuer with Render env vars updated; the code guard only prevents future re-exposure.
+- The data.go.kr `serviceKey` was confirmed exposed in 2026-06-03 runtime WARNING logs and must be rotated at the issuer with Render env vars updated. Other provider keys (Finnhub token, FRED `api_key`, ECOS key, Stooq `apikey`) that may have appeared in logs are also treated as compromised; the code guards only prevent future re-exposure.

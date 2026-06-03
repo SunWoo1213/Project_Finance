@@ -27,7 +27,7 @@ Date: 2026-06-03
 | 10 | 시장데이터/워밍업 | 모든 HTTP가 `200 OK`인데 다수 종목이 빈 `failed:`로 실패 | provider별 `Semaphore(1)` 직렬화 + per-asset 타임아웃(15s/8s) 충돌, `str(TimeoutError())`가 빈 문자열 | [market-data-warmup-provider-throttle-timeout-implementation](market-data-warmup-provider-throttle-timeout-implementation-2026-06-04.md) |
 | 11 | AI/스케줄러 | `NVDA 리포트 실패: No cached market data found` | startup report job이 비차단 market warm-up 완료 전에 실행 | [report-scheduler-market-cache-miss-fallback](report-scheduler-market-cache-miss-fallback-2026-06-04.md) |
 | 12 | AI/품질게이트 | `/api/reports/NVDA` 영구 404 (생성은 매번 실패) | writer 환각 숫자 → fact_checker 반복 거부 → revision 한계 초과 미저장 | [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md) |
-| 13 | 보안/로깅 | 런타임 로그에 외부 API 키 평문 노출 | root INFO + `httpx` 로거가 쿼리스트링 키 포함 URL 출력, SQL echo | [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md) |
+| 13 | 보안/로깅 | 런타임 로그/응답에 외부 API 키 평문 노출 | httpx INFO + 앱 로거가 예외(URL 포함)를 그대로 출력, `detail=str(e)` | [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md) |
 
 ---
 
@@ -127,13 +127,15 @@ Date: 2026-06-03
 - **수정**: fact_checker 판정·허용 집합은 그대로 두고(엄격성 불변), `_describe_supported_numbers(state)` 헬퍼로 같은 fact 소스의 **원문 숫자 토큰**을 모아 `writer_node` 프롬프트에 `allowed_numbers` 화이트리스트로 주입. "이 목록과 0~10·연도 외 숫자는 금지, 필요하면 정성 서술/데이터 한계로" 규율 강화. 파일: [nodes.py](../../backend/app/services/graph/nodes.py), [test_ai_report_quality_gate.py](../../backend/tests/test_ai_report_quality_gate.py). 출처: [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md).
 - **예방**: 품질 게이트를 "거부 사유만" 피드백하지 말고 **허용 입력을 명시적으로 제공**해 첫 초안 통과율을 올린다. 게이트(검증자)와 생성자(writer)가 같은 fact 소스에서 파생된 허용 집합을 공유해 둘이 어긋나지 않게 한다. 게이트를 약화시키지 말고 입력을 친절하게 한다.
 
-## 13. 런타임 로그에 외부 API 키 평문 노출 + 과도한 SQL echo
+## 13. 런타임 로그/응답에 외부 API 키 평문 노출 + 과도한 SQL echo
 
-- **증상/맥락**: Render 배포 런타임 로그. 외부 데이터 호출 시.
-- **에러(로그)**: 외부 호출 URL이 INFO로 출력되며 쿼리스트링에 Finnhub `token`, FRED `api_key`, ECOS key, Stooq `apikey`가 평문 노출. `sqlalchemy.engine.Engine` SQL echo가 긴 카탈로그 쿼리까지 출력.
-- **원인**: `logging.basicConfig(level=logging.INFO)`로 root가 INFO라 `httpx` 로거가 모든 외부 요청 URL을 INFO로 찍는다. `SQLALCHEMY_ECHO=true`(Render 환경변수 추정)로 SQL echo가 켜져 있었다.
-- **수정**: `main.py`에서 `httpx`/`httpcore`/`sqlalchemy.engine` 로거 레벨을 `WARNING`으로 낮춤(root는 INFO 유지, 앱 로그는 그대로). `SQLALCHEMY_ECHO=false` 확인은 운영 작업. 파일: [main.py](../../backend/app/main.py). 출처: [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md).
-- **예방**: 외부 호출 URL을 INFO로 남기지 않는다(쿼리스트링 키 노출). 노출된 키는 AGENTS.md 8절에 따라 손상으로 간주하고 발급처에서 로테이션 후 Render 환경변수 갱신·재배포(코드와 독립된 운영 작업). 비밀은 가능하면 헤더로 보내거나 URL 마스킹.
+- **증상/맥락**: Render 배포 런타임 로그. 외부 데이터 호출 실패 시.
+- **에러(로그)**: `app.services.price_providers` **WARNING** 라인에 `... for url 'https://apis.data.go.kr/...?serviceKey=<평문키>&...'`가 그대로 출력(2026-06-03 로그로 직접 확인). 추가로 `httpx`/`sqlalchemy.engine.Engine`가 INFO로 외부 URL·SQL echo를 과도하게 출력.
+- **원인(두 갈래)**:
+  1. **로거 레벨**: root가 INFO라 `httpx` 로거가 모든 외부 요청 URL(쿼리스트링 키 포함)을 INFO로 찍고, `SQLALCHEMY_ECHO=true`로 SQL echo가 켜져 있었다.
+  2. **애플리케이션 레벨 예외 로깅(실제 확인된 누수)**: provider/macro 서비스가 `logger.warning(..., %r, exc)` / `logger.error(..., exc)`로 `HTTPStatusError`를 그대로 출력하는데, 이 예외 문자열에 요청 URL 전체(키 포함)가 들어 있다. `main.py`의 `/api/market/history` 500 핸들러는 `detail=str(e)`로 FRED 예외(api_key 쿼리)를 **HTTP 응답 본문**으로까지 노출할 수 있었다. 이 경로는 1차 로거 레벨 조정으로는 막히지 않는다.
+- **수정**: (1) `main.py`에서 `httpx`/`httpcore`/`sqlalchemy.engine` 로거 레벨을 `WARNING`으로 낮춤. (2) `app/core/log_sanitizer.py`의 `redact_secrets()`로 민감 쿼리 파라미터 값과 리터럴 키(ECOS는 URL 경로에 키가 들어감)를 `***`로 마스킹하고, price_providers 4곳·macro_service 3곳의 예외 로그와 `main.py` 500 핸들러 `detail`에 적용. `SQLALCHEMY_ECHO=false` 확인은 운영. 파일: [main.py](../../backend/app/main.py), [log_sanitizer.py](../../backend/app/core/log_sanitizer.py), [price_providers.py](../../backend/app/services/price_providers.py), [macro_service.py](../../backend/app/services/macro_service.py), [test_log_sanitizer.py](../../backend/tests/test_log_sanitizer.py). 출처: [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md).
+- **예방**: 외부 호출 예외를 로그/응답에 그대로 출력하지 않는다 — URL에 키가 박힌다. **로거 레벨 낮추기만으로는 부족**하고, 애플리케이션이 직접 찍는 예외/응답 detail은 `redact_secrets()`로 마스킹해야 한다. 키가 쿼리가 아닌 **경로**에 들어가는 provider(ECOS)는 리터럴 마스킹 필요. 노출된 키는 AGENTS.md 8절에 따라 손상으로 간주·로테이션. data.go.kr `serviceKey`는 로그로 노출 확인됐으므로 재발급 대상.
 
 ---
 

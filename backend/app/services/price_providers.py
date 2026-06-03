@@ -13,6 +13,7 @@ from urllib.parse import quote
 import httpx
 
 from ..core.config import settings
+from ..core.log_sanitizer import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -625,7 +626,7 @@ async def fetch_market_snapshot(ticker: str, category: str | None = None) -> dic
         else:
             payload = dict(DEFAULT_RESPONSE)
     except Exception as exc:
-        logger.warning("Market snapshot provider failed (ticker=%s, category=%s): %r", normalized, category, exc)
+        logger.warning("Market snapshot provider failed (ticker=%s, category=%s): %s", normalized, category, redact_secrets(repr(exc)))
         payload = dict(DEFAULT_RESPONSE)
 
     return _cache_set(_snapshot_cache, cache_key, payload)
@@ -661,7 +662,7 @@ async def fetch_market_history(ticker: str, period: str = "1y") -> dict[str, Any
         else:
             payload = _history_payload(normalized, [])
     except Exception as exc:
-        logger.warning("Market history provider failed (ticker=%s, period=%s): %r", normalized, period, exc)
+        logger.warning("Market history provider failed (ticker=%s, period=%s): %s", normalized, period, redact_secrets(repr(exc)))
         payload = _history_payload(normalized, [])
 
     return _cache_set(_history_cache, cache_key, payload)
@@ -781,7 +782,7 @@ async def fetch_market_news_items(ticker: str, limit: int = 5) -> list[dict[str,
         else:
             items = await _fetch_finnhub_category_news("general", limit)
     except Exception as exc:
-        logger.warning("Market news provider failed (ticker=%s): %r", normalized, exc)
+        logger.warning("Market news provider failed (ticker=%s): %s", normalized, redact_secrets(repr(exc)))
         items = []
     return _cache_set(_snapshot_cache, cache_key, items)
 
@@ -832,6 +833,6 @@ async def fetch_latest_provider_context(ticker: str, limit: int = 8) -> dict[str
     try:
         events = await fetch_finnhub_earnings_events(normalized, limit=limit)
     except Exception as exc:
-        logger.warning("Market events provider failed (ticker=%s): %r", normalized, exc)
+        logger.warning("Market events provider failed (ticker=%s): %s", normalized, redact_secrets(repr(exc)))
         events = []
     return {"news": news_items[:limit], "events": events[:limit]}

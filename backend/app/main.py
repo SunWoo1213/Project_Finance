@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .core.cache import market_cache
 from .core.config import settings
+from .core.log_sanitizer import redact_secrets
 from .db.session import engine, get_db
 from .models import AIReport, Asset, Base
 from .services.ai_service import (
@@ -452,7 +453,9 @@ async def get_market_history(ticker: str, period: str = Query("1y", pattern="^(1
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # 외부 데이터 예외(FRED HTTPStatusError 등)에는 URL 쿼리스트링의 API 키가
+        # 포함될 수 있어, 응답 detail에 시크릿이 새지 않도록 마스킹한다.
+        raise HTTPException(status_code=500, detail=redact_secrets(str(e)))
 
 
 def ensure_report_generation_allowed(user: User) -> None:
