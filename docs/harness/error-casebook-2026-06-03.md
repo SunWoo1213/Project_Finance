@@ -26,6 +26,8 @@ Date: 2026-06-03
 | 9 | 시장데이터/배포 | Render에서 Yahoo Finance 401 `Invalid Crumb` 또는 429 | 데이터센터 IP 기반 차단/제한과 동시 provider 호출 폭주 | [market-data-provider-migration-implementation](market-data-provider-migration-implementation-2026-06-03.md) |
 | 10 | 시장데이터/워밍업 | 모든 HTTP가 `200 OK`인데 다수 종목이 빈 `failed:`로 실패 | provider별 `Semaphore(1)` 직렬화 + per-asset 타임아웃(15s/8s) 충돌, `str(TimeoutError())`가 빈 문자열 | [market-data-warmup-provider-throttle-timeout-implementation](market-data-warmup-provider-throttle-timeout-implementation-2026-06-04.md) |
 | 11 | AI/스케줄러 | `NVDA 리포트 실패: No cached market data found` | startup report job이 비차단 market warm-up 완료 전에 실행 | [report-scheduler-market-cache-miss-fallback](report-scheduler-market-cache-miss-fallback-2026-06-04.md) |
+| 12 | AI/품질게이트 | `/api/reports/NVDA` 영구 404 (생성은 매번 실패) | writer 환각 숫자 → fact_checker 반복 거부 → revision 한계 초과 미저장 | [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md) |
+| 13 | 보안/로깅 | 런타임 로그에 외부 API 키 평문 노출 | root INFO + `httpx` 로거가 쿼리스트링 키 포함 URL 출력, SQL echo | [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md) |
 
 ---
 
@@ -117,6 +119,22 @@ Date: 2026-06-03
 - **수정**: `market_service.ensure_price_cache_for_ticker()`로 scheduled report 대상 ticker 하나만 캐시 보강하고, `generate_report_for_ticker()`가 가격 캐시 miss 시 이 보강을 한 번 시도한 뒤 다시 조회한다. 파일: [market_service.py](../../backend/app/services/market_service.py), [ai_service.py](../../backend/app/services/ai_service.py).
 - **예방**: startup report job은 broad market warm-up 완료를 가정하지 않는다. 캐시 miss는 ticker-level fill로 흡수하되, provider key 미설정/외부 장애는 readiness-blocked report로 처리하고 데이터를 지어내지 않는다. 관련 기록: [report-scheduler-market-cache-miss-fallback](report-scheduler-market-cache-miss-fallback-2026-06-04.md).
 
+## 12. fact_checker 환각 숫자 거부 루프로 인한 리포트 영구 404
+
+- **증상/맥락**: `/api/reports/NVDA`가 계속 404. Render 로그상 NVDA 실데이터(Finnhub)는 정상 수신되므로 데이터 부족(blocked)이 아니라 생성 자체가 매번 실패.
+- **에러(로그)**: `Fact checker failed: ... Unsupported numbers: 3.62%, 21` 반복 → `revision_count >= 3` → `ReportQualityError` → DB 미저장 → 조회 API 404.
+- **원인**: `writer_node` 프롬프트에 "넘겨받지 않은 숫자를 만들지 말라"는 부정형 한 줄만 있고 허용 숫자 목록은 없었다. `fact_checker_node`는 `_collect_supported_numbers()`(fact 소스 숫자 + 0~10 + 연도) 외 숫자를 전부 거부. 데이터가 적은 자산일수록 writer가 학습지식 숫자로 빈틈을 메워 거부 루프에 빠졌다.
+- **수정**: fact_checker 판정·허용 집합은 그대로 두고(엄격성 불변), `_describe_supported_numbers(state)` 헬퍼로 같은 fact 소스의 **원문 숫자 토큰**을 모아 `writer_node` 프롬프트에 `allowed_numbers` 화이트리스트로 주입. "이 목록과 0~10·연도 외 숫자는 금지, 필요하면 정성 서술/데이터 한계로" 규율 강화. 파일: [nodes.py](../../backend/app/services/graph/nodes.py), [test_ai_report_quality_gate.py](../../backend/tests/test_ai_report_quality_gate.py). 출처: [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md).
+- **예방**: 품질 게이트를 "거부 사유만" 피드백하지 말고 **허용 입력을 명시적으로 제공**해 첫 초안 통과율을 올린다. 게이트(검증자)와 생성자(writer)가 같은 fact 소스에서 파생된 허용 집합을 공유해 둘이 어긋나지 않게 한다. 게이트를 약화시키지 말고 입력을 친절하게 한다.
+
+## 13. 런타임 로그에 외부 API 키 평문 노출 + 과도한 SQL echo
+
+- **증상/맥락**: Render 배포 런타임 로그. 외부 데이터 호출 시.
+- **에러(로그)**: 외부 호출 URL이 INFO로 출력되며 쿼리스트링에 Finnhub `token`, FRED `api_key`, ECOS key, Stooq `apikey`가 평문 노출. `sqlalchemy.engine.Engine` SQL echo가 긴 카탈로그 쿼리까지 출력.
+- **원인**: `logging.basicConfig(level=logging.INFO)`로 root가 INFO라 `httpx` 로거가 모든 외부 요청 URL을 INFO로 찍는다. `SQLALCHEMY_ECHO=true`(Render 환경변수 추정)로 SQL echo가 켜져 있었다.
+- **수정**: `main.py`에서 `httpx`/`httpcore`/`sqlalchemy.engine` 로거 레벨을 `WARNING`으로 낮춤(root는 INFO 유지, 앱 로그는 그대로). `SQLALCHEMY_ECHO=false` 확인은 운영 작업. 파일: [main.py](../../backend/app/main.py). 출처: [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md).
+- **예방**: 외부 호출 URL을 INFO로 남기지 않는다(쿼리스트링 키 노출). 노출된 키는 AGENTS.md 8절에 따라 손상으로 간주하고 발급처에서 로테이션 후 Render 환경변수 갱신·재배포(코드와 독립된 운영 작업). 비밀은 가능하면 헤더로 보내거나 URL 마스킹.
+
 ---
 
 ## 교차 교훈 / 예방 체크리스트 (배포·DB 작업 전)
@@ -132,7 +150,9 @@ Date: 2026-06-03
 9. **파괴적 작업 확인**: `postgres_data` volume 삭제 등 데이터 손실 작업은 사용자 확인 필수(AGENTS.md 9절). (사례 6)
 10. **provider 직렬화 vs 타임아웃**: provider별 `Semaphore(1)` 직렬화가 있으면 "한 provider 종목 수 × 응답시간 < per-asset 타임아웃"인지 점검. `asyncio.wait_for` 실패 로그는 `{exc!r}`로 남겨 빈 `TimeoutError`를 식별 가능하게. (사례 10)
 11. **startup job은 warm-up 완료를 가정하지 않기**: 비차단 warm-up과 즉시 실행 scheduler job이 함께 있으면 캐시 miss race가 생긴다. (사례 11)
-12. **새 오류는 이 문서에 추가**: 해결 즉시 "증상→원인→수정→예방" 항목으로 누적.
+12. **품질 게이트는 거부만 하지 말고 허용 입력 제공**: 검증자(fact_checker)와 생성자(writer)가 같은 fact 소스 허용 집합을 공유해 첫 초안 통과율을 올린다. 게이트를 약화시키지 않는다. (사례 12)
+13. **로그에 외부 URL/키 남기지 않기**: `httpx`/`sqlalchemy.engine` 로거를 WARNING으로. 노출 키는 손상 간주·로테이션. (사례 13)
+14. **새 오류는 이 문서에 추가**: 해결 즉시 "증상→원인→수정→예방" 항목으로 누적.
 
 ## References Checked
 

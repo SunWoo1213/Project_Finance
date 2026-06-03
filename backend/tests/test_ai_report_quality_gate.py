@@ -9,7 +9,10 @@ from app.services.graph.graph import route_fact_check, route_format_check, route
 from app.services.graph.nodes import (
     EvaluationResult,
     StructuredFacts,
+    _collect_supported_numbers,
+    _describe_supported_numbers,
     _llm_with_flexible_structured_output,
+    _normalize_numeric_token,
     bear_agent_node,
     bull_agent_node,
     fact_checker_node,
@@ -563,6 +566,53 @@ def test_report_format_validator_routes_to_end_after_revision_limit():
 
     assert result["revision_count"] == 3
     assert route_format_check({**state, **result}) == "END"
+
+
+def test_describe_supported_numbers_collects_raw_tokens_from_facts():
+    state = {
+        "report_facts": {"price": {"value": 200.0, "change_pct": 1.25}},
+        "structured_facts": {"data_as_of": "2026-05-30", "note": "매출 3.62% 증가, 21건"},
+        "financial_facts": {},
+        "news_facts": {},
+        "macro_facts": {},
+    }
+
+    tokens = _describe_supported_numbers(state)
+
+    # report_facts / structured_facts의 원문 숫자 토큰이 (%, 소수점 등 형태 그대로) 수집된다.
+    assert "200.0" in tokens
+    assert "1.25" in tokens
+    assert "3.62%" in tokens
+    assert "21" in tokens
+    # 중복 없이 상한(40개) 이내로 수집된다.
+    assert len(tokens) == len(set(tokens))
+    assert len(tokens) <= 40
+
+
+def test_describe_supported_numbers_subset_of_collect_supported_numbers():
+    state = {
+        "report_facts": {"price": {"value": 200.0, "change_pct": 1.25}},
+        "structured_facts": {"note": "매출 3.62% 증가, 21건, -0.5 변동"},
+        "financial_facts": {},
+        "news_facts": {},
+        "macro_facts": {},
+    }
+
+    tokens = _describe_supported_numbers(state)
+    supported = _collect_supported_numbers(
+        {
+            "report_facts": state["report_facts"],
+            "structured_facts": state["structured_facts"],
+            "financial_facts": state["financial_facts"],
+            "news_facts": state["news_facts"],
+            "macro_facts": state["macro_facts"],
+        }
+    )
+
+    # writer에 보여주는 토큰은 모두 fact_checker 허용 집합 안에 정규화되어 존재한다.
+    assert tokens
+    for token in tokens:
+        assert _normalize_numeric_token(token) in supported
 
 
 def test_fact_checker_rejects_unsupported_numbers_and_routes_to_writer():

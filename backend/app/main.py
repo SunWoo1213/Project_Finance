@@ -39,6 +39,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
+# 외부 호출 URL(쿼리스트링의 API 키 포함)과 SQL echo가 INFO 로그로 평문 노출되지
+# 않도록 민감/노이즈 로거 레벨을 WARNING으로 낮춘다. 오류 추적(WARNING 이상)은 유지된다.
+for _noisy_logger in ("httpx", "httpcore", "sqlalchemy.engine"):
+    logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 REQUIRED_TABLES = {

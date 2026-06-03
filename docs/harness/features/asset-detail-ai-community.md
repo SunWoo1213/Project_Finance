@@ -42,7 +42,7 @@ AI report generation is now additionally controlled by backend-only `ENABLE_AI_R
 11. Financial, news, and macro graph nodes can pass structured provider facts from FMP, Finnhub, and CoinGecko alongside free-form research context.
 12. After synthesis, deterministic Bull, Bear, and Risk role nodes split `structured_facts` into `bull_thesis`, `bear_thesis`, and `risk_review` without adding extra LLM calls.
 13. A deterministic research packet is assembled from structured facts, Bull/Bear role outputs, Risk review output, source-table entries, data limitations, catalysts, and watchlist items before the writer runs.
-14. The writer consumes the research packet, separated role outputs, and the selected asset analysis framework before finalizing the Markdown report.
+14. The writer consumes the research packet, separated role outputs, and the selected asset analysis framework before finalizing the Markdown report. It is also given an `allowed_numbers` whitelist of raw numeric tokens derived from the same fact sources the numeric fact checker uses, so the first draft avoids unsupported numbers; numbers outside the whitelist (plus integers 0-10 and years) must be replaced with qualitative wording or a data-limitation note rather than invented.
 15. The writer output goes through a deterministic fixed-format validator that checks for the 10 required Markdown section headings and requires asset-framework topic coverage inside the `자산군별 분석` section with supporting evidence or data-limit text.
 16. Format-passing output then goes through a deterministic numeric fact checker.
 17. Numeric-passing output goes through a deterministic qualitative claim checker for narrow high-risk claims such as unsupported regulatory, ETF, institutional-flow, policy-shift, earnings, supply, or on-chain statements.
@@ -148,6 +148,8 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/report-generation-env-switch-plan-2026-06-03.md`
 - `docs/harness/report-generation-env-switch-implementation-2026-06-03.md`
 - `docs/harness/report-scheduler-market-cache-miss-fallback-2026-06-04.md`
+- `docs/harness/report-404-and-secret-log-leak-remediation-plan-2026-06-04.md`
+- `docs/harness/report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md`
 
 ## Open Risks
 

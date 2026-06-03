@@ -225,6 +225,53 @@ def _find_unsupported_numbers(draft_report: str, state: AgentState) -> list[str]
     return unsupported
 
 
+def _describe_supported_numbers(state: AgentState, limit: int = 40) -> list[str]:
+    """fact_checker가 허용하는 동일 fact 소스에서 원문 숫자 토큰을 수집한다.
+
+    `_find_unsupported_numbers`와 같은 payload를 순회하되, 정규화 이전의 원문
+    토큰(예: ``200``, ``1.25%``)을 중복 제거하고 상한 개수만큼만 모은다. writer
+    프롬프트에 화이트리스트로 주입해 첫 초안부터 미지원 숫자가 줄게 한다.
+    """
+    payload = {
+        "report_facts": state.get("report_facts", {}),
+        "structured_facts": state.get("structured_facts", {}),
+        "financial_facts": state.get("financial_facts", {}),
+        "news_facts": state.get("news_facts", {}),
+        "macro_facts": state.get("macro_facts", {}),
+    }
+    tokens: list[str] = []
+    seen: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if len(tokens) >= limit:
+            return
+        if isinstance(value, dict):
+            for child in value.values():
+                visit(child)
+            return
+        if isinstance(value, list):
+            for child in value:
+                visit(child)
+            return
+        if value is None:
+            return
+        text = str(value)
+        for match in NUMERIC_TOKEN_PATTERN.findall(text):
+            if len(tokens) >= limit:
+                return
+            normalized = _normalize_numeric_token(match)
+            if not normalized:
+                continue
+            key = match.strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            tokens.append(key)
+
+    visit(payload)
+    return tokens
+
+
 def _normalize_section_text(text: str) -> str:
     return re.sub(r"[\s#*`_\-:().\[\]0-9]+", "", text or "").casefold()
 
@@ -815,7 +862,11 @@ def writer_node(state: AgentState) -> dict[str, Any]:
         "확인된 사실과 해석을 구분하고, 직접적인 매수/매도 권고는 피하라.\n"
         "규제, ETF, 기관 수급, 실적 개선, 중앙은행 정책 전환, 재고/공급, 온체인 흐름 같은 "
         "정성 클레임은 structured_facts나 provider facts에 근거가 있을 때만 사용하라.\n"
-        "넘겨받지 않은 숫자를 만들지 말라.\n"
+        "숫자 규율(엄수): 아래 allowed_numbers 목록에 있는 숫자, 0~10 사이 정수, "
+        "연도(예: 2026)만 본문에 쓸 수 있다. 이 범위를 벗어난 숫자는 절대 만들지 말 것. "
+        "추가 수치가 필요하면 숫자 대신 정성 서술로 바꾸거나 '데이터 한계'로 명시하라. "
+        "allowed_numbers가 비어 있으면 가격/기준 숫자 외의 어떤 수치도 쓰지 말 것.\n"
+        "allowed_numbers(원문 그대로 사용 가능한 숫자 토큰):\n{allowed_numbers}\n"
         "Research packet discipline: research_packet is the controlling packet. Do not invent analysis outside its entries, evidence IDs, source table, and data limitations.\n"
         "{language_requirement}\n\n"
         "previous_report:\n{previous_report}\n\n"
@@ -827,6 +878,11 @@ def writer_node(state: AgentState) -> dict[str, Any]:
         "risk_review:\n{risk_review}\n\n"
         "feedback:\n{feedback}\n"
     )
+    allowed_tokens = _describe_supported_numbers(state)
+    if allowed_tokens:
+        allowed_numbers = ", ".join(allowed_tokens)
+    else:
+        allowed_numbers = "(확정된 숫자가 없습니다. 가격/기준 숫자 외의 수치를 쓰지 마세요.)"
     chain = prompt | llm
     result = chain.invoke(
         {
@@ -838,6 +894,7 @@ def writer_node(state: AgentState) -> dict[str, Any]:
             "bear_thesis": state.get("bear_thesis", {}),
             "risk_review": state.get("risk_review", {}),
             "feedback": state.get("feedback", ""),
+            "allowed_numbers": allowed_numbers,
             "language_requirement": LANGUAGE_REQUIREMENT,
         }
     )

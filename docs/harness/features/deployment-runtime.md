@@ -16,6 +16,8 @@ Local Docker PostgreSQL reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB
 
 `/health` is app liveness only and does not test the database. `/db-check` is the readiness check for DB connectivity and returns a sanitized source/scheme/host/port diagnostic without exposing credentials.
 
+Runtime logging avoids leaking secrets. Root logging stays at INFO, but `httpx`, `httpcore`, and `sqlalchemy.engine` loggers are forced to `WARNING` in `backend/app/main.py` so external request URLs (which carry provider API keys in their query strings) and SQL echo statements are not printed at INFO. `SQLALCHEMY_ECHO` defaults to false and should stay false in production; the logger-level guard is a second line of defense. Any provider key that appeared in logs before this guard is treated as compromised and must be rotated at the issuer with Render env vars updated (operational task).
+
 ## Ownership Map
 
 - Deployment plan: `docs/harness/vercel-supabase-deployment-plan-2026-06-01.md`
@@ -81,6 +83,7 @@ Local Docker flow:
 - Do not enable production scheduler or AI report generation broadly until cost and rate-limit policy are confirmed.
 - Do not rely on `create_all` for production schema changes. Add Alembic revisions for schema changes and run migrations before deploying.
 - Do not expose database URLs, provider secrets, access tokens, or webhook secrets in logs or harness records.
+- Do not raise `httpx`/`httpcore`/`sqlalchemy.engine` logger levels back to INFO/DEBUG in production, because external request URLs carry provider API keys in query strings and SQL echo can expose sensitive queries.
 - Do not treat `/health` as database readiness. Use `/db-check` for DB connectivity.
 - Do not delete or recreate Docker volumes without explicit confirmation because named volumes can contain local data.
 
@@ -114,6 +117,8 @@ Local Docker flow:
 - `docs/harness/gmail-only-email-notification-implementation-2026-06-02.md`
 - `docs/harness/report-generation-env-switch-plan-2026-06-03.md`
 - `docs/harness/report-generation-env-switch-implementation-2026-06-03.md`
+- `docs/harness/report-404-and-secret-log-leak-remediation-plan-2026-06-04.md`
+- `docs/harness/report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md`
 
 ## Open Risks
 
@@ -121,3 +126,4 @@ Local Docker flow:
 - Supabase direct connection versus pooler mode must be tested with SQLAlchemy asyncpg before production traffic.
 - Scheduler should start disabled for the first smoke release and be enabled only after API, DB, cost, and rate-limit checks.
 - Existing local `postgres_data` volumes can preserve old DB user/password/name values. Resetting a volume is a data-loss action and needs explicit confirmation.
+- Provider API keys (Finnhub token, FRED `api_key`, ECOS key, Stooq `apikey`) that appeared in INFO request logs before the logger-level guard are treated as compromised and must be rotated at the issuer with Render env vars updated; the code guard only prevents future re-exposure.

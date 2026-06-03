@@ -26,6 +26,8 @@ This index tells future harness agents which feature document to read before cha
 - AI 리포트 생성 환경변수 분리 계획: `docs/harness/report-generation-env-switch-plan-2026-06-03.md`
 - AI 리포트 생성 환경변수 분리 구현: `docs/harness/report-generation-env-switch-implementation-2026-06-03.md`
 - 리포트 스케줄러 시장 캐시 miss 보완: `docs/harness/report-scheduler-market-cache-miss-fallback-2026-06-04.md`
+- NVDA 리포트 404 + 로그 시크릿 노출 통합 해결 계획: `docs/harness/report-404-and-secret-log-leak-remediation-plan-2026-06-04.md`
+- NVDA 리포트 404 + 로그 시크릿 노출 통합 해결 구현: `docs/harness/report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md`
 - 시장 데이터 갱신 주기 환경변수 분리: `docs/harness/market-data-refresh-cadence-env-switch-2026-06-03.md`
 - 시장 데이터 provider 무료 멀티소스 교체 계획(yfinance 탈피): `docs/harness/market-data-provider-migration-plan-2026-06-03.md`
 - 시장 데이터 provider 무료 멀티소스 교체 구현(yfinance 탈피): `docs/harness/market-data-provider-migration-implementation-2026-06-03.md`
