@@ -47,6 +47,7 @@ export default function Login() {
   const navigate = useNavigate();
   const login = useAuthStore((state) => state.login);
   const googleButtonRef = useRef(null);
+  const isInitializedRef = useRef(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [isGoogleReady, setIsGoogleReady] = useState(false);
 
@@ -71,9 +72,12 @@ export default function Login() {
 
         googleButtonRef.current.innerHTML = "";
 
-        window.google.accounts.id.initialize({
-          client_id: GOOGLE_CLIENT_ID,
-          callback: async (response) => {
+        // StrictMode(개발 모드)의 effect 이중 실행으로 initialize()가 중복
+        // 호출되면 GSI가 경고를 출력하므로, 초기화는 한 번만 수행한다.
+        if (!isInitializedRef.current) {
+          window.google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: async (response) => {
             try {
               setErrorMessage("");
 
@@ -107,8 +111,10 @@ export default function Login() {
                 TEXT.genericError;
               setErrorMessage(String(backendMessage));
             }
-          },
-        });
+            },
+          });
+          isInitializedRef.current = true;
+        }
 
         window.google.accounts.id.renderButton(googleButtonRef.current, {
           theme: "filled_black",

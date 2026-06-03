@@ -76,6 +76,7 @@ Document variable names only. Do not write actual client IDs, JWT secrets, token
 - `docs/harness/google-login-only.md`
 - `docs/harness/google-login-ui-dark-theme-plan-2026-06-03.md`
 - `docs/harness/google-login-ui-dark-theme-implementation-2026-06-03.md`
+- `docs/harness/google-login-duplicate-initialize-guard-2026-06-03.md`
 - `docs/harness/community-comment-reporting.md`
 - `docs/harness/feature-implementation-fixes-2026-05-31.md`
 - `docs/harness/feature-implementation-fixes-verification-2026-05-31.md`
