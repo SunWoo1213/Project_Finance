@@ -25,11 +25,15 @@ Date: 2026-06-03
 
 ## Verification Performed
 
-- 예정: `cd frontend; npm run build`
+- `cd frontend; npm.cmd run lint`: 통과.
+- `cd frontend; npm.cmd run build`: 통과. Vite 기본 chunk size warning은 남았지만 빌드는 성공했다.
+- `npm.cmd run dev -- --host 127.0.0.1`: sandbox 내부에서는 `spawn EPERM`으로 실패했으나, 승인 후 sandbox 밖 실행에서 Vite dev server가 `http://127.0.0.1:5173/`로 정상 기동했다.
+- `Invoke-WebRequest http://127.0.0.1:5173/login`: `200` 응답 확인.
 
 ## Commands Not Run
 
-- 아직 없음. 구현 후 검증 단계에서 결과를 갱신한다.
+- `agent-browser` 시각 검증은 이 셸에서 `agent-browser` 명령을 찾을 수 없어 실행하지 못했다.
+- 실제 Google OAuth 성공 smoke는 유효한 `VITE_GOOGLE_CLIENT_ID`, Google OAuth origin 설정, 브라우저 identity flow가 필요해 실행하지 않았다.
 
 ## Follow-Up Risks
 
