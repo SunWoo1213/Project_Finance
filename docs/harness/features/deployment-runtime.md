@@ -59,7 +59,7 @@ Local Docker flow:
   - `VITE_API_BASE_URL`
 - Backend deployment env:
   - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`: local docker-compose PostgreSQL initialization values. These are local runtime values and must not be committed with real secrets.
-  - `DATABASE_URL`: async SQLAlchemy database URL. PostgreSQL URLs are normalized from `postgresql://` or `postgres://` to `postgresql+asyncpg://`; tests may use `sqlite+aiosqlite://`.
+  - `DATABASE_URL`: async SQLAlchemy database URL. PostgreSQL URLs are normalized from `postgresql://` or `postgres://` to `postgresql+asyncpg://`; tests may use `sqlite+aiosqlite://`. Surrounding quotes and leading/trailing whitespace are stripped before scheme detection, and an unsupported scheme is reported with the detected scheme in the error (no credentials). Set the DB connection string here, not the Supabase `https://` API URL.
   - `POSTGRES_URL_NON_POOLING`, `POSTGRES_URL`: optional Vercel/Supabase fallback database URLs used only when `DATABASE_URL` is absent. `POSTGRES_URL_NON_POOLING` is preferred before `POSTGRES_URL`. `/db-check` returns the selected variable name as `database.source` without exposing the URL value.
   - `ENVIRONMENT`: runtime label such as `development`, `staging`, or `production`.
   - `BACKEND_CORS_ORIGINS`: comma-separated exact origins such as a Vercel production domain and staging domain.
@@ -102,6 +102,7 @@ Local Docker flow:
 - `docs/harness/vercel-supabase-db-diagnostics-2026-06-03.md`
 - `docs/harness/supabase-console-tasks-2026-06-03.md`
 - `docs/harness/supabase-asyncpg-url-normalization-2026-06-03.md`
+- `docs/harness/render-database-url-quote-normalization-2026-06-03.md`
 - `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 - `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md`

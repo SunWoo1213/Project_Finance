@@ -11,6 +11,11 @@ POSTGRES_SSLMODES_REQUIRING_SSL = {"allow", "prefer", "require", "verify-ca", "v
 
 
 def normalize_database_url(value: str) -> str:
+    value = value.strip()
+    # Hosting dashboards (e.g. Render) sometimes store the value with literal
+    # surrounding quotes; strip a single matching pair so scheme detection works.
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1].strip()
     if value.startswith("postgres://"):
         value = "postgresql+asyncpg://" + value[len("postgres://"):]
     elif value.startswith("postgresql://"):
@@ -139,9 +144,14 @@ class Settings(BaseSettings):
         parsed = urlparse(self.DATABASE_URL)
         if parsed.scheme not in ALLOWED_DATABASE_URL_SCHEMES:
             allowed = ", ".join(sorted(ALLOWED_DATABASE_URL_SCHEMES))
+            detected = parsed.scheme or "(none)"
             raise ValueError(
                 "DATABASE_URL must use an async SQLAlchemy driver scheme. "
-                f"Allowed schemes after normalization: {allowed}."
+                f"Allowed schemes after normalization: {allowed}. "
+                f"Detected scheme: {detected}. "
+                "Ensure the value starts with postgresql:// or postgres:// "
+                "(the DB connection string, not the https:// API URL) and has no "
+                "surrounding quotes."
             )
         if parsed.scheme == "postgresql+asyncpg" and not parsed.hostname:
             raise ValueError("DATABASE_URL with postgresql+asyncpg must include a host.")

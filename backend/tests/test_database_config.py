@@ -121,6 +121,21 @@ def test_database_url_falls_back_to_postgres_url_when_non_pooling_is_missing():
     }
 
 
+def test_database_url_strips_surrounding_quotes_and_whitespace():
+    settings = build_settings(
+        '  "postgresql://finance_user:secret@localhost:5432/finance_db"  '
+    )
+
+    assert settings.DATABASE_URL == (
+        "postgresql+asyncpg://finance_user:secret@localhost:5432/finance_db"
+    )
+
+
+def test_database_url_error_reports_detected_scheme():
+    with pytest.raises(ValidationError, match="Detected scheme: mysql"):
+        build_settings("mysql://finance_user:secret@localhost:3306/finance_db")
+
+
 def test_database_url_rejects_unsupported_scheme():
     with pytest.raises(ValidationError, match="DATABASE_URL must use an async SQLAlchemy driver scheme"):
         build_settings("mysql://finance_user:secret@localhost:3306/finance_db")
