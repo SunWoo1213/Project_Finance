@@ -19,6 +19,11 @@ from app.services.graph.nodes import (
 )
 
 
+@pytest.fixture(autouse=True)
+def enable_ai_report_generation(monkeypatch):
+    monkeypatch.setattr(ai_service.settings, "ENABLE_AI_REPORT_GENERATION", True)
+
+
 class ScalarResult:
     def __init__(self, value):
         self.value = value

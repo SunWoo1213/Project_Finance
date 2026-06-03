@@ -77,6 +77,7 @@ The target tier model is:
 
 ## Change Records
 
+- `docs/harness/toss-payments-billing-integration-plan-2026-06-03.md`
 - `docs/harness/subscription-tier-payment-plan-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-implementation-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-verification-2026-06-01.md`
@@ -89,6 +90,7 @@ The target tier model is:
 
 ## Open Risks
 
-- Production payment provider selection and dashboard setup remain open.
+- Production payment provider selection is now planned around Toss Payments, but automatic billing contract approval, test/live key setup, and dashboard/webhook setup remain open.
+- Toss automatic billing requires app-owned recurring charge scheduling; there is no billing renewal scheduler in the current implementation.
 - Monthly billing policies for VAT, cancellation, failed renewals, downgrades, and refunds need product confirmation.
 - Existing report scheduler coverage is conservative, so paid users may still see pending reports for assets without stored scheduled reports.

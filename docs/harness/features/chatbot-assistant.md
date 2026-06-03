@@ -8,6 +8,8 @@ The app has a rule-based financial navigation and explanation assistant. It does
 
 The 2026-06-01 scheduler alignment implementation keeps this chatbot behavior unchanged: report generation is limited to the backend scheduler, and the chatbot reads stored reports only.
 
+The 2026-06-03 `ENABLE_AI_REPORT_GENERATION` implementation also leaves chatbot behavior unchanged. The variable controls backend scheduled/background generation only; chatbot report answers still summarize stored `AIReport` rows and must not trigger generation.
+
 Users can ask for assets, market snapshots, category lists, AI report help, community help, favorites, login help, current-page help, market summaries, and latest ticker context. The backend returns a short answer plus optional action buttons. The frontend only navigates after the user clicks an action button.
 
 Non-financial questions return a fixed scope message and no actions.
@@ -100,6 +102,8 @@ For the 2026-05-31 implementation request, verification commands were intentiona
 - `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md`
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 - `docs/harness/project-defect-remediation-plan-2026-06-02.md`
+- `docs/harness/report-generation-env-switch-plan-2026-06-03.md`
+- `docs/harness/report-generation-env-switch-implementation-2026-06-03.md`
 
 ## Open Risks
 

@@ -4,7 +4,7 @@ Date: 2026-06-01
 
 ## Current Behavior
 
-The first supported hosted shape is Vercel for the React Vite frontend, Supabase PostgreSQL for the database, and a separate persistent FastAPI backend runtime. The backend keeps long-running process assumptions for `APScheduler`, market cache warm-up, and scheduled AI report generation.
+The first supported hosted shape is Vercel for the React Vite frontend, Supabase PostgreSQL for the database, and a separate persistent FastAPI backend runtime. The backend keeps long-running process assumptions for `APScheduler`, market cache warm-up, and scheduled AI report generation. Scheduled AI report generation can be disabled independently with `ENABLE_AI_REPORT_GENERATION=false`.
 
 Vercel serves the frontend from `frontend/` and uses `frontend/vercel.json` to rewrite direct SPA route refreshes to `index.html`.
 
@@ -14,13 +14,16 @@ The backend can still bootstrap local schemas with `Base.metadata.create_all` wh
 
 Local Docker PostgreSQL reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and `POSTGRES_PORT` from `.env` through Compose interpolation. `DATABASE_URL` must be kept aligned with the same local DB values and must use an async SQLAlchemy scheme. PostgreSQL runtime uses `postgresql+asyncpg://`; tests may use `sqlite+aiosqlite://`.
 
-`/health` is app liveness only and does not test the database. `/db-check` is the readiness check for DB connectivity and returns a sanitized scheme/host/port diagnostic without exposing credentials.
+`/health` is app liveness only and does not test the database. `/db-check` is the readiness check for DB connectivity and returns a sanitized source/scheme/host/port diagnostic without exposing credentials.
 
 ## Ownership Map
 
 - Deployment plan: `docs/harness/vercel-supabase-deployment-plan-2026-06-01.md`
+- Vercel Supabase integration guide: `VERCEL_SUPABASE_INTEGRATION_GUIDE.md`
+- Vercel Supabase next plan: `docs/harness/vercel-supabase-integration-next-plan-2026-06-03.md`
 - Local Docker DB: `docker-compose.yml`, `.env_example`, `ENVIRONMENT_VARIABLE_SETUP.md`
-- Environment variable acquisition guide: `ENVIRONMENT_VARIABLE_SETUP.md` section `2.1 .env_example 변수값 확보 상세 절차`
+- Environment variable acquisition guide: `ENVIRONMENT_VARIABLE_SETUP.md` section `2.1 변수값 확보를 시작하기 전에`
+- Environment variable first-read summary: `ENVIRONMENT_VARIABLE_SETUP.md` section `0. 처음 보는 사람을 위한 핵심 요약`
 - Vercel SPA routing: `frontend/vercel.json`
 - Frontend API origin: `frontend/src/utils/apiClient.js`
 - Backend runtime settings: `backend/app/core/config.py`
@@ -38,8 +41,9 @@ Local Docker PostgreSQL reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB
 4. The persistent backend connects to Supabase PostgreSQL through `DATABASE_URL`.
 5. Hosted releases should run `python -m alembic upgrade head` before app startup.
 6. With `ENABLE_DB_SCHEMA_BOOTSTRAP=false`, backend startup checks for required tables and AI report metadata columns without creating or altering schema.
-7. Scheduler and market warm-up remain controlled by `ENABLE_SCHEDULER`, `ENABLE_MARKET_WARMUP`, and report scheduler environment variables.
+7. Scheduler and market warm-up remain controlled by `ENABLE_SCHEDULER`, `ENABLE_MARKET_WARMUP`, `ENABLE_AI_REPORT_GENERATION`, and report scheduler environment variables.
 8. Favorite notification scheduler is controlled separately by `ENABLE_NOTIFICATION_SCHEDULER`, which defaults to false. Provider secrets for Telegram/Gmail email delivery are backend-only environment variables.
+9. AI report generation is separated from scheduler startup through `ENABLE_AI_REPORT_GENERATION`. Hosted smoke can run `ENABLE_SCHEDULER=true`, `ENABLE_AI_REPORT_GENERATION=false` to verify price/news jobs while skipping LLM-backed report generation.
 
 Local Docker flow:
 
@@ -54,7 +58,8 @@ Local Docker flow:
   - `VITE_API_BASE_URL`
 - Backend deployment env:
   - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`: local docker-compose PostgreSQL initialization values. These are local runtime values and must not be committed with real secrets.
-  - `DATABASE_URL`: async SQLAlchemy database URL. Allowed schemes are `postgresql+asyncpg://` for PostgreSQL and `sqlite+aiosqlite://` for tests.
+  - `DATABASE_URL`: async SQLAlchemy database URL. PostgreSQL URLs are normalized from `postgresql://` or `postgres://` to `postgresql+asyncpg://`; tests may use `sqlite+aiosqlite://`.
+  - `POSTGRES_URL_NON_POOLING`, `POSTGRES_URL`: optional Vercel/Supabase fallback database URLs used only when `DATABASE_URL` is absent. `POSTGRES_URL_NON_POOLING` is preferred before `POSTGRES_URL`. `/db-check` returns the selected variable name as `database.source` without exposing the URL value.
   - `ENVIRONMENT`: runtime label such as `development`, `staging`, or `production`.
   - `BACKEND_CORS_ORIGINS`: comma-separated exact origins such as a Vercel production domain and staging domain.
   - `BACKEND_CORS_ORIGIN_REGEX`: optional regex for approved preview-origin policy.
@@ -64,6 +69,7 @@ Local Docker flow:
   - `DB_POOL_PRE_PING`: default true for connection health checks.
   - `DB_PREPARED_STATEMENT_CACHE_SIZE`: optional asyncpg prepared-statement cache override for pooler compatibility testing.
   - `ENABLE_NOTIFICATION_SCHEDULER`: enables favorite notification evaluation/delivery jobs when true.
+  - `ENABLE_AI_REPORT_GENERATION`: backend-only switch for scheduled/background AI report generation. When false, report scheduler jobs are not registered and direct service calls return before DB/provider/LLM generation work; stored report reads still work.
   - `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`, `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`, `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`, `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`: notification scheduler and default rule controls.
   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`: backend-only delivery configuration names. Email delivery supports Gmail API only.
 
@@ -89,14 +95,21 @@ Local Docker flow:
 
 - `docs/harness/vercel-supabase-deployment-plan-2026-06-01.md`
 - `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md`
+- `docs/harness/vercel-supabase-integration-next-plan-2026-06-03.md`
+- `docs/harness/vercel-supabase-integration-documentation-2026-06-03.md`
+- `docs/harness/vercel-supabase-integration-start-2026-06-03.md`
+- `docs/harness/vercel-supabase-db-diagnostics-2026-06-03.md`
 - `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 - `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md`
 - `docs/harness/project-defect-remediation-plan-2026-06-02.md`
 - `docs/harness/env-setup-guide-documentation-2026-06-02.md`
+- `docs/harness/env-setup-guide-detail-improvement-2026-06-03.md`
 - `docs/harness/docker-database-compatibility-remediation-plan-2026-06-02.md`
 - `docs/harness/docker-database-compatibility-implementation-2026-06-02.md`
 - `docs/harness/gmail-only-email-notification-implementation-2026-06-02.md`
+- `docs/harness/report-generation-env-switch-plan-2026-06-03.md`
+- `docs/harness/report-generation-env-switch-implementation-2026-06-03.md`
 
 ## Open Risks
 

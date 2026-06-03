@@ -704,6 +704,13 @@ def _build_generation_metadata(
 
 
 async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
+    if not settings.ENABLE_AI_REPORT_GENERATION:
+        logger.info(
+            "%s report generation blocked because ENABLE_AI_REPORT_GENERATION=false",
+            ticker,
+        )
+        raise RuntimeError("AI report generation is disabled by ENABLE_AI_REPORT_GENERATION.")
+
     price_payload = find_cached_payload(market_cache["prices"], ticker)
     news_payload = find_cached_payload(market_cache["news"], ticker)
     if not price_payload:
@@ -848,6 +855,10 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
 
 
 async def generate_daily_reports() -> None:
+    if not settings.ENABLE_AI_REPORT_GENERATION:
+        logger.info("AI report generation skipped because ENABLE_AI_REPORT_GENERATION=false")
+        return
+
     logger.info("AI 리포트 생성 시작")
     try:
         cooldown_cutoff = datetime.now() - timedelta(hours=settings.REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS)

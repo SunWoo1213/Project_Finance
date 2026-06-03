@@ -186,32 +186,37 @@ async def lifespan(app: FastAPI):
             max_instances=1,
         )
 
-        async def run_daily_reports_job() -> None:
-            logger.info("AI 리포트 생성 시작")
-            try:
-                await generate_daily_reports()
-                logger.info("AI 리포트 생성 종료")
-            except Exception as e:
-                logger.error(f"리포트 생성 중 에러 발생: {e}", exc_info=True)
+        if settings.ENABLE_AI_REPORT_GENERATION:
+            async def run_daily_reports_job() -> None:
+                logger.info("AI 리포트 생성 시작")
+                try:
+                    await generate_daily_reports()
+                    logger.info("AI 리포트 생성 종료")
+                except Exception as e:
+                    logger.error(f"리포트 생성 중 에러 발생: {e}", exc_info=True)
 
-        scheduler.add_job(
-            run_daily_reports_job,
-            "interval",
-            hours=settings.REPORT_SCHEDULER_INTERVAL_HOURS,
-            id="generate_daily_reports",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-        )
-        scheduler.add_job(
-            run_daily_reports_job,
-            "date",
-            run_date=datetime.now(),
-            id="generate_daily_reports_startup",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-        )
+            scheduler.add_job(
+                run_daily_reports_job,
+                "interval",
+                hours=settings.REPORT_SCHEDULER_INTERVAL_HOURS,
+                id="generate_daily_reports",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+            )
+            scheduler.add_job(
+                run_daily_reports_job,
+                "date",
+                run_date=datetime.now(),
+                id="generate_daily_reports_startup",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+            )
+            report_scheduler_status = f"reports: every {settings.REPORT_SCHEDULER_INTERVAL_HOURS} hours"
+        else:
+            logger.info("AI report generation scheduler skipped because ENABLE_AI_REPORT_GENERATION=false")
+            report_scheduler_status = "reports: disabled by ENABLE_AI_REPORT_GENERATION"
         if settings.ENABLE_NOTIFICATION_SCHEDULER:
             async def run_notification_evaluation_job() -> None:
                 logger.info("Notification evaluation started")
@@ -262,7 +267,7 @@ async def lifespan(app: FastAPI):
         scheduler.start()
         print(
             "[lifespan] scheduler started "
-            f"(prices:5m, news:1h, reports: every {settings.REPORT_SCHEDULER_INTERVAL_HOURS} hours)"
+            f"(prices:5m, news:1h, {report_scheduler_status})"
         )
     else:
         print("[lifespan] scheduler skipped")

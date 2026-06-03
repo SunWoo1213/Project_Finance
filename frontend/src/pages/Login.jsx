@@ -48,6 +48,7 @@ export default function Login() {
   const login = useAuthStore((state) => state.login);
   const googleButtonRef = useRef(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [isGoogleReady, setIsGoogleReady] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -55,10 +56,13 @@ export default function Login() {
     async function initializeGoogleLogin() {
       if (!GOOGLE_CLIENT_ID) {
         setErrorMessage(TEXT.missingConfig);
+        setIsGoogleReady(false);
         return;
       }
 
       try {
+        setErrorMessage("");
+        setIsGoogleReady(false);
         await loadGoogleScript();
 
         if (!isMounted || !googleButtonRef.current) {
@@ -92,6 +96,7 @@ export default function Login() {
               navigate("/");
             } catch (error) {
               if (!error?.response) {
+                setErrorMessage(TEXT.networkError);
                 toast.error(TEXT.networkError);
                 return;
               }
@@ -106,15 +111,19 @@ export default function Login() {
         });
 
         window.google.accounts.id.renderButton(googleButtonRef.current, {
-          theme: "outline",
+          theme: "filled_black",
           size: "large",
           type: "standard",
           text: "continue_with",
           shape: "rectangular",
+          logo_alignment: "left",
           width: 320,
         });
+
+        setIsGoogleReady(true);
       } catch {
         setErrorMessage(TEXT.genericError);
+        setIsGoogleReady(false);
       }
     }
 
@@ -126,17 +135,27 @@ export default function Login() {
   }, [login, navigate]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900 px-4">
-      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-7 shadow-xl sm:p-8">
+    <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4">
+      <div className="w-full max-w-md rounded-lg border border-slate-700/70 bg-slate-950/80 p-7 shadow-2xl shadow-black/30 sm:p-8">
         <h1 className="text-center text-2xl font-bold text-white">{TEXT.title}</h1>
         <p className="mt-2 text-center text-sm text-slate-400">{TEXT.subtitle}</p>
 
         <div className="mt-8 flex justify-center">
-          <div ref={googleButtonRef} />
+          <div className="relative flex min-h-11 w-full max-w-[320px] items-center justify-center rounded-lg border border-slate-700/80 bg-black/30 ring-1 ring-white/5">
+            {!isGoogleReady && !errorMessage ? (
+              <div className="flex h-11 w-full items-center justify-center rounded-lg bg-slate-950 text-sm font-medium text-slate-400">
+                로그인 준비 중...
+              </div>
+            ) : null}
+            <div
+              ref={googleButtonRef}
+              className={isGoogleReady ? "w-full" : "absolute inset-0 overflow-hidden opacity-0"}
+            />
+          </div>
         </div>
 
         {errorMessage ? (
-          <p className="mt-5 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          <p className="mt-5 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100 shadow-lg shadow-red-950/20">
             {errorMessage}
           </p>
         ) : null}

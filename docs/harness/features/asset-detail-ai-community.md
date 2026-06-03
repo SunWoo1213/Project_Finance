@@ -10,6 +10,8 @@ Comment reports are one-per-user per comment. When a comment reaches 100 accumul
 
 If an authenticated user requests a report and the latest report is missing, the frontend now shows a scheduled-report-pending state and does not call report generation. Manual report generation is disabled for ordinary authenticated users. This aligns with the target product rule documented in `docs/harness/report-generation-schedule-alignment-plan-2026-06-01.md` and implemented in `docs/harness/report-generation-schedule-alignment-implementation-2026-06-01.md`: user-facing report views read only pre-generated stored reports, while generation runs from the backend scheduler.
 
+AI report generation is now additionally controlled by backend-only `ENABLE_AI_REPORT_GENERATION`. When it is `false`, scheduled report jobs are not registered and service-level report generation returns before opening a DB session or invoking providers/LLM workflow. Stored report reads remain available.
+
 ## Ownership Map
 
 - Detail page workflow: `frontend/src/pages/AssetDetail.jsx`
@@ -47,14 +49,15 @@ If an authenticated user requests a report and the latest report is missing, the
 18. If the format validator, numeric fact checker, or qualitative checker fails, it routes feedback back to the writer until the revision limit.
 19. The graph evaluates format-, numeric-, and qualitative-check-passing reports. Passing reports are saved with bull and bear summaries derived from role outputs when available.
 20. Failed format checker, fact checker, qualitative checker, or evaluator results raise a quality failure and are not committed to the database.
-21. Scheduled report generation seeds and covers only the configured representative target list by default: `DGS10`, `XAU`, `BTC-USD`, `NVDA`, and `005930.KS`.
-22. Passing reports persist quality/source metadata, fact matrix summaries, source-table entries, and research packet metadata on `AIReport`, and existing report fetches return the stored metadata to `ReportCard.jsx`.
-23. The page fetches comments using the ticker or asset key.
-24. Community writes send the JWT and the backend resolves the asset, creating an asset row from the warm market cache when a comment is posted before a report has created one.
-25. Edit/delete ownership checks happen on the backend.
-26. The frontend asks the user to pick a short report reason before sending the report. The selected reason is a UI confirmation only and is not stored by the current backend contract.
-27. Comment reports are stored separately from likes and can auto-delete the comment at the 100-report threshold.
-28. The chatbot can guide users to detail, report, and community areas. For authenticated users it can summarize an already stored report, but it does not call the report-generation endpoint.
+21. Scheduled report generation runs only when both `ENABLE_SCHEDULER=true` and `ENABLE_AI_REPORT_GENERATION=true`.
+22. Scheduled report generation seeds and covers only the configured representative target list by default: `DGS10`, `XAU`, `BTC-USD`, `NVDA`, and `005930.KS`.
+23. Passing reports persist quality/source metadata, fact matrix summaries, source-table entries, and research packet metadata on `AIReport`, and existing report fetches return the stored metadata to `ReportCard.jsx`.
+24. The page fetches comments using the ticker or asset key.
+25. Community writes send the JWT and the backend resolves the asset, creating an asset row from the warm market cache when a comment is posted before a report has created one.
+26. Edit/delete ownership checks happen on the backend.
+27. The frontend asks the user to pick a short report reason before sending the report. The selected reason is a UI confirmation only and is not stored by the current backend contract.
+28. Comment reports are stored separately from likes and can auto-delete the comment at the 100-report threshold.
+29. The chatbot can guide users to detail, report, and community areas. For authenticated users it can summarize an already stored report, but it does not call the report-generation endpoint.
 
 ## Contracts
 
@@ -69,7 +72,7 @@ If an authenticated user requests a report and the latest report is missing, the
 - Persisted `AIReport` quality columns include `quality_status`, `quality_feedback`, `format_check_pass`, `fact_check_pass`, `qualitative_check_pass`, `revision_count`, `data_as_of`, `source_summary`, `risk_summary`, `analysis_framework`, and `metadata_json`.
 - FastAPI lifespan attempts `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for local bootstrap only when `ENABLE_DB_SCHEMA_BOOTSTRAP=true`. Production-like deployments should set that flag to `false` and rely on Alembic migration coverage for report metadata columns.
 - Optional structured provider environment variable names for report-quality context: `FMP_API_KEY`, `FINNHUB_API_KEY`. They are optional; missing values produce provider limitation metadata rather than blocking report generation.
-- Optional report runtime policy variables: `ENABLE_LLM_REPORT_CRITICS`, `REPORT_CRITIC_MODE`, `REPORT_SCHEDULER_COVERAGE`, `REPORT_SCHEDULER_INTERVAL_HOURS`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS`, and `REPORT_SCHEDULER_TARGET_TICKERS`.
+- Optional report runtime policy variables: `ENABLE_AI_REPORT_GENERATION`, `ENABLE_LLM_REPORT_CRITICS`, `REPORT_CRITIC_MODE`, `REPORT_SCHEDULER_COVERAGE`, `REPORT_SCHEDULER_INTERVAL_HOURS`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS`, and `REPORT_SCHEDULER_TARGET_TICKERS`.
 - Latest context fetch: `GET /api/market/latest-context/{ticker}` is public and TTL-cached.
 - Comment list: `GET /api/community/{asset_id}/comments`
 - Chat guidance: `POST /api/chat/message`
@@ -141,6 +144,8 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 - `docs/harness/project-defect-remediation-plan-2026-06-02.md`
 - `docs/harness/report-scheduler-structured-output-error-fix-2026-06-02.md`
+- `docs/harness/report-generation-env-switch-plan-2026-06-03.md`
+- `docs/harness/report-generation-env-switch-implementation-2026-06-03.md`
 
 ## Open Risks
 

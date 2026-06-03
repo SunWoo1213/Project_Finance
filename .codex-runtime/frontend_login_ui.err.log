@@ -1,0 +1,27 @@
+[31mfailed to load config from C:\Users\이선우\Documents\GitHub\Project_Finance\frontend\vite.config.js[39m
+[31merror when starting dev server:
+Error: Build failed with 1 error:
+
+[plugin externalize-deps]
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:421:11)
+    at spawn (node:child_process:796:9)
+    at Object.execFile (node:child_process:349:17)
+    at exec (node:child_process:236:25)
+    at optimizeSafeRealPathSync (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/vite/dist/node/chunks/node.js:1955:2)
+    at windowsSafeRealPathSync (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/vite/dist/node/chunks/node.js:1941:3)
+    at getRealPath (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/vite/dist/node/chunks/node.js:32254:36)
+    at tryResolveRealFileOrType (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/vite/dist/node/chunks/node.js:32248:9)
+    at tryCleanFsResolve (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/vite/dist/node/chunks/node.js:31992:21)
+    at tryFsResolve (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/vite/dist/node/chunks/node.js:31985:14)
+    at aggregateBindingErrorsIntoJsError (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/rolldown/dist/shared/error-CP8smW_P.mjs:48:18)
+    at unwrapBindingResult (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/rolldown/dist/shared/error-CP8smW_P.mjs:18:128)
+    at #build (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/rolldown/dist/shared/rolldown-build-4YnQkA76.mjs:3311:34)
+    at async bundleConfigFile (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/vite/dist/node/chunks/node.js:34472:17)
+    at async bundleAndLoadConfigFile (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/vite/dist/node/chunks/node.js:34380:18)
+    at async loadConfigFromFile (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/vite/dist/node/chunks/node.js:34349:42)
+    at async resolveConfig (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/vite/dist/node/chunks/node.js:33973:22)
+    at async _createServer (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/vite/dist/node/chunks/node.js:25872:65)
+    at async CAC.<anonymous> (file:///C:/Users/%EC%9D%B4%EC%84%A0%EC%9A%B0/Documents/GitHub/Project_Finance/frontend/node_modules/vite/dist/node/cli.js:709:18) {
+  errors: [Getter/Setter]
+}[39m

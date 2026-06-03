@@ -1,17 +1,30 @@
 from pathlib import Path
 from urllib.parse import urlparse
 
-from pydantic import field_validator
+from pydantic import PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 ALLOWED_DATABASE_URL_SCHEMES = {"postgresql+asyncpg", "sqlite+aiosqlite"}
+POSTGRES_FALLBACK_ENV_NAMES = ("POSTGRES_URL_NON_POOLING", "POSTGRES_URL")
+
+
+def normalize_database_url(value: str) -> str:
+    if value.startswith("postgres://"):
+        return "postgresql+asyncpg://" + value[len("postgres://"):]
+    if value.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + value[len("postgresql://"):]
+    return value
 
 
 class Settings(BaseSettings):
+    _database_url_source: str = PrivateAttr(default="DATABASE_URL")
+
     PROJECT_NAME: str
     API_V1_STR: str
-    DATABASE_URL: str
+    DATABASE_URL: str | None = None
+    POSTGRES_URL: str | None = None
+    POSTGRES_URL_NON_POOLING: str | None = None
     OPENAI_API_KEY: str | None = None
     ALPHA_VANTAGE_API_KEY: str | None = None
     FRED_API_KEY: str | None = None
@@ -38,6 +51,7 @@ class Settings(BaseSettings):
     # Runtime tasks
     ENABLE_MARKET_WARMUP: bool = True
     ENABLE_SCHEDULER: bool = True
+    ENABLE_AI_REPORT_GENERATION: bool = True
     REPORT_SCHEDULER_COVERAGE: str = "conservative"
     REPORT_SCHEDULER_INTERVAL_HOURS: int = 6
     REPORT_SCHEDULER_MAX_REPORTS_PER_RUN: int = 5
@@ -72,15 +86,32 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("DATABASE_URL")
-    @classmethod
-    def validate_database_url(cls, value: str) -> str:
-        parsed = urlparse(value)
+    @model_validator(mode="after")
+    def resolve_database_url(self) -> "Settings":
+        database_url_source = "DATABASE_URL"
+        if not self.DATABASE_URL:
+            for env_name in POSTGRES_FALLBACK_ENV_NAMES:
+                candidate = getattr(self, env_name)
+                if candidate:
+                    self.DATABASE_URL = candidate
+                    database_url_source = env_name
+                    break
+
+        if not self.DATABASE_URL:
+            fallback_names = ", ".join(POSTGRES_FALLBACK_ENV_NAMES)
+            raise ValueError(
+                "DATABASE_URL is required. For Vercel/Supabase environments, "
+                f"the backend can also derive it from one of: {fallback_names}."
+            )
+
+        self.DATABASE_URL = normalize_database_url(self.DATABASE_URL)
+        self._database_url_source = database_url_source
+        parsed = urlparse(self.DATABASE_URL)
         if parsed.scheme not in ALLOWED_DATABASE_URL_SCHEMES:
             allowed = ", ".join(sorted(ALLOWED_DATABASE_URL_SCHEMES))
             raise ValueError(
                 "DATABASE_URL must use an async SQLAlchemy driver scheme. "
-                f"Allowed schemes: {allowed}."
+                f"Allowed schemes after normalization: {allowed}."
             )
         if parsed.scheme == "postgresql+asyncpg" and not parsed.hostname:
             raise ValueError("DATABASE_URL with postgresql+asyncpg must include a host.")
@@ -88,6 +119,13 @@ class Settings(BaseSettings):
             parsed.port
         except ValueError as exc:
             raise ValueError("DATABASE_URL contains an invalid port.") from exc
+        return self
+
+    @field_validator("DB_PREPARED_STATEMENT_CACHE_SIZE", mode="before")
+    @classmethod
+    def empty_optional_int_as_none(cls, value: str | int | None) -> str | int | None:
+        if value == "":
+            return None
         return value
 
     def cors_origins(self) -> list[str]:
@@ -108,6 +146,7 @@ class Settings(BaseSettings):
         except ValueError:
             port = None
         return {
+            "source": self._database_url_source,
             "scheme": parsed.scheme,
             "host": parsed.hostname if parsed.scheme != "sqlite+aiosqlite" else None,
             "port": port,
