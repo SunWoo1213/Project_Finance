@@ -42,13 +42,13 @@ AI report generation is now additionally controlled by backend-only `ENABLE_AI_R
 11. Financial, news, and macro graph nodes can pass structured provider facts from FMP, Finnhub, and CoinGecko alongside free-form research context.
 12. After synthesis, deterministic Bull, Bear, and Risk role nodes split `structured_facts` into `bull_thesis`, `bear_thesis`, and `risk_review` without adding extra LLM calls.
 13. A deterministic research packet is assembled from structured facts, Bull/Bear role outputs, Risk review output, source-table entries, data limitations, catalysts, and watchlist items before the writer runs.
-14. The writer consumes the research packet, separated role outputs, and the selected asset analysis framework before finalizing the Markdown report. It is also given an `allowed_numbers` whitelist of raw numeric tokens derived from the same fact sources the numeric fact checker uses, so the first draft avoids unsupported numbers; numbers outside the whitelist (plus integers 0-10 and years) must be replaced with qualitative wording or a data-limitation note rather than invented.
+14. The writer consumes the research packet, separated role outputs, and the selected asset analysis framework before finalizing the Markdown report. It is also given an `allowed_numbers` whitelist of raw numeric tokens derived from the same fact sources the numeric fact checker uses, so the first draft avoids unsupported numbers; numbers outside the whitelist (plus integers 0-10 and years) must be replaced with qualitative wording or a data-limitation note rather than invented. The whitelist is capped by `ALLOWED_NUMBERS_LIMIT` (150), raised to stay aligned with the fact checker's unbounded supported set so data-rich assets are not under-informed.
 15. The writer output goes through a deterministic fixed-format validator that checks for the 10 required Markdown section headings and requires asset-framework topic coverage inside the `자산군별 분석` section with supporting evidence or data-limit text.
-16. Format-passing output then goes through a deterministic numeric fact checker.
+16. Format-passing output then goes through a deterministic numeric fact checker. Numeric matching is sign-insensitive (absolute-value normalization), so a magnitude present in the facts (for example a `change_pct` of `-3.62`) is accepted even when the writer expresses direction in words (`3.62% 하락`); increase/decrease direction correctness is left to the evaluator and qualitative checks, not the numeric gate.
 17. Numeric-passing output goes through a deterministic qualitative claim checker for narrow high-risk claims such as unsupported regulatory, ETF, institutional-flow, policy-shift, earnings, supply, or on-chain statements.
 18. If the format validator, numeric fact checker, or qualitative checker fails, it routes feedback back to the writer until the revision limit.
 19. The graph evaluates format-, numeric-, and qualitative-check-passing reports. Passing reports are saved with bull and bear summaries derived from role outputs when available.
-20. Failed format checker, fact checker, qualitative checker, or evaluator results raise a quality failure and are not committed to the database.
+20. Failed format checker, fact checker, qualitative checker, or evaluator results raise a quality failure and are not committed to the database. As a single exception, when the revision loop is exhausted and the only failing gate is the numeric fact checker (format already passed), `generate_report_for_ticker` deterministically sanitizes the unsupported numeric tokens (replacing them with a `(수치 미확인)` placeholder, no LLM re-call) and re-runs the format, framework, numeric, and qualitative gates; only if all gates then pass is the sanitized report saved (`metadata_json.fallback_sanitized=true` with `sanitized_numbers`). If sanitization still does not pass, the report is not saved (404 preserved).
 21. Scheduled report generation runs only when both `ENABLE_SCHEDULER=true` and `ENABLE_AI_REPORT_GENERATION=true`.
 22. Scheduled report generation seeds and covers only the configured representative target list by default: `DGS10`, `XAU`, `BTC-USD`, `NVDA`, and `005930.KS`.
 23. If a scheduled report starts before market warm-up has populated the target ticker, `generate_report_for_ticker()` asks `market_service.ensure_price_cache_for_ticker()` to fill that ticker's price cache once, then rechecks the cache before building report facts. This is a scheduler/background safeguard only; user-facing report pages and chatbot requests still do not trigger report generation.
@@ -150,6 +150,9 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/report-scheduler-market-cache-miss-fallback-2026-06-04.md`
 - `docs/harness/report-404-and-secret-log-leak-remediation-plan-2026-06-04.md`
 - `docs/harness/report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md`
+- `docs/harness/nvda-report-factchecker-loop-root-cause-2026-06-04.md`
+- `docs/harness/nvda-factchecker-loop-404-remediation-plan-2026-06-04.md`
+- `docs/harness/nvda-factchecker-loop-404-remediation-implementation-2026-06-04.md`
 
 ## Open Risks
 

@@ -28,6 +28,7 @@ Date: 2026-06-03
 | 11 | AI/스케줄러 | `NVDA 리포트 실패: No cached market data found` | startup report job이 비차단 market warm-up 완료 전에 실행 | [report-scheduler-market-cache-miss-fallback](report-scheduler-market-cache-miss-fallback-2026-06-04.md) |
 | 12 | AI/품질게이트 | `/api/reports/NVDA` 영구 404 (생성은 매번 실패) | writer 환각 숫자 → fact_checker 반복 거부 → revision 한계 초과 미저장 | [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md) |
 | 13 | 보안/로깅 | 런타임 로그/응답에 외부 API 키 평문 노출 | httpx INFO + 앱 로거가 예외(URL 포함)를 그대로 출력, `detail=str(e)` | [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md) |
+| 14 | AI/품질게이트 | NVDA 404 지속 (`Unsupported numbers: 3.62%, 22` 반복) | fact_checker 부호 비대칭 오탐(`-3.62`≠`3.62`) + writer 환각(`22`)이 합쳐져 revision 소진 미저장 | [nvda-factchecker-loop-404-remediation-implementation](nvda-factchecker-loop-404-remediation-implementation-2026-06-04.md) |
 
 ---
 
@@ -137,6 +138,16 @@ Date: 2026-06-03
 - **수정**: (1) `main.py`에서 `httpx`/`httpcore`/`sqlalchemy.engine` 로거 레벨을 `WARNING`으로 낮춤. (2) `app/core/log_sanitizer.py`의 `redact_secrets()`로 민감 쿼리 파라미터 값과 리터럴 키(ECOS는 URL 경로에 키가 들어감)를 `***`로 마스킹하고, price_providers 4곳·macro_service 3곳의 예외 로그와 `main.py` 500 핸들러 `detail`에 적용. `SQLALCHEMY_ECHO=false` 확인은 운영. 파일: [main.py](../../backend/app/main.py), [log_sanitizer.py](../../backend/app/core/log_sanitizer.py), [price_providers.py](../../backend/app/services/price_providers.py), [macro_service.py](../../backend/app/services/macro_service.py), [test_log_sanitizer.py](../../backend/tests/test_log_sanitizer.py). 출처: [report-404-and-secret-log-leak-remediation-implementation](report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md).
 - **예방**: 외부 호출 예외를 로그/응답에 그대로 출력하지 않는다 — URL에 키가 박힌다. **로거 레벨 낮추기만으로는 부족**하고, 애플리케이션이 직접 찍는 예외/응답 detail은 `redact_secrets()`로 마스킹해야 한다. 키가 쿼리가 아닌 **경로**에 들어가는 provider(ECOS)는 리터럴 마스킹 필요. 노출된 키는 AGENTS.md 8절에 따라 손상으로 간주·로테이션. data.go.kr `serviceKey`는 로그로 노출 확인됐으므로 재발급 대상.
 
+## 14. fact_checker 부호 비대칭 오탐 + writer 환각으로 NVDA 404 지속 (사례 12 후속)
+
+- **증상/맥락**: 사례 12(allowed_numbers 화이트리스트 1차 도입) 이후에도 `/api/reports/NVDA`가 계속 404. 로그상 데이터는 정상 수신.
+- **에러(로그)**: `fact_checker_node fail (ticker=NVDA, unsupported=22)` → `unsupported=3.62%, 22` → `unsupported=-3.62%, 22`로 **부호만 진동**하며 반복 → `revision_count>=3` → `ReportQualityError` → 미저장. 단, 그 뒤 `AI 리포트 생성 종료` 로그가 정상 출력되어 **무료 배포 프로세스 강제 종료가 아님이 확정**(가설 반증).
+- **원인(두 갈래)**:
+  1. **fact_checker 정규화 부호 비대칭**: `_normalize_numeric_token`이 `,`/`%`/`+`만 제거하고 선행 `-`는 보존해, 데이터의 `change_pct=-3.62`(→`-3.62`)와 writer의 "3.62% 하락"(→`3.62`)이 다른 토큰으로 취급돼 **데이터에 실재하는 등락률이 미지원으로 오탐**.
+  2. **writer 환각**: 어떤 fact 소스에도 없는 `22`를 매 재작성마다 반복 생성(누적 feedback에 명시해도 재발). allowed_numbers cap(40)도 데이터 풍부 자산에서 필요한 토큰을 누락시킬 위험.
+- **수정**: (1) `_normalize_numeric_token`에 `abs()`를 적용해 **부호 비민감(절댓값) 매칭**으로 정합화(방향 검증은 evaluator/qualitative 책임). (2) `ALLOWED_NUMBERS_LIMIT=150`으로 화이트리스트 cap 상향 + `_fact_number_payload`로 소스 공유. (3) 루프 소진 시(`format_check_pass=True && fact_check_pass=False`) `sanitize_unsupported_numbers`로 미지원 숫자만 `(수치 미확인)`으로 결정적 치환 후 **포맷·프레임워크·숫자·정성 게이트 전부 재검증, 통과분만 저장**(LLM 재호출 없음, 미통과 시 미저장 유지). 파일: [nodes.py](../../backend/app/services/graph/nodes.py), [ai_service.py](../../backend/app/services/ai_service.py), [test_ai_report_quality_gate.py](../../backend/tests/test_ai_report_quality_gate.py). 원인 분석: [nvda-report-factchecker-loop-root-cause](nvda-report-factchecker-loop-root-cause-2026-06-04.md). 출처: [nvda-factchecker-loop-404-remediation-implementation](nvda-factchecker-loop-404-remediation-implementation-2026-06-04.md).
+- **예방**: 숫자 검증의 "동일성" 정의를 명확히 — 크기 검증과 방향 검증을 한 정규화에 섞지 않는다(부호는 절댓값 게이트의 책임이 아님). 로그 종료 패턴(정상 트레이스백 + 종료 로그)으로 "코드가 던진 예외"와 "외부 프로세스 킬"을 구분한다. 결정적 폴백은 "실패본 저장"이 아니라 **재검증 통과분만 저장**으로 게이트 정신을 보존한다.
+
 ---
 
 ## 교차 교훈 / 예방 체크리스트 (배포·DB 작업 전)
@@ -154,7 +165,8 @@ Date: 2026-06-03
 11. **startup job은 warm-up 완료를 가정하지 않기**: 비차단 warm-up과 즉시 실행 scheduler job이 함께 있으면 캐시 miss race가 생긴다. (사례 11)
 12. **품질 게이트는 거부만 하지 말고 허용 입력 제공**: 검증자(fact_checker)와 생성자(writer)가 같은 fact 소스 허용 집합을 공유해 첫 초안 통과율을 올린다. 게이트를 약화시키지 않는다. (사례 12)
 13. **로그에 외부 URL/키 남기지 않기**: `httpx`/`sqlalchemy.engine` 로거를 WARNING으로. 노출 키는 손상 간주·로테이션. (사례 13)
-14. **새 오류는 이 문서에 추가**: 해결 즉시 "증상→원인→수정→예방" 항목으로 누적.
+14. **숫자 게이트의 동일성 정의 분리**: 크기(절댓값) 검증과 방향(부호) 검증을 한 정규화에 섞지 말 것. 부호 비대칭은 데이터에 실재하는 값도 오탐시킨다. 결정적 폴백은 재검증 통과분만 저장해 게이트를 약화시키지 않는다. 로그 종료 패턴으로 "코드 예외"와 "프로세스 킬"을 구분. (사례 14)
+15. **새 오류는 이 문서에 추가**: 해결 즉시 "증상→원인→수정→예방" 항목으로 누적.
 
 ## References Checked
 

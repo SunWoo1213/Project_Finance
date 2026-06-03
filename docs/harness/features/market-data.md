@@ -41,7 +41,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
    - US stocks, US indices, and commodities use Stooq daily CSV only when `STOOQ_API_KEY` is configured; otherwise they degrade to empty daily history.
    - Crypto uses CoinGecko Demo API.
    - Korean stocks and Korean indices use 공공데이터포털 금융위원회 stock/index price APIs. The index API matches `idxNm` by the Korean index name (`코스피`/`코스닥`); the English forms return empty results.
-   - USD/KRW uses open.er-api.com as daily reference FX and returns a single provider-dated point when no historical provider is configured.
+   - USD/KRW (`KRW=X`) uses Stooq daily `usdkrw` closes for history and for the snapshot `changePercent` (latest Stooq close treated as the previous close, open.er-api.com live rate as `currentPrice`). When `STOOQ_API_KEY` is missing or Stooq returns no data, it degrades to open.er-api.com only — `changePercent=0` and a single provider-dated point. `provider_meta.change_source` reports `stooq` or `none`.
 11. Frontend pages select the relevant group and normalize fallback fields such as `points`, `legacy`, `value`, `currentPrice`, and `changePercent`.
 12. `CategoryView.jsx` and `AssetDetail.jsx` both use `getUiCategory` from `frontend/src/utils/assetCategories.js`, so Korean stocks, crypto, bonds, commodities, FX, and macro index tickers share the same display category rules.
 13. Category lists let users favorite individual assets from the rightmost star button and open favorited assets through the right-side favorites panel.
@@ -118,6 +118,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/market-data-warmup-provider-throttle-timeout-implementation-2026-06-04.md`
 - `docs/harness/market-data-kr-data-go-index-name-throttle-fix-2026-06-04.md`
 - `docs/harness/report-scheduler-market-cache-miss-fallback-2026-06-04.md`
+- `docs/harness/fx-change-percent-from-stooq-2026-06-04.md`
 
 ## Open Risks
 

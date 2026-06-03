@@ -58,6 +58,12 @@ class EvaluationResult(BaseModel):
 
 NUMERIC_TOKEN_PATTERN = re.compile(r"(?<![A-Za-z])[-+]?\d[\d,]*(?:\.\d+)?%?")
 SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?。！？])\s+|\n+")
+# writer에 안내하는 허용 숫자 화이트리스트 상한. fact_checker 허용 집합은 무제한이라
+# cap이 낮으면 데이터 풍부 자산에서 필요한 토큰이 안내에서 누락된다. 프롬프트 비대를
+# 막으면서도 fact_checker와 정합되도록 충분히 높게 둔다.
+ALLOWED_NUMBERS_LIMIT = 150
+# 루프 소진 시 미지원 숫자를 결정적으로 치환할 정성 표현.
+UNSUPPORTED_NUMBER_PLACEHOLDER = "(수치 미확인)"
 FRAMEWORK_EVIDENCE_TERMS = [
     "데이터",
     "뉴스",
@@ -162,6 +168,13 @@ def _run_research_agent(title: str, instructions: str, query: str) -> str:
 
 
 def _normalize_numeric_token(value: Any) -> str | None:
+    """숫자 토큰을 부호 비민감(절댓값) 키로 정규화한다.
+
+    fact_checker는 "데이터에 없는 크기의 숫자"를 차단하는 게이트다. 등락률은
+    `report_facts.price.change_pct`에 존재하지만 writer가 방향을 단어("3.62% 하락")로
+    표현하면 부호가 어긋나 오탐했다. 그래서 부호(`-`/`+`)는 무시하고 절댓값으로
+    비교한다. 증감 방향 검증은 numeric 단계가 아니라 evaluator/qualitative 책임이다.
+    """
     raw = str(value).strip()
     if not raw:
         return None
@@ -170,6 +183,7 @@ def _normalize_numeric_token(value: Any) -> str | None:
         number = float(raw)
     except ValueError:
         return None
+    number = abs(number)
     if number.is_integer():
         return str(int(number))
     return f"{number:.6f}".rstrip("0").rstrip(".")
@@ -204,16 +218,19 @@ def _collect_supported_numbers(payload: Any) -> set[str]:
     return supported
 
 
+def _fact_number_payload(state: AgentState) -> dict[str, Any]:
+    """fact_checker·writer 화이트리스트·정제가 공유하는 동일 숫자 소스 묶음."""
+    return {
+        "report_facts": state.get("report_facts", {}),
+        "structured_facts": state.get("structured_facts", {}),
+        "financial_facts": state.get("financial_facts", {}),
+        "news_facts": state.get("news_facts", {}),
+        "macro_facts": state.get("macro_facts", {}),
+    }
+
+
 def _find_unsupported_numbers(draft_report: str, state: AgentState) -> list[str]:
-    supported_numbers = _collect_supported_numbers(
-        {
-            "report_facts": state.get("report_facts", {}),
-            "structured_facts": state.get("structured_facts", {}),
-            "financial_facts": state.get("financial_facts", {}),
-            "news_facts": state.get("news_facts", {}),
-            "macro_facts": state.get("macro_facts", {}),
-        }
-    )
+    supported_numbers = _collect_supported_numbers(_fact_number_payload(state))
     unsupported: list[str] = []
     seen: set[str] = set()
     for match in NUMERIC_TOKEN_PATTERN.findall(draft_report or ""):
@@ -225,20 +242,33 @@ def _find_unsupported_numbers(draft_report: str, state: AgentState) -> list[str]
     return unsupported
 
 
-def _describe_supported_numbers(state: AgentState, limit: int = 40) -> list[str]:
+def sanitize_unsupported_numbers(draft_report: str, state: AgentState) -> str:
+    """초안에서 미지원 숫자 토큰만 결정적으로 정성 표현으로 치환한다.
+
+    `fact_checker`(=`_find_unsupported_numbers`)와 같은 허용 집합을 사용하므로,
+    치환 후 다시 fact_checker를 돌리면 미지원 숫자가 남지 않는다. LLM 재호출 없이
+    결정적으로 동작하며(비용 불변), 루프 소진 시 폴백 저장에 사용된다.
+    """
+    supported_numbers = _collect_supported_numbers(_fact_number_payload(state))
+
+    def _replace(match: re.Match[str]) -> str:
+        normalized = _normalize_numeric_token(match.group(0))
+        if not normalized or normalized in supported_numbers:
+            return match.group(0)
+        return UNSUPPORTED_NUMBER_PLACEHOLDER
+
+    return NUMERIC_TOKEN_PATTERN.sub(_replace, draft_report or "")
+
+
+def _describe_supported_numbers(state: AgentState, limit: int = ALLOWED_NUMBERS_LIMIT) -> list[str]:
     """fact_checker가 허용하는 동일 fact 소스에서 원문 숫자 토큰을 수집한다.
 
     `_find_unsupported_numbers`와 같은 payload를 순회하되, 정규화 이전의 원문
     토큰(예: ``200``, ``1.25%``)을 중복 제거하고 상한 개수만큼만 모은다. writer
-    프롬프트에 화이트리스트로 주입해 첫 초안부터 미지원 숫자가 줄게 한다.
+    프롬프트에 화이트리스트로 주입해 첫 초안부터 미지원 숫자가 줄게 한다. 상한은
+    fact_checker 허용 집합과 정합되도록 ``ALLOWED_NUMBERS_LIMIT``까지 넓힌다.
     """
-    payload = {
-        "report_facts": state.get("report_facts", {}),
-        "structured_facts": state.get("structured_facts", {}),
-        "financial_facts": state.get("financial_facts", {}),
-        "news_facts": state.get("news_facts", {}),
-        "macro_facts": state.get("macro_facts", {}),
-    }
+    payload = _fact_number_payload(state)
     tokens: list[str] = []
     seen: set[str] = set()
 

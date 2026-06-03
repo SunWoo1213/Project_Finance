@@ -11,6 +11,13 @@ from ..core.config import settings
 from ..db.session import AsyncSessionLocal
 from ..models import AIReport, Asset, AssetCategory
 from .graph.graph import app as graph_app
+from .graph.nodes import (
+    _find_unsupported_numbers,
+    _find_unsupported_qualitative_claims,
+    _missing_framework_sections,
+    _missing_report_sections,
+    sanitize_unsupported_numbers,
+)
 from .market_service import (
     BONDS,
     COMMODITIES,
@@ -712,6 +719,51 @@ def _build_generation_metadata(
     }
 
 
+def _attempt_numeric_sanitization_fallback(result: dict[str, Any]) -> dict[str, Any] | None:
+    """fact_checker 루프 소진 시 미지원 숫자만 정제해 재검증 통과분만 살린다.
+
+    포맷은 통과했으나 숫자 게이트에서만 탈락한(`format_check_pass=True`,
+    `fact_check_pass=False`) 경우에 한해, 마지막 초안에서 미지원 숫자를 결정적으로
+    정성 표현으로 치환한다. 그 뒤 포맷·숫자·정성 게이트를 모두 재검증해 전부 통과할
+    때만 정제본을 반환한다(저장 대상). 하나라도 미통과면 ``None``을 돌려 기존
+    미저장 경로(`ReportQualityError`)를 유지한다. LLM 재호출이 없어 비용은 불변이며
+    저장되는 리포트는 항상 결정적 게이트를 통과한 상태다.
+    """
+    if not result.get("format_check_pass") or result.get("fact_check_pass"):
+        return None
+
+    draft = result.get("draft_report") or result.get("final_report") or ""
+    if not draft:
+        return None
+
+    sanitized_draft = sanitize_unsupported_numbers(draft, result)
+    removed = _find_unsupported_numbers(draft, result)
+
+    # 정제본 전체 결정적 게이트 재검증.
+    if _missing_report_sections(sanitized_draft):
+        return None
+    if _missing_framework_sections(sanitized_draft, result):
+        return None
+    if _find_unsupported_numbers(sanitized_draft, result):
+        return None
+    if _find_unsupported_qualitative_claims(sanitized_draft, result):
+        return None
+
+    updated = dict(result)
+    updated["draft_report"] = sanitized_draft
+    updated["analysis_result"] = sanitized_draft
+    updated["final_report"] = sanitized_draft
+    updated["is_pass"] = True
+    updated["fact_check_pass"] = True
+    updated["qualitative_check_pass"] = True
+    updated["sanitized_numbers"] = removed
+    existing_feedback = result.get("feedback", "")
+    updated["feedback"] = (
+        f"{existing_feedback}\n루프 소진 후 미지원 숫자를 정성 표현으로 정제하고 재검증을 통과해 저장함."
+    ).strip()
+    return updated
+
+
 async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
     if not settings.ENABLE_AI_REPORT_GENERATION:
         logger.info(
@@ -823,12 +875,25 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
     result["generation_metadata"] = metadata
 
     if not result.get("is_pass"):
-        raise ReportQualityError(
-            ticker=ticker,
-            feedback=metadata["feedback"],
-            revision_count=metadata["revision_count"],
-            metadata=metadata,
-        )
+        sanitized = _attempt_numeric_sanitization_fallback(result)
+        if sanitized is not None:
+            result = sanitized
+            metadata = _build_generation_metadata(ticker, report_facts, result)
+            metadata["fallback_sanitized"] = True
+            metadata["sanitized_numbers"] = result.get("sanitized_numbers", [])
+            result["generation_metadata"] = metadata
+            logger.info(
+                "%s fact_checker 루프 소진 후 숫자 정제 폴백으로 저장 (sanitized=%s)",
+                ticker,
+                result.get("sanitized_numbers", []),
+            )
+        else:
+            raise ReportQualityError(
+                ticker=ticker,
+                feedback=metadata["feedback"],
+                revision_count=metadata["revision_count"],
+                metadata=metadata,
+            )
 
     asset_result = await db.execute(select(Asset).where(Asset.ticker == ticker))
     asset = asset_result.scalar_one_or_none()

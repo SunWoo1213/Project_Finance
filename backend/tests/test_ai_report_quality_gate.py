@@ -7,10 +7,12 @@ from app.models import AIReport, Asset, AssetCategory
 from app.services import ai_service, external_api_service
 from app.services.graph.graph import route_fact_check, route_format_check, route_qualitative_check
 from app.services.graph.nodes import (
+    ALLOWED_NUMBERS_LIMIT,
     EvaluationResult,
     StructuredFacts,
     _collect_supported_numbers,
     _describe_supported_numbers,
+    _find_unsupported_numbers,
     _llm_with_flexible_structured_output,
     _normalize_numeric_token,
     bear_agent_node,
@@ -19,6 +21,7 @@ from app.services.graph.nodes import (
     qualitative_claim_checker_node,
     report_format_validator_node,
     risk_officer_node,
+    sanitize_unsupported_numbers,
 )
 
 
@@ -584,9 +587,9 @@ def test_describe_supported_numbers_collects_raw_tokens_from_facts():
     assert "1.25" in tokens
     assert "3.62%" in tokens
     assert "21" in tokens
-    # 중복 없이 상한(40개) 이내로 수집된다.
+    # 중복 없이 상한(ALLOWED_NUMBERS_LIMIT) 이내로 수집된다.
     assert len(tokens) == len(set(tokens))
-    assert len(tokens) <= 40
+    assert len(tokens) <= ALLOWED_NUMBERS_LIMIT
 
 
 def test_describe_supported_numbers_subset_of_collect_supported_numbers():
@@ -798,3 +801,147 @@ async def test_structured_external_provider_reports_missing_key_without_network(
     assert finnhub["status"] == "missing"
     assert coingecko["status"] == "unsupported"
     assert fmp["limitations"]
+
+
+def test_fact_checker_is_sign_insensitive_for_change_pct():
+    # 데이터의 등락률은 음수(-3.62)지만 writer가 방향을 단어로 표현(3.62% 하락)해도
+    # 크기가 일치하면 통과해야 한다(부호 비민감 정합화).
+    base_state = {
+        "ticker": "NVDA",
+        "report_facts": {"price": {"value": 200.0, "change_pct": -3.62}},
+        "structured_facts": {},
+        "financial_facts": {},
+        "news_facts": {},
+        "macro_facts": {},
+        "feedback": "",
+        "revision_count": 0,
+        "retry_count": 0,
+    }
+
+    word_direction = fact_checker_node({**base_state, "draft_report": "가격 200달러, 3.62% 하락했습니다."})
+    signed = fact_checker_node({**base_state, "draft_report": "가격 200달러, -3.62% 변동입니다."})
+
+    assert word_direction["fact_check_pass"] is True
+    assert signed["fact_check_pass"] is True
+
+
+def test_describe_supported_numbers_caps_at_allowed_numbers_limit():
+    note = " ".join(f"지표{value}={value}.{value % 10}%" for value in range(20, 400))
+    state = {
+        "report_facts": {},
+        "structured_facts": {"note": note},
+        "financial_facts": {},
+        "news_facts": {},
+        "macro_facts": {},
+    }
+
+    tokens = _describe_supported_numbers(state)
+
+    assert ALLOWED_NUMBERS_LIMIT == 150
+    assert len(tokens) == ALLOWED_NUMBERS_LIMIT
+    assert len(tokens) == len(set(tokens))
+
+
+def test_sanitize_unsupported_numbers_replaces_only_unsupported():
+    state = {
+        "report_facts": {"price": {"value": 200.0, "change_pct": 1.25}},
+        "structured_facts": {},
+        "financial_facts": {},
+        "news_facts": {},
+        "macro_facts": {},
+    }
+    draft = "주가는 200달러, 변동률 1.25%이며 P/E는 22배 수준입니다."
+
+    sanitized = sanitize_unsupported_numbers(draft, state)
+
+    # 지원되는 200, 1.25는 보존, 미지원 22만 정성 표현으로 치환된다.
+    assert "200" in sanitized
+    assert "1.25" in sanitized
+    assert "22" not in sanitized
+    assert "(수치 미확인)" in sanitized
+    # 정제 후에는 미지원 숫자가 남지 않는다.
+    assert _find_unsupported_numbers(sanitized, state) == []
+
+
+@pytest.mark.asyncio
+async def test_generate_report_saves_via_numeric_sanitization_fallback(monkeypatch, cached_aapl):
+    clean_sections = (
+        "## 1. 핵심 요약\n200달러 수준에서 거래되고 있습니다.\n"
+        "## 2. 데이터 기준 시각과 한계\n데이터 기준 시각을 명시합니다.\n"
+        "## 3. 가격과 시장 반응\n변동률은 1.25%입니다.\n"
+        "## 4. Bull 시나리오\n상승 논거를 정성적으로 설명합니다.\n"
+        "## 5. Bear 시나리오\n하락 논거를 정성적으로 설명합니다.\n"
+        "## 6. 핵심 촉매\n주요 촉매를 정성적으로 설명합니다.\n"
+        "## 7. 주요 리스크\n불확실성을 정성적으로 설명합니다.\n"
+        "## 8. 자산군별 분석\n주가는 200달러이고 P/E는 22배 수준으로 해석됩니다.\n"
+        "## 9. 균형 결론\n균형 잡힌 결론을 제시합니다.\n"
+        "## 10. 투자 유의사항\n본 자료는 투자 권유가 아닙니다.\n"
+    )
+    graph = FakeGraph(
+        {
+            "is_pass": False,
+            "feedback": "Fact checker failed: Unsupported numbers: 22",
+            "format_check_pass": True,
+            "format_check_feedback": "",
+            "fact_check_pass": False,
+            "fact_check_feedback": "Unsupported numbers: 22",
+            "qualitative_check_pass": False,
+            "qualitative_check_feedback": "",
+            "revision_count": 3,
+            "analysis_result": clean_sections,
+            "draft_report": clean_sections,
+            "final_report": clean_sections,
+            "report_facts": {
+                "analysis_framework": {"required_sections": []},
+                "price": {"value": 200.0, "change_pct": 1.25},
+            },
+            "structured_facts": {
+                "price": {"value": 200.0, "change_pct": 1.25},
+                "data_as_of": "2026-05-30T00:10:00+00:00",
+            },
+            "financial_facts": {},
+            "news_facts": {},
+            "macro_facts": {},
+        }
+    )
+    monkeypatch.setattr(ai_service, "graph_app", graph)
+    asset = Asset(id=1, ticker="AAPL", name="AAPL", category=AssetCategory.STOCK_US)
+    db = FakeDbSession(asset=asset)
+
+    result = await ai_service.generate_report_for_ticker("AAPL", db)
+
+    assert db.committed is True
+    saved = db.added[0]
+    assert isinstance(saved, AIReport)
+    # 저장된 본문은 정제되어 미지원 22가 사라지고 정성 표현으로 대체된다.
+    assert "22" not in saved.final_content
+    assert "(수치 미확인)" in saved.final_content
+    assert result["generation_metadata"]["fallback_sanitized"] is True
+    assert result["generation_metadata"]["fact_check_pass"] is True
+    assert result["generation_metadata"]["quality_status"] == "pass"
+
+
+@pytest.mark.asyncio
+async def test_numeric_sanitization_fallback_skips_when_format_failed(monkeypatch, cached_aapl):
+    # 포맷이 통과하지 못한 실패는 숫자 정제로 살릴 수 없으므로 미저장 경로를 유지한다.
+    graph = FakeGraph(
+        {
+            "is_pass": False,
+            "feedback": "format failed",
+            "format_check_pass": False,
+            "fact_check_pass": False,
+            "revision_count": 3,
+            "analysis_result": "draft",
+            "draft_report": "## 1. 핵심 요약\n불완전한 초안 22.",
+            "final_report": "## 1. 핵심 요약\n불완전한 초안 22.",
+            "structured_facts": {},
+        }
+    )
+    monkeypatch.setattr(ai_service, "graph_app", graph)
+    db = FakeDbSession(asset=Asset(id=1, ticker="AAPL", name="AAPL", category=AssetCategory.STOCK_US))
+
+    with pytest.raises(ai_service.ReportQualityError):
+        await ai_service.generate_report_for_ticker("AAPL", db)
+
+    assert db.added == []
+    assert db.committed is False
