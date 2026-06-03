@@ -3,6 +3,7 @@ from fastapi import HTTPException
 
 from app import main
 from app.core.cache import market_cache
+from app.core.config import settings
 from app.models import AIReport, Asset, AssetCategory
 from app.services import ai_service, external_api_service
 from app.services.graph.graph import route_fact_check, route_format_check, route_qualitative_check
@@ -561,13 +562,13 @@ def test_report_format_validator_routes_to_end_after_revision_limit():
         "ticker": "AAPL",
         "draft_report": "## 핵심 요약\n불완전한 리포트입니다.",
         "feedback": "",
-        "revision_count": 2,
-        "retry_count": 2,
+        "revision_count": settings.REPORT_MAX_REVISIONS - 1,
+        "retry_count": settings.REPORT_MAX_REVISIONS - 1,
     }
 
     result = report_format_validator_node(state)
 
-    assert result["revision_count"] == 3
+    assert result["revision_count"] == settings.REPORT_MAX_REVISIONS
     assert route_format_check({**state, **result}) == "END"
 
 
@@ -639,6 +640,31 @@ def test_fact_checker_rejects_unsupported_numbers_and_routes_to_writer():
     assert route_fact_check({**state, **result}) == "writer_node"
 
 
+def test_report_max_revisions_default_is_seven():
+    # writer 재작성 한도 기본값은 7회.
+    assert settings.REPORT_MAX_REVISIONS == 7
+
+
+def test_fact_checker_keeps_routing_to_writer_below_revision_limit():
+    # 한도 미만에서는 계속 writer로 재작성한다(7회로 늘어난 한도 확인).
+    state = {
+        "ticker": "AAPL",
+        "draft_report": "현재 가격은 999달러입니다.",
+        "report_facts": {"price": {"value": 200.0}},
+        "structured_facts": {},
+        "financial_facts": {},
+        "news_facts": {},
+        "macro_facts": {},
+        "feedback": "",
+        "revision_count": settings.REPORT_MAX_REVISIONS - 2,
+        "retry_count": settings.REPORT_MAX_REVISIONS - 2,
+    }
+    result = fact_checker_node(state)
+
+    assert result["revision_count"] == settings.REPORT_MAX_REVISIONS - 1
+    assert route_fact_check({**state, **result}) == "writer_node"
+
+
 def test_fact_checker_routes_to_end_after_revision_limit():
     state = {
         "ticker": "AAPL",
@@ -649,12 +675,12 @@ def test_fact_checker_routes_to_end_after_revision_limit():
         "news_facts": {},
         "macro_facts": {},
         "feedback": "",
-        "revision_count": 2,
-        "retry_count": 2,
+        "revision_count": settings.REPORT_MAX_REVISIONS - 1,
+        "retry_count": settings.REPORT_MAX_REVISIONS - 1,
     }
     result = fact_checker_node(state)
 
-    assert result["revision_count"] == 3
+    assert result["revision_count"] == settings.REPORT_MAX_REVISIONS
     assert route_fact_check({**state, **result}) == "END"
 
 

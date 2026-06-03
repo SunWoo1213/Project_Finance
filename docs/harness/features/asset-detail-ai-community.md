@@ -46,7 +46,7 @@ AI report generation is now additionally controlled by backend-only `ENABLE_AI_R
 15. The writer output goes through a deterministic fixed-format validator that checks for the 10 required Markdown section headings and requires asset-framework topic coverage inside the `자산군별 분석` section with supporting evidence or data-limit text.
 16. Format-passing output then goes through a deterministic numeric fact checker. Numeric matching is sign-insensitive (absolute-value normalization), so a magnitude present in the facts (for example a `change_pct` of `-3.62`) is accepted even when the writer expresses direction in words (`3.62% 하락`); increase/decrease direction correctness is left to the evaluator and qualitative checks, not the numeric gate.
 17. Numeric-passing output goes through a deterministic qualitative claim checker for narrow high-risk claims such as unsupported regulatory, ETF, institutional-flow, policy-shift, earnings, supply, or on-chain statements.
-18. If the format validator, numeric fact checker, or qualitative checker fails, it routes feedback back to the writer until the revision limit.
+18. If the format validator, numeric fact checker, or qualitative checker fails, it routes feedback back to the writer until the revision limit, which is `settings.REPORT_MAX_REVISIONS` (default 7). Reaching the limit routes the graph to END (then the numeric sanitization fallback in step 20 is attempted).
 19. The graph evaluates format-, numeric-, and qualitative-check-passing reports. Passing reports are saved with bull and bear summaries derived from role outputs when available.
 20. Failed format checker, fact checker, qualitative checker, or evaluator results raise a quality failure and are not committed to the database. As a single exception, when the revision loop is exhausted and the only failing gate is the numeric fact checker (format already passed), `generate_report_for_ticker` deterministically sanitizes the unsupported numeric tokens (replacing them with a `(수치 미확인)` placeholder, no LLM re-call) and re-runs the format, framework, numeric, and qualitative gates; only if all gates then pass is the sanitized report saved (`metadata_json.fallback_sanitized=true` with `sanitized_numbers`). If sanitization still does not pass, the report is not saved (404 preserved).
 21. Scheduled report generation runs only when both `ENABLE_SCHEDULER=true` and `ENABLE_AI_REPORT_GENERATION=true`.
@@ -73,7 +73,7 @@ AI report generation is now additionally controlled by backend-only `ENABLE_AI_R
 - Persisted `AIReport` quality columns include `quality_status`, `quality_feedback`, `format_check_pass`, `fact_check_pass`, `qualitative_check_pass`, `revision_count`, `data_as_of`, `source_summary`, `risk_summary`, `analysis_framework`, and `metadata_json`.
 - FastAPI lifespan attempts `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for local bootstrap only when `ENABLE_DB_SCHEMA_BOOTSTRAP=true`. Production-like deployments should set that flag to `false` and rely on Alembic migration coverage for report metadata columns.
 - Optional structured provider environment variable names for report-quality context: `FMP_API_KEY`, `FINNHUB_API_KEY`. They are optional; missing values produce provider limitation metadata rather than blocking report generation.
-- Optional report runtime policy variables: `ENABLE_AI_REPORT_GENERATION`, `ENABLE_LLM_REPORT_CRITICS`, `REPORT_CRITIC_MODE`, `REPORT_SCHEDULER_COVERAGE`, `REPORT_SCHEDULER_INTERVAL_HOURS`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS`, and `REPORT_SCHEDULER_TARGET_TICKERS`.
+- Optional report runtime policy variables: `ENABLE_AI_REPORT_GENERATION`, `ENABLE_LLM_REPORT_CRITICS`, `REPORT_CRITIC_MODE`, `REPORT_MAX_REVISIONS` (writer retry limit, default 7), `REPORT_SCHEDULER_COVERAGE`, `REPORT_SCHEDULER_INTERVAL_HOURS`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS`, and `REPORT_SCHEDULER_TARGET_TICKERS`.
 - Latest context fetch: `GET /api/market/latest-context/{ticker}` is public and TTL-cached.
 - Comment list: `GET /api/community/{asset_id}/comments`
 - Chat guidance: `POST /api/chat/message`
@@ -153,6 +153,7 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/nvda-report-factchecker-loop-root-cause-2026-06-04.md`
 - `docs/harness/nvda-factchecker-loop-404-remediation-plan-2026-06-04.md`
 - `docs/harness/nvda-factchecker-loop-404-remediation-implementation-2026-06-04.md`
+- `docs/harness/report-max-revisions-increase-to-7-2026-06-04.md`
 
 ## Open Risks
 

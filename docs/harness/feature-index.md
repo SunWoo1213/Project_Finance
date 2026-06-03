@@ -32,6 +32,7 @@ This index tells future harness agents which feature document to read before cha
 - NVDA 리포트 생성 실패 정밀 원인 분석(fact_checker 루프): `docs/harness/nvda-report-factchecker-loop-root-cause-2026-06-04.md`
 - NVDA fact_checker 루프 404 해결 계획(부호 정규화+allowed_numbers 정합+숫자 정제 폴백): `docs/harness/nvda-factchecker-loop-404-remediation-plan-2026-06-04.md`
 - NVDA fact_checker 루프 404 해결 구현(부호 정규화+allowed_numbers 정합+숫자 정제 폴백): `docs/harness/nvda-factchecker-loop-404-remediation-implementation-2026-06-04.md`
+- 리포트 재작성(revision) 한도 3→7 상향: `docs/harness/report-max-revisions-increase-to-7-2026-06-04.md`
 - 시장 데이터 갱신 주기 환경변수 분리: `docs/harness/market-data-refresh-cadence-env-switch-2026-06-03.md`
 - 시장 데이터 provider 무료 멀티소스 교체 계획(yfinance 탈피): `docs/harness/market-data-provider-migration-plan-2026-06-03.md`
 - 시장 데이터 provider 무료 멀티소스 교체 구현(yfinance 탈피): `docs/harness/market-data-provider-migration-implementation-2026-06-03.md`

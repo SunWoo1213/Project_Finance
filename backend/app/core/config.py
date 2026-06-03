@@ -120,6 +120,10 @@ class Settings(BaseSettings):
     REPORT_SCHEDULER_TARGET_TICKERS: str = "DGS10,XAU,BTC-USD,NVDA,005930.KS"
     ENABLE_LLM_REPORT_CRITICS: bool = False
     REPORT_CRITIC_MODE: str = "deterministic"
+    # 품질 게이트(포맷/숫자/정성/평가) 실패 시 writer 재작성 최대 횟수.
+    # 이 값에 도달하면 그래프가 END로 빠진다(이후 숫자 정제 폴백 저장 시도).
+    # 값이 클수록 통과율은 오르지만 실패 리포트당 LLM 호출이 늘어 비용이 증가한다.
+    REPORT_MAX_REVISIONS: int = 7
 
     # Chatbot LLM intent understanding. Default off so the rule-based path stays
     # the safe baseline and no OpenAI cost is incurred unless explicitly enabled.

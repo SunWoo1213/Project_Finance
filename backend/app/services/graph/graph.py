@@ -1,6 +1,7 @@
 from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 
+from ...core.config import settings
 from .nodes import (
     bear_agent_node,
     bull_agent_node,
@@ -24,7 +25,7 @@ def route_fact_check(state: AgentState) -> str:
 
     if state.get("fact_check_pass"):
         return "qualitative_claim_checker_node"
-    if revision_count >= 3:
+    if revision_count >= settings.REPORT_MAX_REVISIONS:
         return "END"
     return "writer_node"
 
@@ -34,7 +35,7 @@ def route_qualitative_check(state: AgentState) -> str:
 
     if state.get("qualitative_check_pass"):
         return "evaluator_node"
-    if revision_count >= 3:
+    if revision_count >= settings.REPORT_MAX_REVISIONS:
         return "END"
     return "writer_node"
 
@@ -44,7 +45,7 @@ def route_format_check(state: AgentState) -> str:
 
     if state.get("format_check_pass"):
         return "fact_checker_node"
-    if revision_count >= 3:
+    if revision_count >= settings.REPORT_MAX_REVISIONS:
         return "END"
     return "writer_node"
 
@@ -52,7 +53,7 @@ def route_format_check(state: AgentState) -> str:
 def route_evaluation(state: AgentState) -> str:
     revision_count = state.get("revision_count", 0)
 
-    if state.get("is_pass") or revision_count >= 3:
+    if state.get("is_pass") or revision_count >= settings.REPORT_MAX_REVISIONS:
         return "END"
     return "writer_node"
 
