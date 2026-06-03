@@ -27,13 +27,13 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 
 1. FastAPI lifespan initializes DB tables and warms price/news caches.
 2. FastAPI lifespan warms price/news caches when `ENABLE_MARKET_WARMUP` is true. The default is true.
-3. APScheduler refreshes prices every 5 minutes and news every 1 hour when `ENABLE_SCHEDULER` is true. The default is true.
+3. APScheduler refreshes prices and news when `ENABLE_SCHEDULER` is true (default true). The cadence is configurable in minutes via `MARKET_PRICES_REFRESH_MINUTES` (default 5) and `MARKET_NEWS_REFRESH_MINUTES` (default 60); both are clamped to a minimum of 1.
 4. Scheduled AI report generation remains cost-controlled by default: it seeds and iterates only the representative report target list (`DGS10`, `XAU`, `BTC-USD`, `NVDA`, `005930.KS`), respects a per-run cap of 5, and runs on a 6-hour interval/cooldown.
 5. `GET /api/market/prices` returns the cached category object.
 6. `GET /api/market/news` returns the cached news object.
 7. The home page renders S&P 500, Nasdaq 100, USD/KRW, and KOSPI from the `macro` cache and lists cached global news below the market cards.
 8. Main market cards route to `/market/:ticker`, which shows a 1-day time-based chart and a link to the related dashboard instead of the AI report/community detail flow.
-9. `GET /api/market/latest-context/{ticker}` fetches ticker-specific news and calendar events with a short per-ticker TTL cache.
+9. `GET /api/market/latest-context/{ticker}` fetches ticker-specific news and calendar events with a short per-ticker TTL cache. The TTL is configurable in minutes via `MARKET_LATEST_CONTEXT_TTL_MINUTES` (default 10, minimum 1); `_latest_context_ttl_seconds()` in `market_service.py` reads it at call time.
 10. `GET /api/market/history/{ticker}?period=...` routes by ticker type:
    - Korean bonds use `fetch_kr_bond_history`.
    - US bonds use `fetch_us_bond_data`.
@@ -53,6 +53,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - Latest context endpoint: `GET /api/market/latest-context/{ticker}?force_refresh=false`
 - History endpoint: `GET /api/market/history/{ticker}`
 - Optional runtime controls for local smoke checks: `ENABLE_MARKET_WARMUP=false`, `ENABLE_SCHEDULER=false`
+- Market data refresh cadence controls (minutes, report-independent): `MARKET_PRICES_REFRESH_MINUTES=5`, `MARKET_NEWS_REFRESH_MINUTES=60`, `MARKET_LATEST_CONTEXT_TTL_MINUTES=10`. Values are clamped to a minimum of 1 and loaded at process start (restart required after change).
 - Hosted deployment startup should keep `ENABLE_MARKET_WARMUP=false` and `ENABLE_SCHEDULER=false` for the first smoke release, then enable runtime jobs after API/DB checks and cost review.
 - Optional report scheduler policy controls: `REPORT_SCHEDULER_COVERAGE=conservative`, `REPORT_SCHEDULER_INTERVAL_HOURS=6`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=5`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS=6`, `REPORT_SCHEDULER_TARGET_TICKERS=DGS10,XAU,BTC-USD,NVDA,005930.KS`
 - Target report schedule rule: report generation is backend-scheduled every 6 hours and user/chatbot paths read stored reports only. The 2026-06-01 implementation limits scheduled coverage to five representative assets for API cost control; see `docs/harness/report-generation-schedule-alignment-implementation-2026-06-01.md`.
@@ -101,6 +102,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md`
 - `docs/harness/project-defect-remediation-plan-2026-06-02.md`
 - `docs/harness/report-scheduler-structured-output-error-fix-2026-06-02.md`
+- `docs/harness/market-data-refresh-cadence-env-switch-2026-06-03.md`
 
 ## Open Risks
 

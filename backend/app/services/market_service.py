@@ -7,6 +7,7 @@ from typing import Any
 import yfinance as yf
 
 from ..core.cache import market_cache
+from ..core.config import settings
 try:
     from app.services.macro_service import fetch_commodity_data, fetch_kr_bond_data, fetch_us_bond_data
 except ModuleNotFoundError:
@@ -210,7 +211,10 @@ NEWS_ASSETS = {
     **COMMODITIES_NEWS_SYMBOLS,
 }
 
-LATEST_CONTEXT_TTL_SECONDS = 10 * 60
+def _latest_context_ttl_seconds() -> int:
+    # Configurable via MARKET_LATEST_CONTEXT_TTL_MINUTES; read at call time so
+    # the cadence reflects the current environment without code changes.
+    return settings.MARKET_LATEST_CONTEXT_TTL_MINUTES * 60
 
 
 def _resolve_yfinance_news_symbol(ticker: str) -> str:
@@ -305,7 +309,7 @@ def _is_latest_context_fresh(payload: dict[str, Any] | None, now: datetime) -> b
         return False
     if fetched_at.tzinfo is None:
         fetched_at = fetched_at.replace(tzinfo=timezone.utc)
-    return (now - fetched_at).total_seconds() < LATEST_CONTEXT_TTL_SECONDS
+    return (now - fetched_at).total_seconds() < _latest_context_ttl_seconds()
 
 
 async def fetch_latest_asset_context(ticker: str, *, force_refresh: bool = False) -> dict[str, Any]:
@@ -331,7 +335,7 @@ async def fetch_latest_asset_context(ticker: str, *, force_refresh: bool = False
         "ticker": asset_ticker,
         "symbol": symbol,
         "fetched_at": now.isoformat(),
-        "ttl_seconds": LATEST_CONTEXT_TTL_SECONDS,
+        "ttl_seconds": _latest_context_ttl_seconds(),
         "source": "yfinance",
         "source_status": source_status,
         "news": fetched.get("news", []),

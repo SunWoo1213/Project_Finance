@@ -86,6 +86,12 @@ class Settings(BaseSettings):
     # Runtime tasks
     ENABLE_MARKET_WARMUP: bool = True
     ENABLE_SCHEDULER: bool = True
+
+    # Market data refresh cadence (excludes AI reports). All values in minutes.
+    MARKET_PRICES_REFRESH_MINUTES: int = 5
+    MARKET_NEWS_REFRESH_MINUTES: int = 60
+    MARKET_LATEST_CONTEXT_TTL_MINUTES: int = 10
+
     ENABLE_AI_REPORT_GENERATION: bool = True
     REPORT_SCHEDULER_COVERAGE: str = "conservative"
     REPORT_SCHEDULER_INTERVAL_HOURS: int = 6
@@ -171,6 +177,17 @@ class Settings(BaseSettings):
         if value == "":
             return None
         return value
+
+    @field_validator(
+        "MARKET_PRICES_REFRESH_MINUTES",
+        "MARKET_NEWS_REFRESH_MINUTES",
+        "MARKET_LATEST_CONTEXT_TTL_MINUTES",
+    )
+    @classmethod
+    def enforce_minimum_minutes(cls, value: int) -> int:
+        # Guard against 0/negative cadence which would break the scheduler
+        # interval jobs and the latest-context freshness window.
+        return max(1, int(value))
 
     def cors_origins(self) -> list[str]:
         origins: list[str] = []

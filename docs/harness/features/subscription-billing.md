@@ -32,6 +32,7 @@ The target tier model is:
 - Report endpoint gate: `backend/app/main.py` unless report routes are split later
 - Subscription logic: `backend/app/services/subscription_service.py`
 - Payment provider adapter: `backend/app/services/payment_service.py`
+- Manual grant operator script: `backend/scripts/grant_subscription.py`
 - Billing migration workflow: `backend/alembic/`
 
 ## Data Flow
@@ -53,6 +54,7 @@ The target tier model is:
 - Current billing endpoint: `GET /api/billing/me`
 - Checkout endpoint: `POST /api/billing/checkout` returns a `checkout_url` for Plus/Pro when a provider is configured; it does not create paid entitlement.
 - Cancellation endpoint: `POST /api/billing/cancel` schedules cancellation at period end for the current active provider-backed subscription.
+- Manual grant: `python -m scripts.grant_subscription --email <email> --tier PLUS|PRO [--days N]` creates/updates a `provider="manual"` subscription row to grant paid entitlement without payment; `--revoke` expires it. Operator-only, no auth gate.
 - Webhook endpoint: `POST /api/billing/webhook` verifies signatures, stores an idempotent billing event summary, and applies normalized subscription transitions.
 - Hosted database bootstrap: `python -m alembic upgrade head` now creates the current core schema plus subscription and billing tables for a fresh Supabase database.
 - Report access: `GET /api/reports/{ticker}` requires active Plus or Pro entitlement.
@@ -87,6 +89,7 @@ The target tier model is:
 - `docs/harness/subscription-tier-payment-provider-db-implementation-2026-06-01.md`
 - `docs/harness/vercel-supabase-deployment-implementation-2026-06-01.md`
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`
+- `docs/harness/manual-subscription-grant-script-2026-06-03.md`
 
 ## Open Risks
 

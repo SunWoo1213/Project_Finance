@@ -486,6 +486,10 @@ background 작업은 비용과 부하를 만들 수 있으므로 단계적으로
 - `ENABLE_MARKET_WARMUP`: backend 시작 시 시장 데이터 cache warm-up 실행 여부.
 - `ENABLE_SCHEDULER`: APScheduler 기반 가격, 뉴스, 알림, 리포트 작업 실행 여부.
 - `ENABLE_AI_REPORT_GENERATION`: 전체 scheduler가 켜져 있어도 AI 리포트 생성 job과 서비스 진입부를 허용할지 여부. 저장된 리포트 조회에는 영향을 주지 않는다.
+- `MARKET_PRICES_REFRESH_MINUTES`: 사용자 화면에 노출되는 시세 cache를 scheduler가 갱신하는 간격(분). 기본값 `5`. AI 리포트와 무관한 일반 데이터 주기.
+- `MARKET_NEWS_REFRESH_MINUTES`: 뉴스 cache 갱신 간격(분). 기본값 `60`(=1시간).
+- `MARKET_LATEST_CONTEXT_TTL_MINUTES`: 종목 상세 `latest-context` cache 유효시간(분). 기본값 `10`. 만료 전에는 cache를 재사용하고 만료 후 첫 요청에서 다시 가져온다.
+- 위 세 값은 모두 분 단위이며 최소 `1`로 강제된다(0/음수 입력 시 1로 보정). 간격을 줄이면 yfinance 등 외부 API 호출 빈도와 부하가 늘어난다.
 - `REPORT_SCHEDULER_*`: 저장형 AI 리포트 생성 주기와 대상 ticker.
 - `ENABLE_LLM_REPORT_CRITICS`: 추가 LLM critic agent 사용 여부.
 - `REPORT_CRITIC_MODE`: 기본값 `deterministic` 유지 권장.

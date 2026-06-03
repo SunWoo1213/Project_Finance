@@ -170,7 +170,7 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(
             update_prices_task,
             "interval",
-            minutes=5,
+            minutes=settings.MARKET_PRICES_REFRESH_MINUTES,
             id="update_prices_task",
             replace_existing=True,
             coalesce=True,
@@ -179,7 +179,7 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(
             update_news_task,
             "interval",
-            hours=1,
+            minutes=settings.MARKET_NEWS_REFRESH_MINUTES,
             id="update_news_task",
             replace_existing=True,
             coalesce=True,
@@ -267,7 +267,8 @@ async def lifespan(app: FastAPI):
         scheduler.start()
         print(
             "[lifespan] scheduler started "
-            f"(prices:5m, news:1h, {report_scheduler_status})"
+            f"(prices:{settings.MARKET_PRICES_REFRESH_MINUTES}m, "
+            f"news:{settings.MARKET_NEWS_REFRESH_MINUTES}m, {report_scheduler_status})"
         )
     else:
         print("[lifespan] scheduler skipped")
