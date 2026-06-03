@@ -401,7 +401,7 @@ docker compose up -d db
 
 `docker-compose.yml`은 `POSTGRES_*` 값을 직접 저장하지 않고 `.env`에서 읽는다. `docker compose config`는 병합된 설정을 보여주므로 로컬에서 실행할 때 실제 credential이 터미널에 출력될 수 있다. 출력 결과를 문서, 이슈, 채팅에 붙여넣지 않는다.
 
-Hosted DB를 사용할 때는 provider가 제공한 PostgreSQL 접속 정보를 `postgresql+asyncpg://...` 형식으로 변환해 넣는다. Supabase pooler처럼 prepared statement 문제가 생기는 환경에서는 `DB_PREPARED_STATEMENT_CACHE_SIZE` 조정이 필요할 수 있다.
+Hosted DB를 사용할 때는 provider가 제공한 PostgreSQL 접속 정보를 `postgresql+asyncpg://...` 형식으로 변환해 넣는다. Supabase URL에 `?sslmode=require` 같은 query가 포함돼도 backend는 asyncpg가 이해하는 `ssl=require` 형태로 정규화한다. Supabase pooler처럼 prepared statement 문제가 생기는 환경에서는 `DB_PREPARED_STATEMENT_CACHE_SIZE` 조정이 필요할 수 있다.
 
 backend는 `DATABASE_URL`의 async driver scheme을 설정 로드 시 검증한다. PostgreSQL은 최종적으로 `postgresql+asyncpg://`, 테스트용 SQLite는 `sqlite+aiosqlite://`를 사용한다. Supabase dashboard나 Vercel integration에서 받은 `postgresql://...` 또는 `postgres://...` 값은 설정 로드 중 `postgresql+asyncpg://...`로 정규화된다.
 
@@ -607,6 +607,8 @@ npm run build
 | backend가 시작 시 설정 오류를 낸다 | `.env`에 필수값 `PROJECT_NAME`, `API_V1_STR`, `DATABASE_URL`이 있는지 확인 |
 | DB URL scheme 설정 오류 | PostgreSQL은 `postgresql+asyncpg://`, 테스트용 SQLite는 `sqlite+aiosqlite://`를 쓰는지 확인 |
 | DB 연결 실패 | `POSTGRES_*`와 `DATABASE_URL`의 user, password, DB name, host, port가 실제 DB와 맞는지 확인 |
+| `connect() got an unexpected keyword argument 'sslmode'` | Supabase/libpq URL의 `sslmode`가 asyncpg에 맞지 않는 증상이다. 최신 코드에서는 `sslmode`를 `ssl`로 정규화하므로 코드를 갱신한 뒤 다시 실행한다 |
+| `invalid literal for int() with base 10: ''` | DB URL의 port 구간이 비어 있을 수 있다. Supabase 콘솔에서 host, port, database name을 다시 확인하고 URL 전체를 채팅/문서에 붙여넣지 않는다 |
 | `POSTGRES_*`를 바꿨는데 접속이 계속 실패한다 | 기존 `postgres_data` volume은 최초 초기화된 user, password, DB name을 유지한다. 데이터 보존이 필요하면 새 user/DB 생성 또는 dump/restore를 검토한다 |
 | frontend에서 API 호출 실패 | `VITE_API_BASE_URL`과 backend CORS origin 설정 확인 |
 | Google 로그인 실패 | `GOOGLE_CLIENT_ID`, `VITE_GOOGLE_CLIENT_ID`, Google Console authorized origin 확인 |

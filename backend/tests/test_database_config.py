@@ -59,6 +59,28 @@ def test_database_url_normalizes_sync_postgres_scheme():
     assert settings.DATABASE_URL == "postgresql+asyncpg://finance_user:secret@localhost:5432/finance_db"
 
 
+def test_database_url_normalizes_supabase_sslmode_for_asyncpg():
+    settings = build_settings(
+        "postgresql://finance_user:secret@db.example.supabase.co:5432/postgres?sslmode=require"
+    )
+
+    assert settings.DATABASE_URL == (
+        "postgresql+asyncpg://finance_user:secret@db.example.supabase.co:5432/postgres?ssl=require"
+    )
+
+
+def test_database_connect_args_include_prepared_statement_cache_size_only_when_set():
+    settings = Settings(
+        _env_file=None,
+        PROJECT_NAME="Project Finance",
+        API_V1_STR="/api/v1",
+        DATABASE_URL="postgresql://finance_user:secret@localhost:5432/finance_db",
+        DB_PREPARED_STATEMENT_CACHE_SIZE=0,
+    )
+
+    assert settings.database_connect_args() == {"prepared_statement_cache_size": 0}
+
+
 def test_database_url_falls_back_to_postgres_url_non_pooling_first():
     settings = Settings(
         _env_file=None,
@@ -102,3 +124,8 @@ def test_database_url_falls_back_to_postgres_url_when_non_pooling_is_missing():
 def test_database_url_rejects_unsupported_scheme():
     with pytest.raises(ValidationError, match="DATABASE_URL must use an async SQLAlchemy driver scheme"):
         build_settings("mysql://finance_user:secret@localhost:3306/finance_db")
+
+
+def test_database_url_rejects_empty_port():
+    with pytest.raises(ValidationError, match="DATABASE_URL contains an invalid port"):
+        build_settings("postgresql://finance_user:secret@localhost:/finance_db")

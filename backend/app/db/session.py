@@ -2,9 +2,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from ..core.config import settings
 from typing import AsyncGenerator
 
-connect_args = {}
-if settings.DB_PREPARED_STATEMENT_CACHE_SIZE is not None:
-    connect_args["prepared_statement_cache_size"] = settings.DB_PREPARED_STATEMENT_CACHE_SIZE
+connect_args = settings.database_connect_args()
 
 engine_kwargs = {
     "echo": settings.SQLALCHEMY_ECHO,

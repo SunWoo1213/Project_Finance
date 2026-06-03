@@ -20,6 +20,7 @@ Local Docker PostgreSQL reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB
 
 - Deployment plan: `docs/harness/vercel-supabase-deployment-plan-2026-06-01.md`
 - Vercel Supabase integration guide: `VERCEL_SUPABASE_INTEGRATION_GUIDE.md`
+- Supabase console task checklist: `docs/harness/supabase-console-tasks-2026-06-03.md`
 - Vercel Supabase next plan: `docs/harness/vercel-supabase-integration-next-plan-2026-06-03.md`
 - Local Docker DB: `docker-compose.yml`, `.env_example`, `ENVIRONMENT_VARIABLE_SETUP.md`
 - Environment variable acquisition guide: `ENVIRONMENT_VARIABLE_SETUP.md` section `2.1 변수값 확보를 시작하기 전에`
@@ -99,6 +100,8 @@ Local Docker flow:
 - `docs/harness/vercel-supabase-integration-documentation-2026-06-03.md`
 - `docs/harness/vercel-supabase-integration-start-2026-06-03.md`
 - `docs/harness/vercel-supabase-db-diagnostics-2026-06-03.md`
+- `docs/harness/supabase-console-tasks-2026-06-03.md`
+- `docs/harness/supabase-asyncpg-url-normalization-2026-06-03.md`
 - `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 - `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md`

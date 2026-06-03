@@ -1,5 +1,5 @@
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -7,14 +7,44 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 ROOT_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 ALLOWED_DATABASE_URL_SCHEMES = {"postgresql+asyncpg", "sqlite+aiosqlite"}
 POSTGRES_FALLBACK_ENV_NAMES = ("POSTGRES_URL_NON_POOLING", "POSTGRES_URL")
+POSTGRES_SSLMODES_REQUIRING_SSL = {"allow", "prefer", "require", "verify-ca", "verify-full"}
 
 
 def normalize_database_url(value: str) -> str:
     if value.startswith("postgres://"):
-        return "postgresql+asyncpg://" + value[len("postgres://"):]
-    if value.startswith("postgresql://"):
-        return "postgresql+asyncpg://" + value[len("postgresql://"):]
-    return value
+        value = "postgresql+asyncpg://" + value[len("postgres://"):]
+    elif value.startswith("postgresql://"):
+        value = "postgresql+asyncpg://" + value[len("postgresql://"):]
+
+    parsed = urlparse(value)
+    if parsed.scheme != "postgresql+asyncpg":
+        return value
+
+    query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    normalized_query_pairs: list[tuple[str, str]] = []
+    sslmode_value: str | None = None
+    for key, query_value in query_pairs:
+        if key == "sslmode":
+            sslmode_value = query_value
+            continue
+        normalized_query_pairs.append((key, query_value))
+
+    if sslmode_value in POSTGRES_SSLMODES_REQUIRING_SSL and not any(
+        key == "ssl" for key, _ in normalized_query_pairs
+    ):
+        normalized_query_pairs.append(("ssl", sslmode_value))
+
+    return urlunparse(parsed._replace(query=urlencode(normalized_query_pairs)))
+
+
+def build_asyncpg_connect_args(
+    database_url: str,
+    prepared_statement_cache_size: int | None,
+) -> dict[str, int]:
+    connect_args: dict[str, int] = {}
+    if prepared_statement_cache_size is not None:
+        connect_args["prepared_statement_cache_size"] = prepared_statement_cache_size
+    return connect_args
 
 
 class Settings(BaseSettings):
@@ -115,6 +145,10 @@ class Settings(BaseSettings):
             )
         if parsed.scheme == "postgresql+asyncpg" and not parsed.hostname:
             raise ValueError("DATABASE_URL with postgresql+asyncpg must include a host.")
+        if parsed.scheme == "postgresql+asyncpg":
+            authority = parsed.netloc.rsplit("@", 1)[-1]
+            if authority.endswith(":"):
+                raise ValueError("DATABASE_URL contains an invalid port.")
         try:
             parsed.port
         except ValueError as exc:
@@ -137,6 +171,12 @@ class Settings(BaseSettings):
                 if origin.strip()
             )
         return list(dict.fromkeys(origins))
+
+    def database_connect_args(self) -> dict[str, int]:
+        return build_asyncpg_connect_args(
+            self.DATABASE_URL,
+            self.DB_PREPARED_STATEMENT_CACHE_SIZE,
+        )
 
     def database_url_diagnostics(self) -> dict[str, str | int | None]:
         parsed = urlparse(self.DATABASE_URL)

@@ -38,6 +38,8 @@ DATABASE_URL=postgresql+asyncpg://<user>:<password>@<host>:<port>/<database>
 
 Supabase dashboard나 Vercel에 표시되는 원본 URL이 `postgresql://...` 또는 `postgres://...`로 시작하면, backend 설정 로드 중 `postgresql+asyncpg://`로 정규화된다. 운영 문서와 dashboard에는 여전히 `DATABASE_URL`을 명시하는 방식을 우선 권장하고, Vercel/Supabase env를 그대로 backend host에 주입하는 경우에는 `POSTGRES_URL_NON_POOLING` 또는 `POSTGRES_URL` fallback을 사용할 수 있다.
 
+Supabase URL에 `?sslmode=require` 같은 libpq 스타일 query가 포함돼도 backend는 이를 asyncpg가 이해하는 `ssl=require` 형태로 정규화한다. Alembic도 같은 정규화된 URL과 connect args를 사용한다.
+
 ## 3. Vercel에서 Supabase 연결하기
 
 ### 3.1 Vercel project 준비
@@ -197,6 +199,8 @@ python -m alembic upgrade head
 
 ## 8. 공식 참고 자료
 
+- Supabase 콘솔 작업 체크리스트: `docs/harness/supabase-console-tasks-2026-06-03.md`
+- Supabase asyncpg URL 정규화 수정: `docs/harness/supabase-asyncpg-url-normalization-2026-06-03.md`
 - Vercel Supabase Marketplace: `https://vercel.com/marketplace/supabase/supabase`
 - Supabase Vercel Marketplace guide: `https://supabase.com/docs/guides/integrations/vercel-marketplace`
 - Vercel environment variables: `https://vercel.com/docs/environment-variables`
