@@ -31,6 +31,8 @@ Codex의 plan → implement → verify → 문서화 흐름을 Claude Code에서
 복잡한 문서 작성과 검증은 서브에이전트(`harness-doc-writer`, `harness-verifier`)에 위임할 수 있다.
 
 ### 문서 동기화 규율 (반드시 지킬 것)
+**구현과 계획서를 쓰는 모든 작업은 반드시 문서로 기록한다.** 계획 단계에서는 `docs/harness/`에 계획 문서를, 구현 단계에서는 같은 위치에 구현(변경) 기록을 남긴다. 문서화 없이 구현·계획을 끝내지 않는다(검증 단계만 사용자가 명시적으로 요청하면 건너뛸 수 있다).
+
 코드를 의미 있게 바꾸면 `AGENTS.md` 섹션 12·13과 `docs/harness/feature-documentation-guide.md`에 따라:
 1. `docs/harness/`에 한국어 변경 기록을 만든다(날짜·목적·변경 파일·동작 변화·검증·미실행 명령·후속 위험).
 2. 해당 `docs/harness/features/*.md`를 갱신하고 그 변경 기록 링크를 `Change Records`에 추가한다.

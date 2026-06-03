@@ -75,9 +75,12 @@ US_STOCK_SYMBOLS = {
     "TSLA",
 }
 
+# data.go.kr getStockMarketIndex matches idxNm by the Korean index name; the
+# English forms ("KOSPI"/"KOSDAQ") return totalCount=0 (empty). Keys stay as the
+# internal yfinance-style tickers used for membership checks.
 KR_INDEX_NAMES = {
-    "^KS11": "KOSPI",
-    "^KQ11": "KOSDAQ",
+    "^KS11": "코스피",
+    "^KQ11": "코스닥",
 }
 
 _provider_semaphores: dict[str, Any] = {}
@@ -87,12 +90,21 @@ _profile_cache: dict[str, tuple[float, float]] = {}
 _history_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
+def _provider_concurrency(provider: str) -> int:
+    # Most providers stay serialized (Semaphore(1)) to avoid rate-limit/IP
+    # throttling. data.go.kr is slow (~20s/call) so it gets a small, configurable
+    # concurrency bump to let its serialized queue drain across cycles.
+    if provider == "data_go_kr":
+        return max(1, settings.DATA_GO_KR_MAX_CONCURRENCY)
+    return 1
+
+
 def _provider_semaphore(provider: str):
     import asyncio
 
     semaphore = _provider_semaphores.get(provider)
     if semaphore is None:
-        semaphore = asyncio.Semaphore(1)
+        semaphore = asyncio.Semaphore(_provider_concurrency(provider))
         _provider_semaphores[provider] = semaphore
     return semaphore
 
@@ -429,10 +441,24 @@ def _data_go_params(extra: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _recent_basdt_window(days: int = 20) -> dict[str, str]:
+    # Bound data.go.kr snapshot queries to a recent date window. A date-less
+    # likeSrtnCd/idxNm query scans the full series and is slow/empty; a window
+    # wide enough to cover KR market holidays returns the latest trading day fast.
+    end = datetime.now(timezone.utc).date()
+    start = end - timedelta(days=days)
+    return {"beginBasDt": start.strftime("%Y%m%d"), "endBasDt": end.strftime("%Y%m%d")}
+
+
 async def _fetch_data_go_rows(url: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     if not _data_go_key():
         return []
-    payload = await _get_json("data_go_kr", url, params=params, timeout=15.0)
+    payload = await _get_json(
+        "data_go_kr",
+        url,
+        params=params,
+        timeout=float(settings.DATA_GO_KR_FETCH_TIMEOUT_SECONDS),
+    )
     return _extract_data_go_items(payload)
 
 
@@ -517,14 +543,14 @@ async def _fetch_data_go_snapshot(ticker: str) -> dict[str, Any]:
     if _is_kr_stock(ticker):
         rows = await _fetch_data_go_rows(
             DATA_GO_STOCK_URL,
-            _data_go_params({"numOfRows": 1, "likeSrtnCd": _kr_stock_code(ticker)}),
+            _data_go_params({"numOfRows": 1, "likeSrtnCd": _kr_stock_code(ticker), **_recent_basdt_window()}),
         )
         history = await fetch_data_go_stock_history(ticker, "1mo")
     else:
         index_name = KR_INDEX_NAMES.get(ticker.upper())
         rows = await _fetch_data_go_rows(
             DATA_GO_INDEX_URL,
-            _data_go_params({"numOfRows": 1, "idxNm": index_name}),
+            _data_go_params({"numOfRows": 1, "idxNm": index_name, **_recent_basdt_window()}),
         ) if index_name else []
         history = await fetch_data_go_index_history(ticker, "1mo")
 
@@ -599,7 +625,7 @@ async def fetch_market_snapshot(ticker: str, category: str | None = None) -> dic
         else:
             payload = dict(DEFAULT_RESPONSE)
     except Exception as exc:
-        logger.warning("Market snapshot provider failed (ticker=%s, category=%s): %s", normalized, category, exc)
+        logger.warning("Market snapshot provider failed (ticker=%s, category=%s): %r", normalized, category, exc)
         payload = dict(DEFAULT_RESPONSE)
 
     return _cache_set(_snapshot_cache, cache_key, payload)
@@ -635,7 +661,7 @@ async def fetch_market_history(ticker: str, period: str = "1y") -> dict[str, Any
         else:
             payload = _history_payload(normalized, [])
     except Exception as exc:
-        logger.warning("Market history provider failed (ticker=%s, period=%s): %s", normalized, period, exc)
+        logger.warning("Market history provider failed (ticker=%s, period=%s): %r", normalized, period, exc)
         payload = _history_payload(normalized, [])
 
     return _cache_set(_history_cache, cache_key, payload)
@@ -755,7 +781,7 @@ async def fetch_market_news_items(ticker: str, limit: int = 5) -> list[dict[str,
         else:
             items = await _fetch_finnhub_category_news("general", limit)
     except Exception as exc:
-        logger.warning("Market news provider failed (ticker=%s): %s", normalized, exc)
+        logger.warning("Market news provider failed (ticker=%s): %r", normalized, exc)
         items = []
     return _cache_set(_snapshot_cache, cache_key, items)
 
@@ -806,6 +832,6 @@ async def fetch_latest_provider_context(ticker: str, limit: int = 8) -> dict[str
     try:
         events = await fetch_finnhub_earnings_events(normalized, limit=limit)
     except Exception as exc:
-        logger.warning("Market events provider failed (ticker=%s): %s", normalized, exc)
+        logger.warning("Market events provider failed (ticker=%s): %r", normalized, exc)
         events = []
     return {"news": news_items[:limit], "events": events[:limit]}

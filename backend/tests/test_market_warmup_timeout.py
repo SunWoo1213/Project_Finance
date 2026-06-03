@@ -24,6 +24,33 @@ def test_fetch_timeout_settings_accept_configured_values():
     assert settings.MARKET_NEWS_FETCH_TIMEOUT_SECONDS == 25
 
 
+def test_price_fetch_timeout_default_covers_two_data_go_calls():
+    # KR stock snapshot makes two data.go.kr calls; the per-asset price timeout
+    # default must stay above 2 * DATA_GO_KR_FETCH_TIMEOUT_SECONDS or an
+    # uncontended KR asset can never finish. Checked on code defaults (not env).
+    price_default = Settings.model_fields["MARKET_PRICE_FETCH_TIMEOUT_SECONDS"].default
+    data_go_default = Settings.model_fields["DATA_GO_KR_FETCH_TIMEOUT_SECONDS"].default
+    assert price_default >= 2 * data_go_default
+
+
+def test_data_go_settings_enforce_minimums():
+    settings = Settings(
+        DATA_GO_KR_FETCH_TIMEOUT_SECONDS=1,
+        DATA_GO_KR_MAX_CONCURRENCY=0,
+    )
+    assert settings.DATA_GO_KR_FETCH_TIMEOUT_SECONDS == 5
+    assert settings.DATA_GO_KR_MAX_CONCURRENCY == 1
+
+
+def test_data_go_settings_accept_configured_values():
+    settings = Settings(
+        DATA_GO_KR_FETCH_TIMEOUT_SECONDS=30,
+        DATA_GO_KR_MAX_CONCURRENCY=3,
+    )
+    assert settings.DATA_GO_KR_FETCH_TIMEOUT_SECONDS == 30
+    assert settings.DATA_GO_KR_MAX_CONCURRENCY == 3
+
+
 @pytest.mark.asyncio
 async def test_collect_prices_group_times_out_slow_asset_without_blocking_others(monkeypatch):
     # A slow asset must not block fast assets in the same group; it should time

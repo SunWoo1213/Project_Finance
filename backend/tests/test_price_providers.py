@@ -27,6 +27,76 @@ def test_parse_stooq_csv_degrades_when_key_required():
     assert price_providers._parse_stooq_csv("Get your apikey: open stooq") == []
 
 
+def test_kr_index_names_use_korean_idxnm():
+    # data.go.kr getStockMarketIndex matches idxNm by Korean name; English forms
+    # return empty results. Guard against a regression to "KOSPI"/"KOSDAQ".
+    assert price_providers.KR_INDEX_NAMES["^KS11"] == "코스피"
+    assert price_providers.KR_INDEX_NAMES["^KQ11"] == "코스닥"
+
+
+def test_recent_basdt_window_is_ordered_yyyymmdd():
+    window = price_providers._recent_basdt_window(days=20)
+    assert set(window) == {"beginBasDt", "endBasDt"}
+    assert len(window["beginBasDt"]) == 8 and window["beginBasDt"].isdigit()
+    assert len(window["endBasDt"]) == 8 and window["endBasDt"].isdigit()
+    assert window["beginBasDt"] < window["endBasDt"]
+
+
+def test_data_go_semaphore_uses_configured_concurrency(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "DATA_GO_KR_MAX_CONCURRENCY", 2)
+    price_providers._provider_semaphores.clear()
+
+    data_go = price_providers._provider_semaphore("data_go_kr")
+    other = price_providers._provider_semaphore("finnhub")
+
+    # asyncio.Semaphore exposes its current count via the private _value attr.
+    assert data_go._value == 2
+    assert other._value == 1
+    price_providers._provider_semaphores.clear()
+
+
+@pytest.mark.asyncio
+async def test_data_go_rows_use_configured_timeout(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "DATA_GO_KR_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "DATA_GO_KR_FETCH_TIMEOUT_SECONDS", 25)
+    captured = {}
+
+    async def fake_get_json(provider, url, *, params=None, headers=None, timeout=10.0):
+        captured["provider"] = provider
+        captured["timeout"] = timeout
+        return {}
+
+    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
+
+    await price_providers._fetch_data_go_rows("http://example", {"numOfRows": 1})
+
+    assert captured["provider"] == "data_go_kr"
+    assert captured["timeout"] == 25.0
+
+
+@pytest.mark.asyncio
+async def test_kr_index_snapshot_query_uses_korean_name_and_date_window(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "DATA_GO_KR_API_KEY", "test-key")
+    captured = {}
+
+    async def fake_rows(url, params):
+        captured["url"] = url
+        captured["params"] = params
+        return []
+
+    async def fake_index_history(ticker, period):
+        return price_providers._history_payload(ticker, [], unit="KRW")
+
+    monkeypatch.setattr(price_providers, "_fetch_data_go_rows", fake_rows)
+    monkeypatch.setattr(price_providers, "fetch_data_go_index_history", fake_index_history)
+
+    await price_providers._fetch_data_go_snapshot("^KS11")
+
+    assert captured["url"] == price_providers.DATA_GO_INDEX_URL
+    assert captured["params"]["idxNm"] == "코스피"
+    assert "beginBasDt" in captured["params"] and "endBasDt" in captured["params"]
+
+
 @pytest.mark.asyncio
 async def test_coingecko_history_requires_demo_key(monkeypatch):
     monkeypatch.setattr(price_providers.settings, "COINGECKO_DEMO_API_KEY", None)

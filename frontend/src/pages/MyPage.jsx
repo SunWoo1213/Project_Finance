@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Bell, CheckCircle2, Mail, Search, Star, UserRound } from "lucide-react";
+import { Bell, CheckCircle2, Mail, Search, Smartphone, Star, UserRound } from "lucide-react";
 
 import useAuthStore from "../store/authStore";
 import useFavoriteStore from "../store/favoriteStore";
@@ -22,6 +22,20 @@ const defaultPreferences = {
 };
 
 const normalizeNickname = (value) => String(value || "").trim().replace(/\s+/g, " ");
+
+const maskDestination = (channel, value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (channel === "email") {
+    const [local, domain] = raw.split("@");
+    if (!domain) return `${raw.slice(0, 2)}***`;
+    const head = local.slice(0, 2);
+    return `${head}${"*".repeat(Math.max(local.length - 2, 1))}@${domain}`;
+  }
+  // telegram chat_id 등 숫자/문자 식별자는 앞 2자리만 노출
+  if (raw.length <= 3) return `${raw.slice(0, 1)}***`;
+  return `${raw.slice(0, 2)}***${raw.slice(-2)}`;
+};
 
 const flattenMarketPrices = (payload) => {
   const options = [];
@@ -58,6 +72,11 @@ export default function MyPage() {
   const [availabilityMessage, setAvailabilityMessage] = useState("");
   const [lastCheckedNickname, setLastCheckedNickname] = useState("");
   const [preferences, setPreferences] = useState(defaultPreferences);
+  const [channels, setChannels] = useState([]);
+  const [telegramCode, setTelegramCode] = useState("");
+  const [telegramChatId, setTelegramChatId] = useState("");
+  const [emailCode, setEmailCode] = useState("");
+  const [emailAddress, setEmailAddress] = useState(user?.email || "");
   const [statusMessage, setStatusMessage] = useState("");
   const [assetOptions, setAssetOptions] = useState(fallbackAssets);
   const [assetQuery, setAssetQuery] = useState("");
@@ -67,14 +86,18 @@ export default function MyPage() {
     if (!token) return;
     setIsLoading(true);
     try {
-      const [profileRes, marketRes] = await Promise.all([
+      const [profileRes, marketRes, channelRes] = await Promise.all([
         apiClient.get("/api/profile/me", { headers }),
         apiClient.get("/api/market/prices"),
+        // 채널 조회 실패가 프로필 로딩 전체를 막지 않도록 개별 fallback 처리
+        apiClient.get("/api/notifications/channels", { headers }).catch(() => ({ data: [] })),
       ]);
       const nextProfile = profileRes.data;
       setProfile(nextProfile);
       setNicknameDraft(nextProfile.nickname || "");
       setPreferences({ ...defaultPreferences, ...(nextProfile.notification_preferences || {}) });
+      setChannels(Array.isArray(channelRes.data) ? channelRes.data : []);
+      setEmailAddress((current) => current || nextProfile.email || "");
       updateUser({
         id: nextProfile.id,
         email: nextProfile.email,
@@ -170,6 +193,94 @@ export default function MyPage() {
       setStatusMessage("수신 동의 설정이 저장되었습니다.");
     } catch (error) {
       setStatusMessage(error?.response?.data?.detail || "수신 동의 설정 저장에 실패했습니다.");
+    }
+  };
+
+  const reloadChannels = useCallback(async () => {
+    try {
+      const response = await apiClient.get("/api/notifications/channels", { headers });
+      setChannels(Array.isArray(response.data) ? response.data : []);
+    } catch {
+      // 채널 재조회 실패는 화면 전체에 영향을 주지 않으므로 무시한다.
+    }
+  }, [headers]);
+
+  const getChannel = (name) => channels.find((channel) => channel.channel === name);
+
+  const requestTelegramCode = async () => {
+    try {
+      const response = await apiClient.post("/api/notifications/channels/telegram/connect", {}, { headers });
+      setTelegramCode(response.data.verification_code || "");
+      setStatusMessage("Telegram 연결 코드가 발급되었습니다. 봇과 대화 후 코드를 전송하세요.");
+      await reloadChannels();
+    } catch (error) {
+      setStatusMessage(error?.response?.data?.detail || "Telegram 연결 코드를 만들지 못했습니다.");
+    }
+  };
+
+  const verifyTelegram = async () => {
+    try {
+      await apiClient.post(
+        "/api/notifications/channels/telegram/verify",
+        { code: telegramCode, chat_id: telegramChatId },
+        { headers }
+      );
+      setStatusMessage("Telegram 채널을 연결했습니다.");
+      setTelegramCode("");
+      setTelegramChatId("");
+      await reloadChannels();
+    } catch (error) {
+      setStatusMessage(error?.response?.data?.detail || "Telegram 검증에 실패했습니다.");
+    }
+  };
+
+  const disconnectTelegram = async () => {
+    try {
+      await apiClient.delete("/api/notifications/channels/telegram", { headers });
+      setStatusMessage("Telegram 채널 연결을 해제했습니다.");
+      await reloadChannels();
+    } catch (error) {
+      setStatusMessage(error?.response?.data?.detail || "Telegram 연결 해제에 실패했습니다.");
+    }
+  };
+
+  const requestEmailCode = async () => {
+    try {
+      const response = await apiClient.post(
+        "/api/notifications/channels/email/verify",
+        { email: emailAddress || profile?.email },
+        { headers }
+      );
+      setEmailCode("");
+      setStatusMessage(response.data.message || "Gmail로 확인 코드를 보냈습니다.");
+      await reloadChannels();
+    } catch (error) {
+      setStatusMessage(error?.response?.data?.detail || "Gmail 확인 코드를 보내지 못했습니다.");
+    }
+  };
+
+  const confirmEmail = async () => {
+    try {
+      await apiClient.post(
+        "/api/notifications/channels/email/confirm",
+        { code: emailCode, email: emailAddress || profile?.email },
+        { headers }
+      );
+      setStatusMessage("이메일 채널을 연결했습니다.");
+      setEmailCode("");
+      await reloadChannels();
+    } catch (error) {
+      setStatusMessage(error?.response?.data?.detail || "이메일 검증에 실패했습니다.");
+    }
+  };
+
+  const disconnectEmail = async () => {
+    try {
+      await apiClient.delete("/api/notifications/channels/email", { headers });
+      setStatusMessage("이메일 채널 연결을 해제했습니다.");
+      await reloadChannels();
+    } catch (error) {
+      setStatusMessage(error?.response?.data?.detail || "이메일 연결 해제에 실패했습니다.");
     }
   };
 
@@ -279,31 +390,139 @@ export default function MyPage() {
           <p className="mb-4 text-sm leading-6 text-slate-400">
             체크를 해제하면 해당 채널의 알림 수신만 중지됩니다. 연결된 이메일이나 Telegram 정보는 유지됩니다.
           </p>
-          <div className="space-y-3">
-            <label className="flex items-center justify-between rounded-lg bg-slate-900/40 px-4 py-3 text-sm text-slate-200">
-              <span className="inline-flex items-center gap-2">
-                <Bell size={16} className="text-cyan-300" />
-                Telegram 수신
-              </span>
-              <input
-                type="checkbox"
-                checked={Boolean(preferences.telegram_enabled)}
-                onChange={(event) => updatePreference("telegram_enabled", event.target.checked)}
-                className="h-5 w-5 accent-emerald-500"
-              />
-            </label>
-            <label className="flex items-center justify-between rounded-lg bg-slate-900/40 px-4 py-3 text-sm text-slate-200">
-              <span className="inline-flex items-center gap-2">
-                <Mail size={16} className="text-amber-300" />
-                Google Mail 수신
-              </span>
-              <input
-                type="checkbox"
-                checked={Boolean(preferences.email_enabled)}
-                onChange={(event) => updatePreference("email_enabled", event.target.checked)}
-                className="h-5 w-5 accent-emerald-500"
-              />
-            </label>
+          <div className="space-y-4">
+            <div className="rounded-lg bg-slate-900/40 p-4">
+              <label className="flex items-center justify-between text-sm text-slate-200">
+                <span className="inline-flex items-center gap-2">
+                  <Smartphone size={16} className="text-cyan-300" />
+                  Telegram 수신
+                </span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(preferences.telegram_enabled)}
+                  onChange={(event) => updatePreference("telegram_enabled", event.target.checked)}
+                  className="h-5 w-5 accent-emerald-500"
+                />
+              </label>
+
+              {getChannel("telegram")?.verified ? (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-slate-950/60 px-3 py-2 text-xs">
+                  <span className="inline-flex items-center gap-1 text-emerald-300">
+                    <CheckCircle2 size={14} />
+                    연결됨 · chat_id {maskDestination("telegram", getChannel("telegram")?.destination)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={disconnectTelegram}
+                    className="rounded-md border border-slate-600 px-2.5 py-1 text-slate-300 hover:border-red-400 hover:text-red-300"
+                  >
+                    해제
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs leading-5 text-slate-400">
+                    봇과 1회 대화한 뒤 받은 <span className="text-slate-200">숫자 chat_id</span>를 입력하세요. 먼저 코드를 발급받아 봇에게 전송한 후 검증합니다.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={requestTelegramCode}
+                      className="rounded-md bg-slate-700 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-600"
+                    >
+                      코드 발급
+                    </button>
+                    <input
+                      value={telegramCode}
+                      onChange={(event) => setTelegramCode(event.target.value)}
+                      placeholder="연결 코드"
+                      className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                    />
+                    <input
+                      value={telegramChatId}
+                      onChange={(event) => setTelegramChatId(event.target.value)}
+                      placeholder="숫자 chat_id"
+                      inputMode="numeric"
+                      className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={verifyTelegram}
+                      disabled={!telegramCode || !telegramChatId}
+                      className="rounded-md bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      확인
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg bg-slate-900/40 p-4">
+              <label className="flex items-center justify-between text-sm text-slate-200">
+                <span className="inline-flex items-center gap-2">
+                  <Mail size={16} className="text-amber-300" />
+                  Google Mail 수신
+                </span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(preferences.email_enabled)}
+                  onChange={(event) => updatePreference("email_enabled", event.target.checked)}
+                  className="h-5 w-5 accent-emerald-500"
+                />
+              </label>
+
+              {getChannel("email")?.verified ? (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-slate-950/60 px-3 py-2 text-xs">
+                  <span className="inline-flex items-center gap-1 text-emerald-300">
+                    <CheckCircle2 size={14} />
+                    연결됨 · {maskDestination("email", getChannel("email")?.destination)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={disconnectEmail}
+                    className="rounded-md border border-slate-600 px-2.5 py-1 text-slate-300 hover:border-red-400 hover:text-red-300"
+                  >
+                    해제
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs leading-5 text-slate-400">
+                    수신 이메일로 확인 코드가 Gmail을 통해 발송됩니다. 받은 코드를 입력해 검증하세요.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      value={emailAddress}
+                      onChange={(event) => setEmailAddress(event.target.value)}
+                      placeholder={profile?.email || "email@example.com"}
+                      className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={requestEmailCode}
+                      className="rounded-md bg-slate-700 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-600"
+                    >
+                      코드 발급
+                    </button>
+                    <input
+                      value={emailCode}
+                      onChange={(event) => setEmailCode(event.target.value)}
+                      placeholder="Gmail 확인 코드"
+                      className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={confirmEmail}
+                      disabled={!emailCode}
+                      className="rounded-md bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      확인
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </div>

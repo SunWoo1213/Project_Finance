@@ -96,10 +96,21 @@ class Settings(BaseSettings):
     MARKET_LATEST_CONTEXT_TTL_MINUTES: int = 10
 
     # Per-asset fetch timeout for warm-up/scheduler collection (seconds).
-    # Higher values let a serialized provider queue drain within one run; the
-    # provider-level Semaphore(1) throttle is intentionally left unchanged.
-    MARKET_PRICE_FETCH_TIMEOUT_SECONDS: int = 30
+    # Higher values let a serialized provider queue drain within one run. The KR
+    # stock snapshot path makes two data.go.kr calls (~20s each), so this must be
+    # comfortably above 2 * DATA_GO_KR_FETCH_TIMEOUT_SECONDS or even an
+    # uncontended KR asset cannot finish before the per-asset timeout fires.
+    MARKET_PRICE_FETCH_TIMEOUT_SECONDS: int = 55
     MARKET_NEWS_FETCH_TIMEOUT_SECONDS: int = 20
+
+    # data.go.kr (KR stock/index) calls can spike to ~20s. Give them a longer
+    # internal timeout and a small concurrency bump so the serialized queue can
+    # drain across scheduler cycles. Concurrency is deliberately conservative:
+    # data.go.kr rate-limits aggressively and returns a gateway block page
+    # ("허용되지 않는 요청") under load, so default to 2 and only raise via env if
+    # the deployment tolerates it (see AGENTS.md section 9).
+    DATA_GO_KR_FETCH_TIMEOUT_SECONDS: int = 25
+    DATA_GO_KR_MAX_CONCURRENCY: int = 2
 
     ENABLE_AI_REPORT_GENERATION: bool = True
     REPORT_SCHEDULER_COVERAGE: str = "conservative"
@@ -210,12 +221,19 @@ class Settings(BaseSettings):
     @field_validator(
         "MARKET_PRICE_FETCH_TIMEOUT_SECONDS",
         "MARKET_NEWS_FETCH_TIMEOUT_SECONDS",
+        "DATA_GO_KR_FETCH_TIMEOUT_SECONDS",
     )
     @classmethod
     def enforce_minimum_fetch_timeout(cls, value: int) -> int:
         # Guard against a too-short timeout that would mass-fail assets while a
         # serialized provider queue is still draining.
         return max(5, int(value))
+
+    @field_validator("DATA_GO_KR_MAX_CONCURRENCY")
+    @classmethod
+    def enforce_minimum_concurrency(cls, value: int) -> int:
+        # At least one in-flight call; 0/negative would deadlock the provider.
+        return max(1, int(value))
 
     def cors_origins(self) -> list[str]:
         origins: list[str] = []

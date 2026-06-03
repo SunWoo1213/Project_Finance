@@ -19,7 +19,8 @@ Date: 2026-06-02
 - Scheduler registration and startup schema check: `backend/app/main.py`
 - Alembic migration: `backend/alembic/versions/20260602_0001_add_favorite_notification_tables.py`
 - Frontend favorite sync: `frontend/src/store/favoriteStore.js`
-- Frontend settings route: `frontend/src/pages/NotificationsSettings.jsx`, `frontend/src/App.jsx`
+- Frontend channel 연결·검증·해제 UI(라이브): `frontend/src/pages/MyPage.jsx`
+- Frontend settings route: `frontend/src/pages/NotificationsSettings.jsx`(라우팅되지 않는 사장 코드), `frontend/src/App.jsx`
 
 ## Data Flow
 
@@ -74,6 +75,8 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 - `docs/harness/gmail-only-email-notification-implementation-2026-06-02.md`
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 - `docs/harness/project-defect-remediation-plan-2026-06-02.md`
+- `docs/harness/notification-channel-inline-setup-plan-2026-06-04.md`
+- `docs/harness/notification-channel-inline-setup-implementation-2026-06-04.md`
 
 ## Open Risks
 
@@ -84,3 +87,5 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 ## MyPage Integration Note
 
 As of `docs/harness/mypage-profile-implementation-2026-06-02.md`, `/mypage` provides Telegram and Google Mail consent toggles through `PUT /api/notifications/preferences`. The legacy `/settings/notifications` route renders the same MyPage screen. Turning off consent does not delete channel connection records.
+
+As of `docs/harness/notification-channel-inline-setup-implementation-2026-06-04.md`, `/mypage`의 "수신 동의" 섹션은 각 토글 아래에 채널 연결·검증·해제 인라인 UI를 함께 제공한다. Telegram은 `channels/telegram/connect`→`verify`(숫자 chat_id 입력), Email은 `channels/email/verify`→`confirm`(Gmail 코드)으로 검증하고, 각각 DELETE로 해제한다. 연결된 destination은 화면에서 마스킹 표시된다. `frontend/src/pages/NotificationsSettings.jsx`는 동일 기능을 가지지만 라우팅되지 않는 사장 코드이며, 삭제는 별도 승인 대상이다.

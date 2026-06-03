@@ -180,6 +180,8 @@ When reporting work back to the user:
 
 ## 12. Harness Change Records
 
+**모든 구현과 계획서 작성 작업은 반드시 문서로 기록한다.** 계획을 세우면 `docs/harness/`에 계획 문서를 남기고, 구현을 하면 같은 위치에 구현(변경) 기록을 남긴다. 문서 없이 진행하는 구현·계획 작업은 허용되지 않는다(검증만 별도로 건너뛸 수 있다).
+
 When code changes are made, create or update a Markdown change record so future harness engineering work can reuse the context.
 
 - Store change records under `docs/harness/`.
