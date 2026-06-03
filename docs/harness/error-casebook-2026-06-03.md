@@ -24,6 +24,7 @@ Date: 2026-06-03
 | 7 | 정책/테스트 | 리포트 생성 권한 helper 테스트 401 vs 403 불일치 | endpoint 계약과 helper 단위 계약 혼재 | [project-defect-audit-report](project-defect-audit-report-2026-06-02.md) (D1) |
 | 8 | DB/로컬 | `/health`는 정상인데 DB 미연결 (startup warning) | 로컬 PostgreSQL 미기동 + bootstrap 실패 무시 설정 | 런타임 로그(아래 8번) |
 | 9 | 시장데이터/배포 | Render에서 Yahoo Finance 401 `Invalid Crumb` 또는 429 | 데이터센터 IP 기반 차단/제한과 동시 provider 호출 폭주 | [market-data-provider-migration-implementation](market-data-provider-migration-implementation-2026-06-03.md) |
+| 10 | 시장데이터/워밍업 | 모든 HTTP가 `200 OK`인데 다수 종목이 빈 `failed:`로 실패 | provider별 `Semaphore(1)` 직렬화 + per-asset 타임아웃(15s/8s) 충돌, `str(TimeoutError())`가 빈 문자열 | [market-data-warmup-provider-throttle-timeout-implementation](market-data-warmup-provider-throttle-timeout-implementation-2026-06-04.md) |
 
 ---
 
@@ -99,6 +100,14 @@ Date: 2026-06-03
 - **수정**: production code path와 `backend/requirements.txt`에서 yfinance 제거. `price_providers.py`로 Finnhub, CoinGecko Demo, 공공데이터포털, Stooq key 기반 daily CSV, open.er-api.com, Naver 뉴스 provider를 분리하고 provider별 cache/cooldown을 적용. 파일: [price_providers.py](../../backend/app/services/price_providers.py), [market_service.py](../../backend/app/services/market_service.py), [macro_service.py](../../backend/app/services/macro_service.py), [main.py](../../backend/app/main.py).
 - **예방**: 데이터센터 IP에서 차단될 수 있는 비공식 scraping/provider를 production 핵심 경로로 두지 않는다. 무료 API는 key 미설정/429/빈 응답을 정상 edge case로 보고 cache, cooldown, degrade를 함께 구현한다.
 
+## 10. 워밍업/스케줄러에서 다수 종목이 빈 `failed:`로 실패 (provider 직렬화 + 타임아웃 충돌)
+
+- **증상/맥락**: Render 배포 워밍업/스케줄러 실행 시. httpx 로그는 모든 외부 요청이 `200 OK`인데도 `[update_prices_task] MSFT(MSFT, STOCK_US) failed:` 처럼 **콜론 뒤가 빈** 실패가 KR 주식 전체·KR 지수·AAPL 제외 US 주식 전부·일부 KR 뉴스에서 대량 발생.
+- **에러**: `[update_prices_task] {label}(...) failed: ` (메시지 없음). 원인 예외는 `asyncio.TimeoutError`이며 `str(asyncio.TimeoutError())`가 빈 문자열이라 로그에 아무것도 안 남았다.
+- **원인**: [price_providers.py](../../backend/app/services/price_providers.py)의 `_provider_semaphore()`가 provider마다 `asyncio.Semaphore(1)`을 두어 **provider당 동시 1건**으로 직렬화. [market_service.py](../../backend/app/services/market_service.py)의 워밍업은 전 종목을 동시에 `gather`하지만, 같은 provider(`data_go_kr`=KR 주식+지수, `stooq`=US history, `naver_news`)로 가는 요청이 1칸 큐를 직렬 통과한다. 한 provider에 종목이 몰리면 큐 드레인 시간이 per-asset 타임아웃(가격 15s/뉴스 8s)을 넘겨, 순번을 못 받은 종목이 `TimeoutError`로 떨어진다. 워밍업이 `await`로 port 바인딩 전에 동기 실행돼 startup도 지연됐다.
+- **수정**: (1) 로그를 `failed: timeout after Ns` / `{exc!r}`로 구분 출력. (2) per-asset 타임아웃을 env로 상향(`MARKET_PRICE_FETCH_TIMEOUT_SECONDS=30`, `MARKET_NEWS_FETCH_TIMEOUT_SECONDS=20`, 최소 5s) 해 직렬 큐가 1회 실행 안에 드레인되게 함. (3) 워밍업을 `asyncio.create_task`로 비차단화해 port 즉시 바인딩. **provider 동시성(Semaphore)은 rate limit/차단 위험 때문에 변경하지 않음.** 파일: [config.py](../../backend/app/core/config.py), [market_service.py](../../backend/app/services/market_service.py), [main.py](../../backend/app/main.py), [test_market_warmup_timeout.py](../../backend/tests/test_market_warmup_timeout.py). 출처: [market-data-warmup-provider-throttle-timeout-implementation](market-data-warmup-provider-throttle-timeout-implementation-2026-06-04.md).
+- **예방**: `asyncio.wait_for` 실패 로그는 `{exc!r}`로 남겨 빈 `TimeoutError`를 식별 가능하게 한다. provider별 직렬화가 있으면 "한 provider에 묶인 종목 수 × provider 응답시간 < per-asset 타임아웃" 관계를 점검한다. 동시성 상향은 무료/비공식 provider rate limit/IP 차단을 자극할 수 있어 공식 API 한정으로만 단계적으로 올린다.
+
 ---
 
 ## 교차 교훈 / 예방 체크리스트 (배포·DB 작업 전)
@@ -112,7 +121,8 @@ Date: 2026-06-03
 7. **외부 SDK 초기화**: StrictMode 이중 실행 대비 ref 가드. (사례 4)
 8. **권한 계약 분리**: 인증(401)과 엔타이틀먼트/정책(403)을 섞지 않기. (사례 7)
 9. **파괴적 작업 확인**: `postgres_data` volume 삭제 등 데이터 손실 작업은 사용자 확인 필수(AGENTS.md 9절). (사례 6)
-10. **새 오류는 이 문서에 추가**: 해결 즉시 "증상→원인→수정→예방" 항목으로 누적.
+10. **provider 직렬화 vs 타임아웃**: provider별 `Semaphore(1)` 직렬화가 있으면 "한 provider 종목 수 × 응답시간 < per-asset 타임아웃"인지 점검. `asyncio.wait_for` 실패 로그는 `{exc!r}`로 남겨 빈 `TimeoutError`를 식별 가능하게. (사례 10)
+11. **새 오류는 이 문서에 추가**: 해결 즉시 "증상→원인→수정→예방" 항목으로 누적.
 
 ## References Checked
 

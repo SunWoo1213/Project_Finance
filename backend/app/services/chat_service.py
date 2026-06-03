@@ -8,8 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.cache import market_cache
+from ..core.config import settings
 from ..models import AIReport, Asset, User
 from ..schemas import ChatContext, ChatMessageRequest, ChatResponse
+from . import chat_llm
 from .chat_tools import (
     ambiguous_bond_candidates,
     action_for_asset,
@@ -40,6 +42,19 @@ async def handle_chat_message(
     message = payload.message.strip()
     context = payload.context or ChatContext()
     authenticated = bool(current_user or context.authenticated)
+
+    if settings.ENABLE_LLM_CHATBOT and settings.OPENAI_API_KEY:
+        llm_response = await _try_llm_response(
+            payload=payload,
+            message=message,
+            context=context,
+            authenticated=authenticated,
+            current_user=current_user,
+            db=db,
+        )
+        if llm_response is not None:
+            return llm_response
+        # Any failure falls through to the deterministic rule-based path below.
 
     if not is_financial_query(message):
         return ChatResponse(
@@ -144,6 +159,126 @@ async def handle_chat_message(
         ],
         disclaimer=DISCLAIMER,
     )
+
+
+async def _try_llm_response(
+    *,
+    payload: ChatMessageRequest,
+    message: str,
+    context: ChatContext,
+    authenticated: bool,
+    current_user: User | None,
+    db: AsyncSession,
+) -> ChatResponse | None:
+    """Attempt an LLM-grounded response. Returns None to fall back to rules.
+
+    The LLM never generates reports: it only receives an already-fetched stored
+    report summary and a cached market snippet as grounding. Actions/cards are
+    built deterministically here so navigation URLs stay correct.
+    """
+
+    try:
+        candidates = find_asset_candidates(message)
+        category = find_category(message)
+        current_ticker = _context_ticker(payload.current_path, context)
+        primary_ticker = candidates[0].ticker if candidates else current_ticker
+
+        actions: list[dict] = []
+        cards: list[dict] = []
+        for candidate in candidates:
+            actions.append(action_for_asset(candidate, label_suffix="보기"))
+            cards.append(card_for_asset(candidate))
+        if category:
+            actions.append(category_action(category))
+        if current_ticker and not candidates:
+            name = display_name_for_ticker(current_ticker)
+            actions.append(
+                {
+                    "type": "navigate",
+                    "label": f"{name} 상세 페이지 보기",
+                    "url": f"/detail/{_quote_path(current_ticker)}",
+                    "reason": "현재 화면의 자산 맥락을 유지합니다.",
+                    "confidence": 0.78,
+                    "requires_auth": False,
+                }
+            )
+            cards.append({"type": "asset", "ticker": current_ticker, "name": name, "route": f"/detail/{_quote_path(current_ticker)}"})
+        if not authenticated:
+            actions.append(login_action())
+
+        report_summary = None
+        if authenticated and current_user is not None and primary_ticker:
+            report = await _fetch_saved_report(primary_ticker, db)
+            if report is not None:
+                report_summary = _summarize_report(report)
+
+        grounding = {
+            "candidates": [{"name": c.name, "ticker": c.ticker} for c in candidates],
+            "category": category["label"] if category else None,
+            "current_ticker": current_ticker,
+            "authenticated": authenticated,
+            "market_snippet": _cached_market_snippet(primary_ticker),
+            "report_summary": report_summary,
+            "actions": actions,
+        }
+
+        history = [turn.model_dump() for turn in (payload.history or [])]
+        plan = await chat_llm.compose_chat_answer(
+            message=message, history=history, grounding=grounding
+        )
+    except Exception:  # noqa: BLE001 - fall back to rules on any error
+        return None
+
+    if plan is None:
+        return None
+
+    selected_actions = [actions[i] for i in plan.action_indices]
+    disclaimer = None if plan.intent == "non_financial" else DISCLAIMER
+    return ChatResponse(
+        answer=plan.answer,
+        intent=plan.intent,
+        confidence=plan.confidence,
+        actions=selected_actions,
+        cards=cards if plan.intent != "non_financial" else [],
+        requires_auth=not authenticated and plan.intent in {"report_help", "community_help", "auth_help"},
+        disclaimer=disclaimer,
+    )
+
+
+def _cached_market_snippet(ticker: str | None) -> str | None:
+    prices = market_cache.get("prices") or {}
+    if ticker:
+        for group in prices.values():
+            if not isinstance(group, dict):
+                continue
+            for label, payload in group.items():
+                if not isinstance(payload, dict):
+                    continue
+                if str(payload.get("symbol")) == ticker:
+                    change = payload.get("changePercent", payload.get("change_pct"))
+                    price = payload.get("price", payload.get("close"))
+                    parts = [str(label)]
+                    if price is not None:
+                        parts.append(f"가격 {price}")
+                    if change is not None:
+                        try:
+                            parts.append(f"{float(change):+.2f}%")
+                        except (TypeError, ValueError):
+                            pass
+                    return " ".join(parts)
+    macro = prices.get("macro") or {}
+    if not macro:
+        return None
+    lines = []
+    for label, payload in list(macro.items())[:4]:
+        if not isinstance(payload, dict):
+            continue
+        change = payload.get("changePercent", payload.get("change_pct", 0))
+        try:
+            lines.append(f"{label} {float(change or 0):+.2f}%")
+        except (TypeError, ValueError):
+            continue
+    return ", ".join(lines) if lines else None
 
 
 def _auth_help_response() -> ChatResponse:

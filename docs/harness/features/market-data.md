@@ -27,7 +27,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 ## Data Flow
 
 1. FastAPI lifespan initializes DB tables and warms price/news caches.
-2. FastAPI lifespan warms price/news caches when `ENABLE_MARKET_WARMUP` is true. The default is true.
+2. FastAPI lifespan warms price/news caches when `ENABLE_MARKET_WARMUP` is true. The default is true. The warm-up runs as a non-blocking background task (`asyncio.create_task`), so the server binds its port and passes health checks immediately while the in-memory cache fills in shortly after. Each asset/news fetch is bounded by a per-asset timeout (`MARKET_PRICE_FETCH_TIMEOUT_SECONDS` / `MARKET_NEWS_FETCH_TIMEOUT_SECONDS`) so a slow asset cannot block its group; timed-out assets are logged as `failed: timeout after Ns` and skipped. Provider requests remain serialized one-at-a-time per provider via `_provider_semaphore` (`Semaphore(1)`).
 3. APScheduler refreshes prices and news when `ENABLE_SCHEDULER` is true (default true). The cadence is configurable in minutes via `MARKET_PRICES_REFRESH_MINUTES` (default 5) and `MARKET_NEWS_REFRESH_MINUTES` (default 60); both are clamped to a minimum of 1.
 4. Scheduled AI report generation remains cost-controlled by default: it seeds and iterates only the representative report target list (`DGS10`, `XAU`, `BTC-USD`, `NVDA`, `005930.KS`), respects a per-run cap of 5, and runs on a 6-hour interval/cooldown.
 5. `GET /api/market/prices` returns the cached category object.
@@ -57,6 +57,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - History endpoint: `GET /api/market/history/{ticker}`
 - Optional runtime controls for local smoke checks: `ENABLE_MARKET_WARMUP=false`, `ENABLE_SCHEDULER=false`
 - Market data refresh cadence controls (minutes, report-independent): `MARKET_PRICES_REFRESH_MINUTES=5`, `MARKET_NEWS_REFRESH_MINUTES=60`, `MARKET_LATEST_CONTEXT_TTL_MINUTES=10`. Values are clamped to a minimum of 1 and loaded at process start (restart required after change).
+- Per-asset fetch timeout controls (seconds, report-independent): `MARKET_PRICE_FETCH_TIMEOUT_SECONDS=30`, `MARKET_NEWS_FETCH_TIMEOUT_SECONDS=20`. Values are clamped to a minimum of 5 and loaded at process start. These bound each asset/news collection so a serialized provider queue can drain within one run; the provider-level `Semaphore(1)` throttle is intentionally unchanged.
 - Market provider keys: `FINNHUB_API_KEY` for US stock quote/news/events, `COINGECKO_DEMO_API_KEY` for crypto price/history, `DATA_GO_KR_API_KEY` for Korean stock/index price APIs, and optional `STOOQ_API_KEY` for US stock/index/commodity daily CSV history.
 - USD/KRW uses open.er-api.com open access data as daily reference FX. It is not treated as realtime trading-grade FX.
 - Hosted deployment startup should keep `ENABLE_MARKET_WARMUP=false` and `ENABLE_SCHEDULER=false` for the first smoke release, then enable runtime jobs after API/DB checks and cost review.
@@ -110,6 +111,9 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/market-data-refresh-cadence-env-switch-2026-06-03.md`
 - `docs/harness/market-data-provider-migration-plan-2026-06-03.md`
 - `docs/harness/market-data-provider-migration-implementation-2026-06-03.md`
+- `docs/harness/market-data-provider-response-format-audit-plan-2026-06-03.md`
+- `docs/harness/market-data-warmup-provider-throttle-timeout-plan-2026-06-03.md`
+- `docs/harness/market-data-warmup-provider-throttle-timeout-implementation-2026-06-04.md`
 
 ## Open Risks
 
@@ -117,6 +121,8 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - New market page API calls should continue to use `frontend/src/utils/apiClient.js`; avoid reintroducing page-level API origin literals.
 - External provider behavior can change without code changes.
 - Free provider constraints remain: Stooq daily CSV currently requires `STOOQ_API_KEY`, open.er-api.com is daily reference FX with attribution requirements, 공공데이터포털 data can be T+1 despite realtime metadata, and Naver Finance News is a non-contractual page-based source.
+- Follow-up audit items remain for provider response format hardening: open.er-api.com RFC date parsing, 공공데이터포털 serviceKey encoding/row ordering, `period=1d` point-count policy, US bond provider-date preservation, and broader provider failure/cooldown tests. See `docs/harness/market-data-provider-response-format-audit-plan-2026-06-03.md`.
 - Missing provider keys intentionally degrade affected asset classes to empty snapshots/history/news instead of retrying aggressively.
+- Provider requests are serialized per provider (`Semaphore(1)`). When many assets share one provider (e.g. `data_go_kr` for KR stocks+indices, `stooq` for US history, `naver_news`), the queue can be slow; assets that exceed the per-asset timeout are skipped for that run. Raising provider concurrency is deferred because it risks free-tier rate limits / IP blocks on Stooq and Naver. See `docs/harness/market-data-warmup-provider-throttle-timeout-plan-2026-06-03.md`.
 - Full scheduled report coverage is intentionally not enabled; changing `REPORT_SCHEDULER_COVERAGE` away from `conservative` currently logs a warning and still avoids broad seeding because broader LLM/API usage needs product approval.
 - The report scheduler now wakes every 6 hours and uses a 6-hour per-asset cooldown, but coverage is limited to the configured representative ticker list.

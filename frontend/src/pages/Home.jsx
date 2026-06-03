@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink, Newspaper } from 'lucide-react';
-import SparklineChart from '../components/SparklineChart';
 import { apiClient } from '../utils/apiClient';
 import { formatPrice, formatPercent } from '../utils/formatters';
 
@@ -70,28 +69,21 @@ export default function Home() {
 
           const isPositive = data.change_pct >= 0;
           const colorClass = isPositive ? 'text-red-500' : 'text-blue-500';
-          const strokeColor = isPositive ? '#ef4444' : '#3b82f6';
 
           return (
-            <div 
+            <div
               key={ticker}
               onClick={() => navigate(`/market/${encodeURIComponent(ticker)}`)}
-              className="bg-slate-800 rounded-2xl p-5 hover:bg-slate-700 cursor-pointer transition shadow-lg flex flex-col justify-between"
+              className="bg-slate-800 rounded-2xl p-5 hover:bg-slate-700 cursor-pointer transition shadow-lg flex items-center justify-between"
             >
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-lg font-bold text-slate-200">{label}</h3>
-                  <div className="text-xl font-bold mt-1">
-                    {formatPrice(data.price, category)}
-                  </div>
-                </div>
-                <div className={`text-lg font-semibold ${colorClass}`}>
-                  {formatPercent(data.change_pct)}
+              <div>
+                <h3 className="text-lg font-bold text-slate-200">{label}</h3>
+                <div className="text-2xl font-bold mt-1">
+                  {formatPrice(data.price, category)}
                 </div>
               </div>
-              
-              <div className="h-24 w-full">
-                <SparklineChart data={data.history_prices} color={strokeColor} category={category} />
+              <div className={`text-xl font-semibold ${colorClass}`}>
+                {formatPercent(data.change_pct)}
               </div>
             </div>
           );

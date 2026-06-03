@@ -275,10 +275,16 @@ async def _collect_prices_group(
         ticker = payload["ticker"]
         category = payload["category"]
         try:
-            normalized = await asyncio.wait_for(fetch_asset_data(ticker, category), timeout=15)
+            timeout_seconds = settings.MARKET_PRICE_FETCH_TIMEOUT_SECONDS
+            normalized = await asyncio.wait_for(fetch_asset_data(ticker, category), timeout=timeout_seconds)
             results[label] = {"symbol": ticker, **_to_frontend_shape(normalized)}
+        except asyncio.TimeoutError:
+            print(
+                f"[update_prices_task] {label}({ticker}, {category}) failed: "
+                f"timeout after {settings.MARKET_PRICE_FETCH_TIMEOUT_SECONDS}s"
+            )
         except Exception as exc:
-            print(f"[update_prices_task] {label}({ticker}, {category}) failed: {exc}")
+            print(f"[update_prices_task] {label}({ticker}, {category}) failed: {exc!r}")
 
     await asyncio.gather(*(collect_one(label, payload) for label, payload in assets.items()))
     return group_name, results
@@ -289,10 +295,16 @@ async def _collect_news_group(group_name: str, tickers: dict[str, str]) -> tuple
 
     async def collect_one(label: str, symbol: str) -> None:
         try:
-            news_data = await asyncio.wait_for(fetch_market_news_items(symbol), timeout=8)
+            timeout_seconds = settings.MARKET_NEWS_FETCH_TIMEOUT_SECONDS
+            news_data = await asyncio.wait_for(fetch_market_news_items(symbol), timeout=timeout_seconds)
             results[label] = {"symbol": symbol, "items": news_data}
+        except asyncio.TimeoutError:
+            print(
+                f"[update_news_task] {label}({symbol}) failed: "
+                f"timeout after {settings.MARKET_NEWS_FETCH_TIMEOUT_SECONDS}s"
+            )
         except Exception as exc:
-            print(f"[update_news_task] {label}({symbol}) failed: {exc}")
+            print(f"[update_news_task] {label}({symbol}) failed: {exc!r}")
 
     await asyncio.gather(*(collect_one(label, symbol) for label, symbol in tickers.items()))
     return group_name, results

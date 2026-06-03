@@ -180,12 +180,18 @@ class ChatContext(BaseModel):
     authenticated: bool = False
 
 
+class ChatTurn(BaseModel):
+    role: str = Field(..., max_length=20)
+    content: str = Field(..., min_length=1, max_length=2000)
+
+
 class ChatMessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=500)
     current_path: str = "/"
     context: ChatContext = Field(default_factory=ChatContext)
     conversation_id: str | None = None
     client_message_id: str | None = None
+    history: list[ChatTurn] = Field(default_factory=list, max_length=20)
 
 
 class ChatAction(BaseModel):

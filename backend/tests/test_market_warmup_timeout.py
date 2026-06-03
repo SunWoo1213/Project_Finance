@@ -1,0 +1,75 @@
+import asyncio
+
+import pytest
+
+from app.core.config import Settings
+from app.services import market_service
+
+
+def test_fetch_timeout_settings_enforce_minimum():
+    settings = Settings(
+        MARKET_PRICE_FETCH_TIMEOUT_SECONDS=1,
+        MARKET_NEWS_FETCH_TIMEOUT_SECONDS=0,
+    )
+    assert settings.MARKET_PRICE_FETCH_TIMEOUT_SECONDS == 5
+    assert settings.MARKET_NEWS_FETCH_TIMEOUT_SECONDS == 5
+
+
+def test_fetch_timeout_settings_accept_configured_values():
+    settings = Settings(
+        MARKET_PRICE_FETCH_TIMEOUT_SECONDS=45,
+        MARKET_NEWS_FETCH_TIMEOUT_SECONDS=25,
+    )
+    assert settings.MARKET_PRICE_FETCH_TIMEOUT_SECONDS == 45
+    assert settings.MARKET_NEWS_FETCH_TIMEOUT_SECONDS == 25
+
+
+@pytest.mark.asyncio
+async def test_collect_prices_group_times_out_slow_asset_without_blocking_others(monkeypatch):
+    # A slow asset must not block fast assets in the same group; it should time
+    # out into an absent result instead of failing the whole group.
+    monkeypatch.setattr(market_service.settings, "MARKET_PRICE_FETCH_TIMEOUT_SECONDS", 1)
+
+    async def fake_fetch(ticker, category):
+        if ticker == "SLOW":
+            await asyncio.sleep(5)  # exceeds the 1s configured timeout
+        return {
+            "currentPrice": 10.0,
+            "changePercent": 1.0,
+            "history_prices": [10.0],
+            "marketCap": 0.0,
+        }
+
+    monkeypatch.setattr(market_service, "fetch_asset_data", fake_fetch)
+
+    assets = {
+        "Fast": {"ticker": "FAST", "category": "STOCK_US"},
+        "Slow": {"ticker": "SLOW", "category": "STOCK_US"},
+    }
+
+    group_name, results = await market_service._collect_prices_group("test", assets)
+
+    assert group_name == "test"
+    assert "Fast" in results
+    assert results["Fast"]["currentPrice"] == 10.0
+    assert "Slow" not in results
+
+
+@pytest.mark.asyncio
+async def test_collect_news_group_times_out_slow_symbol(monkeypatch):
+    monkeypatch.setattr(market_service.settings, "MARKET_NEWS_FETCH_TIMEOUT_SECONDS", 1)
+
+    async def fake_news(symbol):
+        if symbol == "SLOW":
+            await asyncio.sleep(5)
+        return [{"title": "ok", "link": "", "source": "test"}]
+
+    monkeypatch.setattr(market_service, "fetch_market_news_items", fake_news)
+
+    tickers = {"Fast": "FAST", "Slow": "SLOW"}
+
+    group_name, results = await market_service._collect_news_group("test", tickers)
+
+    assert group_name == "test"
+    assert "Fast" in results
+    assert "Slow" not in results

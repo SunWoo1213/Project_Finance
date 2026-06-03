@@ -95,6 +95,12 @@ class Settings(BaseSettings):
     MARKET_NEWS_REFRESH_MINUTES: int = 60
     MARKET_LATEST_CONTEXT_TTL_MINUTES: int = 10
 
+    # Per-asset fetch timeout for warm-up/scheduler collection (seconds).
+    # Higher values let a serialized provider queue drain within one run; the
+    # provider-level Semaphore(1) throttle is intentionally left unchanged.
+    MARKET_PRICE_FETCH_TIMEOUT_SECONDS: int = 30
+    MARKET_NEWS_FETCH_TIMEOUT_SECONDS: int = 20
+
     ENABLE_AI_REPORT_GENERATION: bool = True
     REPORT_SCHEDULER_COVERAGE: str = "conservative"
     REPORT_SCHEDULER_INTERVAL_HOURS: int = 6
@@ -103,6 +109,15 @@ class Settings(BaseSettings):
     REPORT_SCHEDULER_TARGET_TICKERS: str = "DGS10,XAU,BTC-USD,NVDA,005930.KS"
     ENABLE_LLM_REPORT_CRITICS: bool = False
     REPORT_CRITIC_MODE: str = "deterministic"
+
+    # Chatbot LLM intent understanding. Default off so the rule-based path stays
+    # the safe baseline and no OpenAI cost is incurred unless explicitly enabled.
+    # The LLM path is tool-grounded and must never generate AI reports; it only
+    # reads stored scheduled reports (see AGENTS.md section 14).
+    ENABLE_LLM_CHATBOT: bool = False
+    CHATBOT_LLM_MODEL: str = "gpt-4o-mini"
+    CHATBOT_HISTORY_MAX_TURNS: int = 6
+    CHATBOT_LLM_TIMEOUT_SECONDS: int = 20
 
     # Payment provider boundary. Secret values must be supplied through env.
     PAYMENT_PROVIDER: str | None = None
@@ -191,6 +206,16 @@ class Settings(BaseSettings):
         # Guard against 0/negative cadence which would break the scheduler
         # interval jobs and the latest-context freshness window.
         return max(1, int(value))
+
+    @field_validator(
+        "MARKET_PRICE_FETCH_TIMEOUT_SECONDS",
+        "MARKET_NEWS_FETCH_TIMEOUT_SECONDS",
+    )
+    @classmethod
+    def enforce_minimum_fetch_timeout(cls, value: int) -> int:
+        # Guard against a too-short timeout that would mass-fail assets while a
+        # serialized provider queue is still draining.
+        return max(5, int(value))
 
     def cors_origins(self) -> list[str]:
         origins: list[str] = []

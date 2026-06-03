@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime, timedelta
@@ -154,11 +155,20 @@ async def prepare_database_on_startup() -> None:
 async def lifespan(app: FastAPI):
     await prepare_database_on_startup()
 
+    warmup_task: asyncio.Task | None = None
     if settings.ENABLE_MARKET_WARMUP:
-        print("[lifespan] initial market cache warm-up started")
-        await update_prices_task()
-        await update_news_task()
-        print("[lifespan] initial market cache warm-up completed")
+        async def run_market_warmup() -> None:
+            # Run warm-up in the background so the server binds its port and passes
+            # health checks immediately; the in-memory cache fills in shortly after.
+            print("[lifespan] initial market cache warm-up started")
+            try:
+                await update_prices_task()
+                await update_news_task()
+                print("[lifespan] initial market cache warm-up completed")
+            except Exception as exc:
+                print(f"[lifespan] initial market cache warm-up failed: {exc!r}")
+
+        warmup_task = asyncio.create_task(run_market_warmup())
     else:
         print("[lifespan] initial market cache warm-up skipped")
 
@@ -230,8 +240,7 @@ async def lifespan(app: FastAPI):
                         )
                     except Exception as exc:
                         logger.error("Notification evaluation failed: %s", exc, exc_info=True)
-                    finally:
-                        break
+                    break
 
             async def run_notification_delivery_job() -> None:
                 logger.info("Notification delivery started")
@@ -241,8 +250,7 @@ async def lifespan(app: FastAPI):
                         logger.info("Notification delivery completed (sent=%s, failed=%s)", sent, failed)
                     except Exception as exc:
                         logger.error("Notification delivery failed: %s", exc, exc_info=True)
-                    finally:
-                        break
+                    break
 
             scheduler.add_job(
                 run_notification_evaluation_job,
@@ -272,10 +280,17 @@ async def lifespan(app: FastAPI):
         print("[lifespan] scheduler skipped")
 
     app.state.scheduler = scheduler
+    app.state.warmup_task = warmup_task
 
     try:
         yield
     finally:
+        if warmup_task is not None and not warmup_task.done():
+            warmup_task.cancel()
+            try:
+                await warmup_task
+            except (asyncio.CancelledError, Exception):
+                pass
         if scheduler is not None:
             scheduler.shutdown(wait=False)
             print("[lifespan] scheduler stopped")

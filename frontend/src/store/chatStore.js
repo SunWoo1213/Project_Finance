@@ -44,6 +44,13 @@ const useChatStore = create((set, get) => ({
       content: trimmed,
     };
 
+    // Send recent turns so the backend LLM path can use conversation context.
+    // The server does not persist these; they are prompt context only.
+    const history = get()
+      .messages.filter((m) => m.id !== "welcome" && (m.role === "user" || m.role === "assistant"))
+      .slice(-12)
+      .map((m) => ({ role: m.role, content: m.content }));
+
     set((state) => ({
       messages: [...state.messages, userMessage],
       isSending: true,
@@ -60,6 +67,7 @@ const useChatStore = create((set, get) => ({
           context: chatContext.context,
           conversation_id: get().conversationId,
           client_message_id: userMessage.id,
+          history,
         },
         { headers: authHeader(token) }
       );

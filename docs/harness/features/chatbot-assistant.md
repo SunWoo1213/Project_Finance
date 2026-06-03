@@ -4,7 +4,13 @@ Date: 2026-05-31
 
 ## Current Behavior
 
-The app has a rule-based financial navigation and explanation assistant. It does not store server-side conversations, does not stream responses, does not call an LLM, and does not trigger AI report generation. Report answers must continue to use the latest stored `AIReport`, matching the scheduled-report-only target documented in `docs/harness/report-generation-schedule-alignment-plan-2026-06-01.md`. Subscription behavior now limits chatbot visibility and API access to active Pro users only.
+The app has a financial navigation and explanation assistant. By default it is rule-based: it does not store server-side conversations, does not stream responses, does not call an LLM, and does not trigger AI report generation. Report answers must continue to use the latest stored `AIReport`, matching the scheduled-report-only target documented in `docs/harness/report-generation-schedule-alignment-plan-2026-06-01.md`. Subscription behavior now limits chatbot visibility and API access to active Pro users only.
+
+### Optional LLM intent path (2026-06-04)
+
+When `ENABLE_LLM_CHATBOT=true` and `OPENAI_API_KEY` is set, the chatbot uses an LLM (`gpt-4o-mini`) to understand natural-language / typo / sentence-style questions and to answer more actively. The path is **grounding-based**: the backend deterministically gathers asset candidates, category, a cached market snippet (no network call), and — for authenticated users — an already-fetched *stored* report summary, then passes them to the LLM. The LLM only classifies intent, writes the answer from the supplied grounding, and selects which pre-built actions to surface. Action URLs are still built by the backend, so user-controlled navigation is preserved.
+
+The LLM path never generates reports: there is no report-generation tool, and only stored `AIReport` summaries are passed in (AGENTS.md section 14). The frontend forwards recent turns as `history` for multi-turn context; the server does not persist them. Any failure (toggle off, missing key, LLM error/timeout, empty answer) falls back to the deterministic rule-based response, so behavior is unchanged when the toggle is off.
 
 The 2026-06-01 scheduler alignment implementation keeps this chatbot behavior unchanged: report generation is limited to the backend scheduler, and the chatbot reads stored reports only.
 
@@ -26,6 +32,8 @@ Non-financial questions return a fixed scope message and no actions.
 - Optional auth dependency: `backend/app/api/deps.py`
 - API contracts: `backend/app/schemas.py`
 - Rule-based intent and response assembly: `backend/app/services/chat_service.py`
+- Optional LLM intent understanding (grounding + structured output): `backend/app/services/chat_llm.py`
+- Chatbot LLM config toggles (`ENABLE_LLM_CHATBOT`, `CHATBOT_LLM_MODEL`, `CHATBOT_HISTORY_MAX_TURNS`, `CHATBOT_LLM_TIMEOUT_SECONDS`): `backend/app/core/config.py`
 - Asset/category/route helpers: `backend/app/services/chat_tools.py`
 - Router registration: `backend/app/main.py`
 - Tests added for future verification: `backend/tests/test_chat_service.py`, `backend/tests/test_chat_api.py`
@@ -55,6 +63,7 @@ Non-financial questions return a fixed scope message and no actions.
   - `context.category`: optional category route key
   - `context.authenticated`: browser auth state hint
   - `conversation_id` and `client_message_id`: client session identifiers only
+  - `history`: optional recent turns (`role`/`content`) for LLM multi-turn context; server does not persist them
 - Response fields:
   - `answer`, `intent`, `confidence`
   - `actions[]` with `type`, `label`, `url`, `reason`, `confidence`, `requires_auth`
@@ -66,7 +75,8 @@ Non-financial questions return a fixed scope message and no actions.
 ## Change Rules
 
 - Do not make chatbot messages trigger report generation or other cost-bearing LLM workflows without explicit product approval.
-- Chatbot report answers must fetch and summarize the stored scheduled report. They must not generate a new report per user request.
+- Chatbot report answers must fetch and summarize the stored scheduled report. They must not generate a new report per user request. This applies to the LLM path too: never add a report-generation tool/action; only pass already-fetched stored report summaries as grounding.
+- Keep the LLM path gated by `ENABLE_LLM_CHATBOT` (default off) with a deterministic rule-based fallback on any failure, so the chatbot keeps working without an LLM/API key.
 - Any future audit, plan, or implementation that touches chatbot report behavior must create/update a `docs/harness/` record and link it from this feature doc.
 - Do not add server-side conversation storage without privacy, retention, and deletion design.
 - Keep protected data access entitlement-aware. Saved report summaries require an entitled user and must use stored report rows.
@@ -104,6 +114,8 @@ For the 2026-05-31 implementation request, verification commands were intentiona
 - `docs/harness/project-defect-remediation-plan-2026-06-02.md`
 - `docs/harness/report-generation-env-switch-plan-2026-06-03.md`
 - `docs/harness/report-generation-env-switch-implementation-2026-06-03.md`
+- `docs/harness/chatbot-llm-intent-upgrade-plan-2026-06-04.md`
+- `docs/harness/chatbot-llm-intent-upgrade-implementation-2026-06-04.md`
 
 ## Open Risks
 
@@ -112,3 +124,4 @@ For the 2026-05-31 implementation request, verification commands were intentiona
 - Invalid JWTs now fail the chat endpoint with 401 because chatbot access is Pro-only.
 - Frontend chat does not yet have automated component tests.
 - The chatbot is aligned with the stored-report rule, but report summaries are only available after the scheduler has produced a stored report for a configured target ticker.
+- The LLM path (when enabled) incurs OpenAI cost per message. It is off by default, Pro-only, uses `gpt-4o-mini`, and limits history turns; consider a rate limit before high-traffic rollout. The cached market snippet is used without a network call, so empty cache means the LLM answers that it does not know rather than fabricating numbers.
