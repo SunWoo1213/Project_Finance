@@ -10,9 +10,11 @@ The category list shows a favorites panel on the right side of the asset list. C
 
 As of 2026-06-02, logged-in users also sync favorites to the backend. On login, existing browser-local favorites are imported to `user_favorite_assets`, then localStorage is refreshed from the server response. Anonymous users continue to use browser-local favorites.
 
+As of 2026-06-04, logging out clears the favorite state. `authStore.logout` calls `favoriteStore.clearFavorites()`, which removes the `favoriteAssets` localStorage key and resets the in-memory `favorites` array, so a logged-out browser no longer shows the previous account's favorite toggles. Re-login then reloads favorites from the server for that account.
+
 ## Ownership Map
 
-- Favorite state: `frontend/src/store/favoriteStore.js`
+- Favorite state and logout clear: `frontend/src/store/favoriteStore.js`, `frontend/src/store/authStore.js`
 - Favorite toggle and right-side panel: `frontend/src/pages/CategoryView.jsx`
 - Detail page favorite toggle: `frontend/src/pages/AssetDetail.jsx`
 - Asset display names and ticker fallback: `frontend/src/utils/constants.js`, `frontend/src/utils/formatters.js`
@@ -53,6 +55,7 @@ As of 2026-06-02, logged-in users also sync favorites to the backend. On login, 
 ## Change Records
 
 - `docs/harness/asset-favorites.md`
+- `docs/harness/favorites-clear-on-logout-2026-06-04.md`
 - `docs/harness/favorite-asset-notification-implementation-2026-06-02.md`
 - `docs/harness/mypage-profile-implementation-2026-06-02.md`
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`

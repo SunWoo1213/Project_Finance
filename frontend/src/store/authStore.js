@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import useFavoriteStore from './favoriteStore';
+
 const getUserIdFromToken = (token) => {
     if (!token) return null;
     try {
@@ -56,6 +58,7 @@ const useAuthStore = create((set) => ({
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         set({ token: null, user: null });
+        useFavoriteStore.getState().clearFavorites();
     }
 }));
 

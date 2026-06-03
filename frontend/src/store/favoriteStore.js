@@ -48,6 +48,10 @@ const useFavoriteStore = create((set, get) => ({
     const normalized = normalizeSymbol(symbol);
     return get().favorites.some((favorite) => favorite.symbol === normalized);
   },
+  clearFavorites: () => {
+    localStorage.removeItem(STORAGE_KEY);
+    set({ favorites: [], isSyncing: false, syncError: null });
+  },
   syncWithServer: async (token) => {
     if (!token) {
       set({ isSyncing: false, syncError: null });
