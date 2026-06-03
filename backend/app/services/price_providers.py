@@ -61,6 +61,7 @@ STOOQ_SYMBOLS = {
     "GC=F": "xauusd",
     "XAG": "xagusd",
     "SI=F": "xagusd",
+    "KRW=X": "usdkrw",
 }
 
 US_STOCK_SYMBOLS = {
@@ -365,15 +366,36 @@ async def _fetch_fx_snapshot(ticker: str) -> dict[str, Any]:
     payload = await _get_json("exchange_rate_open", EXCHANGE_RATE_OPEN_URL, timeout=8.0)
     rates = (payload or {}).get("rates", {})
     current_price = _safe_float(rates.get("KRW"))
+
+    # open.er-api는 현재 환율만 주고 전일 종가가 없어서 changePercent를 0으로 둘 수밖에
+    # 없었다. finnhub 주식 스냅샷과 동일하게, stooq의 일별 USD/KRW 종가를 전일 종가로
+    # 삼아 실제 등락폭을 계산한다. stooq 키가 없거나 데이터가 없으면 폴백한다.
+    history = await fetch_stooq_history("KRW=X", "1mo")
+    history_prices = [point["value"] for point in history.get("points", [])]
+
+    if not current_price and history_prices:
+        current_price = history_prices[-1]
+
+    prev_close = history_prices[-1] if history_prices else 0.0
+    change_percent = (
+        ((current_price - prev_close) / prev_close) * 100
+        if prev_close and current_price
+        else 0.0
+    )
+
+    if not history_prices and current_price:
+        history_prices = [current_price]
+
     result = {
         "currentPrice": round(current_price, 6),
-        "changePercent": 0.0,
-        "history_prices": [round(current_price, 6)] if current_price else [],
+        "changePercent": round(change_percent, 6),
+        "history_prices": [round(float(v), 6) for v in history_prices],
         "marketCap": 0.0,
         "provider_meta": {
             "source": "open.er-api.com",
             "provider": (payload or {}).get("provider"),
             "as_of": (payload or {}).get("time_last_update_utc"),
+            "change_source": "stooq" if prev_close else "none",
         },
     }
     return _cache_set(_snapshot_cache, f"fx:{ticker}", result)
@@ -645,15 +667,19 @@ async def fetch_market_history(ticker: str, period: str = "1y") -> dict[str, Any
         elif _is_crypto(normalized):
             payload = await fetch_coingecko_history(normalized, period)
         elif normalized == "KRW=X":
-            snapshot = await _fetch_fx_snapshot(normalized)
-            points = []
-            if snapshot.get("currentPrice"):
-                as_of = (
-                    snapshot.get("provider_meta", {}).get("as_of")
-                    or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                )
-                date = str(as_of)[:10]
-                points.append({"date": date, "value": snapshot["currentPrice"]})
+            # stooq의 일별 USD/KRW 종가로 실제 시계열을 만든다. stooq에 데이터가 없으면
+            # open.er-api 현재 환율 단일 포인트로 폴백한다.
+            stooq_history = await fetch_stooq_history(normalized, period)
+            points = list(stooq_history.get("points", []))
+            if not points:
+                snapshot = await _fetch_fx_snapshot(normalized)
+                if snapshot.get("currentPrice"):
+                    as_of = (
+                        snapshot.get("provider_meta", {}).get("as_of")
+                        or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    )
+                    date = str(as_of)[:10]
+                    points.append({"date": date, "value": snapshot["currentPrice"]})
             payload = _history_payload(normalized, points, unit="KRW")
         elif _is_kr_stock(normalized):
             payload = await fetch_data_go_stock_history(normalized, period)

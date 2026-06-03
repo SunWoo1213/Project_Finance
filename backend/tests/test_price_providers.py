@@ -131,6 +131,52 @@ async def test_market_history_uses_ticker_period_cache(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_fx_snapshot_change_percent_from_stooq_close(monkeypatch):
+    async def fake_get_json(provider, url, **kwargs):
+        return {"rates": {"KRW": 1386.0}, "provider": "open.er-api.com"}
+
+    async def fake_stooq_history(ticker, period):
+        assert ticker == "KRW=X"
+        return price_providers._history_payload(
+            "KRW=X",
+            [
+                {"date": "2026-06-02", "value": 1370.0},
+                {"date": "2026-06-03", "value": 1380.0},
+            ],
+            unit="KRW",
+        )
+
+    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
+    monkeypatch.setattr(price_providers, "fetch_stooq_history", fake_stooq_history)
+
+    snapshot = await price_providers._fetch_fx_snapshot("KRW=X")
+
+    # 현재 환율(1386) vs stooq 최신 종가(1380) → 약 +0.4348%, 더 이상 0이 아니다.
+    assert snapshot["currentPrice"] == 1386.0
+    assert snapshot["changePercent"] != 0.0
+    assert snapshot["changePercent"] == round(((1386.0 - 1380.0) / 1380.0) * 100, 6)
+    assert snapshot["provider_meta"]["change_source"] == "stooq"
+
+
+@pytest.mark.asyncio
+async def test_fx_snapshot_falls_back_when_stooq_empty(monkeypatch):
+    async def fake_get_json(provider, url, **kwargs):
+        return {"rates": {"KRW": 1386.0}, "provider": "open.er-api.com"}
+
+    async def fake_stooq_history(ticker, period):
+        return price_providers._history_payload("KRW=X", [], unit="KRW")
+
+    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
+    monkeypatch.setattr(price_providers, "fetch_stooq_history", fake_stooq_history)
+
+    snapshot = await price_providers._fetch_fx_snapshot("KRW=X")
+
+    assert snapshot["currentPrice"] == 1386.0
+    assert snapshot["changePercent"] == 0.0
+    assert snapshot["provider_meta"]["change_source"] == "none"
+
+
+@pytest.mark.asyncio
 async def test_latest_context_force_refresh_respects_cooldown(monkeypatch):
     calls = {"count": 0}
 
