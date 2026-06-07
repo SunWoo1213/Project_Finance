@@ -51,6 +51,30 @@ def test_data_go_settings_accept_configured_values():
     assert settings.DATA_GO_KR_MAX_CONCURRENCY == 3
 
 
+def test_fmp_settings_enforce_minimums():
+    settings = Settings(
+        FMP_FETCH_TIMEOUT_SECONDS=1,
+        FMP_DAILY_CALL_BUDGET=-1,
+    )
+    assert settings.FMP_FETCH_TIMEOUT_SECONDS == 5
+    assert settings.FMP_DAILY_CALL_BUDGET == 0
+
+
+def test_fmp_settings_accept_configured_values():
+    settings = Settings(
+        FMP_FETCH_TIMEOUT_SECONDS=15,
+        FMP_DAILY_CALL_BUDGET=120,
+        ENABLE_STOOQ_FALLBACK=True,
+    )
+    assert settings.FMP_FETCH_TIMEOUT_SECONDS == 15
+    assert settings.FMP_DAILY_CALL_BUDGET == 120
+    assert settings.ENABLE_STOOQ_FALLBACK is True
+
+
+def test_stooq_fallback_is_disabled_by_default():
+    assert Settings.model_fields["ENABLE_STOOQ_FALLBACK"].default is False
+
+
 @pytest.mark.asyncio
 async def test_collect_prices_group_times_out_slow_asset_without_blocking_others(monkeypatch):
     # A slow asset must not block fast assets in the same group; it should time

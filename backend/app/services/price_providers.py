@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
+FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 STOOQ_DAILY_CSV_URL = "https://stooq.com/q/d/l/"
 EXCHANGE_RATE_OPEN_URL = "https://open.er-api.com/v6/latest/USD"
 DATA_GO_STOCK_URL = "https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo"
@@ -26,7 +27,9 @@ DATA_GO_INDEX_URL = "https://apis.data.go.kr/1160100/service/GetMarketIndexInfoS
 NAVER_NEWS_URL = "https://search.naver.com/search.naver"
 
 FAILED_CALL_TTL_SECONDS = 300
+FMP_FAILED_CALL_TTL_SECONDS = 30 * 60
 SNAPSHOT_CACHE_TTL_SECONDS = 300
+FMP_CACHE_TTL_SECONDS = 12 * 60 * 60
 PROFILE_CACHE_TTL_SECONDS = 12 * 60 * 60
 HISTORY_CACHE_TTL_SECONDS = 12 * 60 * 60
 FX_CACHE_TTL_SECONDS = 24 * 60 * 60
@@ -64,6 +67,15 @@ STOOQ_SYMBOLS = {
     "KRW=X": "usdkrw",
 }
 
+FMP_SYMBOL_CANDIDATES = {
+    "^GSPC": ["^GSPC"],
+    "^NDX": ["^NDX"],
+    "XAU": ["GCUSD", "XAUUSD"],
+    "GC=F": ["GCUSD", "XAUUSD"],
+    "XAG": ["SIUSD", "XAGUSD"],
+    "SI=F": ["SIUSD", "XAGUSD"],
+}
+
 US_STOCK_SYMBOLS = {
     "AAPL",
     "MSFT",
@@ -90,6 +102,8 @@ _failed_call_cache: dict[str, float] = {}
 _snapshot_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _profile_cache: dict[str, tuple[float, float]] = {}
 _history_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_fmp_daily_call_date: str | None = None
+_fmp_daily_call_count: int = 0
 
 
 def _provider_concurrency(provider: str) -> int:
@@ -122,16 +136,27 @@ def _cache_get(cache: dict[str, tuple[float, Any]], key: str, ttl_seconds: int) 
     return None
 
 
+def _cache_get_stale(cache: dict[str, tuple[float, Any]], key: str) -> Any | None:
+    cached = cache.get(key)
+    if not cached:
+        return None
+    return cached[1]
+
+
 def _cache_set(cache: dict[str, tuple[float, Any]], key: str, payload: Any) -> Any:
     cache[key] = (monotonic(), payload)
     return payload
 
 
-def _should_skip_failed_call(key: str) -> bool:
+def _failed_call_ttl(provider: str) -> int:
+    return FMP_FAILED_CALL_TTL_SECONDS if provider == "fmp" else FAILED_CALL_TTL_SECONDS
+
+
+def _should_skip_failed_call(key: str, ttl_seconds: int = FAILED_CALL_TTL_SECONDS) -> bool:
     failed_at = _failed_call_cache.get(key)
     if failed_at is None:
         return False
-    if monotonic() - failed_at < FAILED_CALL_TTL_SECONDS:
+    if monotonic() - failed_at < ttl_seconds:
         return True
     _failed_call_cache.pop(key, None)
     return False
@@ -148,6 +173,14 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(str(value).replace(",", "").strip())
     except (TypeError, ValueError):
         return default
+
+
+def _first_payload_item(payload: Any) -> dict[str, Any]:
+    if isinstance(payload, list):
+        return payload[0] if payload and isinstance(payload[0], dict) else {}
+    if isinstance(payload, dict):
+        return payload
+    return {}
 
 
 def _normalize_history_values(history_prices: list[float], market_cap: float = 0.0) -> dict[str, Any]:
@@ -176,9 +209,15 @@ def _normalize_points(points: list[dict[str, Any]], limit: int | None = None) ->
     return parsed[-limit:] if limit else parsed
 
 
-def _history_payload(ticker: str, points: list[dict[str, Any]], *, unit: str = "USD") -> dict[str, Any]:
+def _history_payload(
+    ticker: str,
+    points: list[dict[str, Any]],
+    *,
+    unit: str = "USD",
+    provider_meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     normalized_points = _normalize_points(points)
-    return {
+    payload = {
         "ticker": ticker,
         "series_type": "price",
         "unit": unit,
@@ -188,6 +227,9 @@ def _history_payload(ticker: str, points: list[dict[str, Any]], *, unit: str = "
             for point in normalized_points
         ],
     }
+    if provider_meta:
+        payload["provider_meta"] = provider_meta
+    return payload
 
 
 def _period_to_days(period: str) -> int:
@@ -231,6 +273,35 @@ def _stooq_key() -> str:
     return settings.STOOQ_API_KEY or ""
 
 
+def _fmp_key() -> str:
+    return settings.FMP_API_KEY or ""
+
+
+def _fmp_symbol_candidates(ticker: str) -> list[str]:
+    normalized = ticker.upper()
+    if normalized in FMP_SYMBOL_CANDIDATES:
+        return FMP_SYMBOL_CANDIDATES[normalized]
+    return [normalized]
+
+
+def _reserve_fmp_call() -> bool:
+    global _fmp_daily_call_date, _fmp_daily_call_count
+
+    budget = int(settings.FMP_DAILY_CALL_BUDGET)
+    if budget <= 0:
+        return False
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    if _fmp_daily_call_date != today:
+        _fmp_daily_call_date = today
+        _fmp_daily_call_count = 0
+
+    if _fmp_daily_call_count >= budget:
+        return False
+    _fmp_daily_call_count += 1
+    return True
+
+
 async def _get_json(
     provider: str,
     url: str,
@@ -240,7 +311,7 @@ async def _get_json(
     timeout: float = 10.0,
 ) -> Any:
     request_key = f"{provider}:{url}:{params}"
-    if _should_skip_failed_call(request_key):
+    if _should_skip_failed_call(request_key, _failed_call_ttl(provider)):
         raise RuntimeError(f"{provider} cooldown active")
 
     async with _provider_semaphore(provider):
@@ -263,7 +334,7 @@ async def _get_text(
     timeout: float = 10.0,
 ) -> str:
     request_key = f"{provider}:{url}:{params}"
-    if _should_skip_failed_call(request_key):
+    if _should_skip_failed_call(request_key, _failed_call_ttl(provider)):
         raise RuntimeError(f"{provider} cooldown active")
 
     async with _provider_semaphore(provider):
@@ -275,6 +346,237 @@ async def _get_text(
         except Exception:
             _mark_failed_call(request_key)
             raise
+
+
+async def _fetch_fmp_json(endpoint: str, params: dict[str, Any]) -> Any:
+    key = _fmp_key()
+    if not key:
+        raise RuntimeError("fmp api key missing")
+    if not _reserve_fmp_call():
+        raise RuntimeError("fmp daily call budget exceeded")
+    return await _get_json(
+        "fmp",
+        f"{FMP_BASE_URL}/{endpoint.lstrip('/')}",
+        params={**params, "apikey": key},
+        timeout=float(settings.FMP_FETCH_TIMEOUT_SECONDS),
+    )
+
+
+def _parse_fmp_history(payload: Any, limit: int | None = None) -> list[dict[str, Any]]:
+    rows: Any
+    if isinstance(payload, dict):
+        rows = payload.get("historical") or payload.get("data") or []
+    else:
+        rows = payload
+    if not isinstance(rows, list):
+        return []
+
+    points: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        date = str(row.get("date") or row.get("label") or "").strip()
+        close = _safe_float(row.get("close") or row.get("adjClose"), default=float("nan"))
+        if not date or close != close:
+            continue
+        points.append({"date": date[:10], "value": close})
+    points.sort(key=lambda item: item["date"])
+    return points[-limit:] if limit else points
+
+
+def _fmp_meta(symbol: str, *, change_source: str = "fmp_eod_history") -> dict[str, str]:
+    return {
+        "provider": "fmp",
+        "symbol": symbol,
+        "freshness": "eod_or_delayed",
+        "license_scope": "free_plan_demo_internal",
+        "change_source": change_source,
+    }
+
+
+async def fetch_fmp_history(ticker: str, period: str = "1y") -> dict[str, Any]:
+    normalized = ticker.upper()
+    cache_key = f"fmp:{normalized}:{period}"
+    cached_entry = _history_cache.get(cache_key)
+    if cached_entry is not None:
+        cached_at, cached_payload = cached_entry
+        if monotonic() - cached_at < FMP_CACHE_TTL_SECONDS:
+            return cached_payload
+    if _should_skip_failed_call(cache_key, FMP_FAILED_CALL_TTL_SECONDS):
+        return _history_payload(
+            normalized,
+            [],
+            provider_meta={
+                "provider": "fmp",
+                "freshness": "cooldown",
+                "license_scope": "free_plan_demo_internal",
+                "change_source": "none",
+            },
+        )
+    if not _fmp_key():
+        return _history_payload(
+            normalized,
+            [],
+            provider_meta={
+                "provider": "fmp",
+                "freshness": "missing_key",
+                "license_scope": "free_plan_demo_internal",
+                "change_source": "none",
+            },
+        )
+
+    last_error: Exception | None = None
+    for symbol in _fmp_symbol_candidates(normalized):
+        try:
+            payload = await _fetch_fmp_json(
+                "historical-price-eod/full",
+                {"symbol": symbol},
+            )
+        except Exception as exc:
+            last_error = exc
+            continue
+        points = _parse_fmp_history(payload, limit=_period_to_days(period))
+        history = _history_payload(normalized, points, provider_meta=_fmp_meta(symbol))
+        if points:
+            return _cache_set(_history_cache, cache_key, history)
+
+    stale = _cache_get_stale(_history_cache, cache_key)
+    if stale is not None:
+        if last_error is not None:
+            logger.warning(
+                "FMP stale history fallback used (ticker=%s, period=%s): %s",
+                normalized,
+                period,
+                redact_secrets(repr(last_error)),
+            )
+        return stale
+    if last_error is not None:
+        logger.warning(
+            "FMP history unavailable (ticker=%s, period=%s): %s",
+            normalized,
+            period,
+            redact_secrets(repr(last_error)),
+        )
+    _mark_failed_call(cache_key)
+    return _history_payload(
+        normalized,
+        [],
+        provider_meta={
+            "provider": "fmp",
+            "freshness": "unavailable",
+            "license_scope": "free_plan_demo_internal",
+            "change_source": "none",
+        },
+    )
+
+
+async def _fetch_fmp_profile_market_cap(symbol: str) -> float:
+    normalized = symbol.upper()
+    cache_key = f"fmp_profile:{normalized}"
+    cached = _cache_get(_profile_cache, cache_key, PROFILE_CACHE_TTL_SECONDS)
+    if cached is not None:
+        return float(cached)
+    if not _fmp_key():
+        return 0.0
+
+    try:
+        payload = await _fetch_fmp_json(
+            "profile",
+            {"symbol": _fmp_symbol_candidates(normalized)[0]},
+        )
+    except Exception as exc:
+        logger.warning(
+            "FMP profile unavailable (ticker=%s): %s",
+            normalized,
+            redact_secrets(repr(exc)),
+        )
+        return 0.0
+    market_cap = _safe_float(_first_payload_item(payload).get("marketCap"))
+    return _cache_set(_profile_cache, cache_key, market_cap)
+
+
+async def _fetch_fmp_quote_snapshot(ticker: str) -> dict[str, Any]:
+    normalized = ticker.upper()
+    last_error: Exception | None = None
+    for symbol in _fmp_symbol_candidates(normalized):
+        try:
+            payload = await _fetch_fmp_json("quote", {"symbol": symbol})
+        except Exception as exc:
+            last_error = exc
+            continue
+        quote = _first_payload_item(payload)
+        current_price = _safe_float(quote.get("price") or quote.get("close"))
+        if not current_price:
+            continue
+        prev_close = _safe_float(
+            quote.get("previousClose") or quote.get("prevClose"),
+            default=current_price,
+        )
+        change_percent = _safe_float(
+            quote.get("changesPercentage")
+            or quote.get("changePercentage")
+            or quote.get("changePercent")
+        )
+        if change_percent == 0.0 and prev_close:
+            change_percent = ((current_price - prev_close) / prev_close) * 100
+        return {
+            "currentPrice": round(current_price, 6),
+            "changePercent": round(change_percent, 6),
+            "history_prices": [round(current_price, 6)],
+            "marketCap": _safe_float(quote.get("marketCap")),
+            "provider_meta": _fmp_meta(symbol, change_source="fmp_quote"),
+        }
+    if last_error is not None:
+        raise last_error
+    return dict(DEFAULT_RESPONSE)
+
+
+async def _fetch_fmp_snapshot(ticker: str) -> dict[str, Any]:
+    normalized = ticker.upper()
+    cache_key = f"fmp_snapshot:{normalized}"
+    cached = _cache_get(_snapshot_cache, cache_key, FMP_CACHE_TTL_SECONDS)
+    if cached is not None:
+        return cached
+
+    quote_payload = dict(DEFAULT_RESPONSE)
+    try:
+        quote_payload = await _fetch_fmp_quote_snapshot(normalized)
+    except Exception as exc:
+        logger.warning(
+            "FMP quote unavailable (ticker=%s): %s",
+            normalized,
+            redact_secrets(repr(exc)),
+        )
+
+    history = await fetch_fmp_history(normalized, "1mo")
+    history_prices = [point["value"] for point in history.get("points", [])]
+    if history_prices:
+        payload = _normalize_history_values(
+            history_prices,
+            market_cap=_safe_float(quote_payload.get("marketCap")),
+        )
+        if quote_payload.get("currentPrice"):
+            payload["currentPrice"] = quote_payload["currentPrice"]
+            payload["changePercent"] = quote_payload["changePercent"]
+        payload["provider_meta"] = (
+            history.get("provider_meta")
+            or quote_payload.get("provider_meta")
+            or {"provider": "fmp", "freshness": "eod_or_delayed"}
+        )
+    else:
+        payload = quote_payload
+
+    if not payload.get("currentPrice") and settings.ENABLE_STOOQ_FALLBACK:
+        payload = await _fetch_stooq_snapshot(normalized)
+        if payload.get("currentPrice"):
+            payload["provider_meta"] = {
+                "provider": "stooq",
+                "freshness": "daily_csv_opt_in_fallback",
+                "license_scope": "fallback_only",
+                "change_source": "stooq_history",
+            }
+
+    return _cache_set(_snapshot_cache, cache_key, payload)
 
 
 async def _fetch_finnhub_profile_market_cap(symbol: str) -> float:
@@ -321,15 +623,35 @@ async def _fetch_finnhub_stock_snapshot(symbol: str) -> dict[str, Any]:
             redact_secrets(repr(exc)),
         )
         market_cap = 0.0
+    if not market_cap:
+        try:
+            market_cap = await _fetch_fmp_profile_market_cap(symbol)
+        except Exception as exc:
+            logger.warning(
+                "FMP profile fallback used (ticker=%s): %s",
+                symbol,
+                redact_secrets(repr(exc)),
+            )
+            market_cap = 0.0
     try:
-        history = await fetch_stooq_history(symbol, "1mo")
+        history = await fetch_fmp_history(symbol, "1mo")
     except Exception as exc:
         logger.warning(
-            "Stooq history fallback used for stock snapshot (ticker=%s): %s",
+            "FMP history fallback used for stock snapshot (ticker=%s): %s",
             symbol,
             redact_secrets(repr(exc)),
         )
         history = _history_payload(symbol, [])
+    if not history.get("points") and settings.ENABLE_STOOQ_FALLBACK:
+        try:
+            history = await fetch_stooq_history(symbol, "1mo")
+        except Exception as exc:
+            logger.warning(
+                "Stooq opt-in history fallback used for stock snapshot (ticker=%s): %s",
+                symbol,
+                redact_secrets(repr(exc)),
+            )
+            history = _history_payload(symbol, [])
     history_prices = [point["value"] for point in history.get("points", [])]
     if not history_prices and current_price:
         history_prices = [current_price]
@@ -383,10 +705,17 @@ async def _fetch_fx_snapshot(ticker: str) -> dict[str, Any]:
     rates = (payload or {}).get("rates", {})
     current_price = _safe_float(rates.get("KRW"))
 
-    # open.er-api는 현재 환율만 주고 전일 종가가 없어서 changePercent를 0으로 둘 수밖에
-    # 없었다. finnhub 주식 스냅샷과 동일하게, stooq의 일별 USD/KRW 종가를 전일 종가로
-    # 삼아 실제 등락폭을 계산한다. stooq 키가 없거나 데이터가 없으면 폴백한다.
-    history = await fetch_stooq_history("KRW=X", "1mo")
+    history = _history_payload("KRW=X", [], unit="KRW")
+    if settings.ENABLE_STOOQ_FALLBACK:
+        try:
+            history = await fetch_stooq_history("KRW=X", "1mo")
+        except Exception as exc:
+            logger.warning(
+                "Stooq opt-in FX change fallback used (ticker=%s): %s",
+                ticker,
+                redact_secrets(repr(exc)),
+            )
+            history = _history_payload("KRW=X", [], unit="KRW")
     history_prices = [point["value"] for point in history.get("points", [])]
 
     if not current_price and history_prices:
@@ -411,7 +740,9 @@ async def _fetch_fx_snapshot(ticker: str) -> dict[str, Any]:
             "source": "open.er-api.com",
             "provider": (payload or {}).get("provider"),
             "as_of": (payload or {}).get("time_last_update_utc"),
-            "change_source": "stooq" if prev_close else "none",
+            "freshness": "daily_reference",
+            "license_scope": "open_public_reference",
+            "change_source": "stooq_fallback" if prev_close else "none",
         },
     }
     return _cache_set(_snapshot_cache, f"fx:{ticker}", result)
@@ -436,18 +767,38 @@ async def fetch_stooq_history(ticker: str, period: str = "1y") -> dict[str, Any]
     stooq_symbol = STOOQ_SYMBOLS.get(ticker.upper())
     key = _stooq_key()
     cache_key = f"stooq:{ticker.upper()}:{period}"
-    cached = _cache_get(_history_cache, cache_key, HISTORY_CACHE_TTL_SECONDS)
-    if cached is not None:
-        return cached
-    if not stooq_symbol or not key:
+    cached_entry = _history_cache.get(cache_key)
+    if cached_entry is not None:
+        cached_at, cached_payload = cached_entry
+        if monotonic() - cached_at < HISTORY_CACHE_TTL_SECONDS:
+            return cached_payload
+    if not stooq_symbol or not key or not settings.ENABLE_STOOQ_FALLBACK:
         return _history_payload(ticker.upper(), [])
 
-    text = await _get_text(
-        "stooq",
-        STOOQ_DAILY_CSV_URL,
-        params={"s": stooq_symbol, "i": "d", "apikey": key},
-        timeout=12.0,
-    )
+    try:
+        text = await _get_text(
+            "stooq",
+            STOOQ_DAILY_CSV_URL,
+            params={"s": stooq_symbol, "i": "d", "apikey": key},
+            timeout=float(settings.STOOQ_FETCH_TIMEOUT_SECONDS),
+        )
+    except Exception as exc:
+        stale = _cache_get_stale(_history_cache, cache_key)
+        if stale is not None:
+            logger.warning(
+                "Stooq stale history fallback used (ticker=%s, period=%s): %s",
+                ticker.upper(),
+                period,
+                redact_secrets(repr(exc)),
+            )
+            return stale
+        logger.warning(
+            "Stooq history unavailable (ticker=%s, period=%s): %s",
+            ticker.upper(),
+            period,
+            redact_secrets(repr(exc)),
+        )
+        return _history_payload(ticker.upper(), [])
     points = _parse_stooq_csv(text, limit=_period_to_days(period))
     payload = _history_payload(ticker.upper(), points)
     if not points:
@@ -658,9 +1009,9 @@ async def fetch_market_snapshot(ticker: str, category: str | None = None) -> dic
         elif category == "INDEX" and normalized in KR_INDEX_NAMES:
             payload = await _fetch_data_go_snapshot(normalized)
         elif category == "INDEX":
-            payload = await _fetch_stooq_snapshot(normalized)
+            payload = await _fetch_fmp_snapshot(normalized)
         elif category == "COMMODITY" or _is_commodity(normalized):
-            payload = await _fetch_stooq_snapshot(normalized)
+            payload = await _fetch_fmp_snapshot(normalized)
         else:
             payload = dict(DEFAULT_RESPONSE)
     except Exception as exc:
@@ -679,14 +1030,16 @@ async def fetch_market_history(ticker: str, period: str = "1y") -> dict[str, Any
 
     try:
         if normalized in US_STOCK_SYMBOLS or normalized in {"^GSPC", "^NDX"} or _is_commodity(normalized):
-            payload = await fetch_stooq_history(normalized, period)
+            payload = await fetch_fmp_history(normalized, period)
+            if not payload.get("points") and settings.ENABLE_STOOQ_FALLBACK:
+                payload = await fetch_stooq_history(normalized, period)
         elif _is_crypto(normalized):
             payload = await fetch_coingecko_history(normalized, period)
         elif normalized == "KRW=X":
-            # stooq의 일별 USD/KRW 종가로 실제 시계열을 만든다. stooq에 데이터가 없으면
-            # open.er-api 현재 환율 단일 포인트로 폴백한다.
-            stooq_history = await fetch_stooq_history(normalized, period)
-            points = list(stooq_history.get("points", []))
+            points: list[dict[str, Any]] = []
+            if settings.ENABLE_STOOQ_FALLBACK:
+                stooq_history = await fetch_stooq_history(normalized, period)
+                points = list(stooq_history.get("points", []))
             if not points:
                 snapshot = await _fetch_fx_snapshot(normalized)
                 if snapshot.get("currentPrice"):

@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     # the deployment tolerates it (see AGENTS.md section 9).
     DATA_GO_KR_FETCH_TIMEOUT_SECONDS: int = 25
     DATA_GO_KR_MAX_CONCURRENCY: int = 2
+    FMP_FETCH_TIMEOUT_SECONDS: int = 10
+    FMP_DAILY_CALL_BUDGET: int = 180
+    ENABLE_STOOQ_FALLBACK: bool = False
+    STOOQ_FETCH_TIMEOUT_SECONDS: int = 12
 
     ENABLE_AI_REPORT_GENERATION: bool = True
     REPORT_SCHEDULER_COVERAGE: str = "conservative"
@@ -227,12 +231,19 @@ class Settings(BaseSettings):
         "MARKET_PRICE_FETCH_TIMEOUT_SECONDS",
         "MARKET_NEWS_FETCH_TIMEOUT_SECONDS",
         "DATA_GO_KR_FETCH_TIMEOUT_SECONDS",
+        "FMP_FETCH_TIMEOUT_SECONDS",
+        "STOOQ_FETCH_TIMEOUT_SECONDS",
     )
     @classmethod
     def enforce_minimum_fetch_timeout(cls, value: int) -> int:
         # Guard against a too-short timeout that would mass-fail assets while a
         # serialized provider queue is still draining.
         return max(5, int(value))
+
+    @field_validator("FMP_DAILY_CALL_BUDGET")
+    @classmethod
+    def enforce_non_negative_fmp_budget(cls, value: int) -> int:
+        return max(0, int(value))
 
     @field_validator("REPORT_SCHEDULER_STARTUP_DELAY_SECONDS")
     @classmethod

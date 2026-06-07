@@ -245,12 +245,23 @@ AI 리포트 또는 챗봇에서 실제 OpenAI API를 호출하려면 `OPENAI_AP
 | `ALPHA_VANTAGE_API_KEY` | Alpha Vantage 계정 생성 또는 API key 신청 화면으로 이동한다. free key를 발급받고 rate limit을 확인한 뒤 backend 환경변수에 저장한다. |
 | `FRED_API_KEY` | FRED 계정을 만든 뒤 API key request/view 화면에서 앱용 key를 발급한다. 앱별로 별도 key를 쓰는 것이 좋다. |
 | `ECOS_API_KEY` | 한국은행 ECOS Open API 사이트에서 회원가입/로그인 후 인증키를 신청한다. 발급 후 Open API 화면 또는 MyPage에서 인증키를 확인한다. |
-| `FMP_API_KEY` | Financial Modeling Prep에 가입한 뒤 dashboard의 API Keys 영역에서 key를 복사한다. plan별로 profile, financial, news endpoint 사용 가능 여부를 확인한다. |
+| `FMP_API_KEY` | Financial Modeling Prep에 가입한 뒤 dashboard의 API Keys 영역에서 key를 복사한다. Basic 무료 플랜은 EOD/delayed 데이터와 250 calls/day 한도를 전제로 쓰며, 공개 상용 표시/재배포 전에는 license를 재확인한다. |
+| `FMP_FETCH_TIMEOUT_SECONDS` | FMP quote/history/profile 단일 호출 timeout. 기본 `10`, 최소 `5`. |
+| `FMP_DAILY_CALL_BUDGET` | FMP 무료 한도 초과를 피하기 위한 process-local 일일 호출 budget. 기본 `180`, `0`이면 FMP 호출을 skip한다. 서버 재시작 시 counter는 초기화된다. |
 | `FINNHUB_API_KEY` | Finnhub 가입 후 dashboard 또는 registration flow에서 token을 발급받는다. free tier의 뉴스/호가 endpoint 제한을 확인한다. |
+| `COINGECKO_DEMO_API_KEY` | CoinGecko Demo API key를 발급받아 암호화폐 현재가/히스토리 수집에 사용한다. |
+| `DATA_GO_KR_API_KEY` | 공공데이터포털 금융위원회 주식시세정보/지수시세정보 serviceKey를 발급받는다. |
+| `STOOQ_API_KEY` | Stooq daily CSV key. 기본 경로에서는 쓰지 않고 `ENABLE_STOOQ_FALLBACK=true`일 때만 opt-in fallback으로 사용한다. |
+| `ENABLE_STOOQ_FALLBACK` | Stooq fallback 사용 여부. 기본 `false`. Render에서 Stooq `ConnectTimeout('')`가 반복된 이력 때문에 production 기본값은 비활성이다. |
+| `STOOQ_FETCH_TIMEOUT_SECONDS` | opt-in Stooq daily CSV 단일 호출 timeout. 기본 `12`, 최소 `5`. |
 
 scheduler를 켜면 이 provider들을 반복 호출할 수 있다. rate limit과 비용 정책을 확인하기 전에는 `ENABLE_MARKET_WARMUP=false`, `ENABLE_SCHEDULER=false`, `ENABLE_AI_REPORT_GENERATION=false`로 smoke test를 먼저 끝낸다.
 
 provider key가 비어 있으면 일부 기능은 fallback, cache, 또는 제한된 데이터로 동작할 수 있다. 이 경우 앱 실행 자체보다 데이터 품질과 coverage가 먼저 영향을 받는다.
+
+시장 데이터는 무료 provider의 quota를 보호하기 위해 scheduler/cache 경유로 수집한다. 미국 지수/원자재/미국 주식 history는 FMP EOD 경로를 먼저 사용하고, FMP key가 없거나 일일 budget을 초과하면 빈 history 또는 stale cache로 degrade한다. USD/KRW는 open.er-api.com daily reference rate를 기본값으로 사용하며, 공개 화면에서 trading-grade realtime FX로 표현하지 않는다.
+
+Stooq는 기본 provider가 아니다. `ENABLE_STOOQ_FALLBACK=true`로 명시한 경우에만 미국 지수/원자재/미국 주식 history와 USD/KRW change/history의 보조 fallback으로 호출한다. Render 로그에서 Stooq `ConnectTimeout('')`가 반복되면 fallback을 다시 끄거나 `STOOQ_FETCH_TIMEOUT_SECONDS`를 조정한 뒤 backend를 재시작한다.
 
 ### 2.10 9단계: 리포트 scheduler 정책 정하기
 

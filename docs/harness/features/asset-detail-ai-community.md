@@ -52,13 +52,14 @@ AI report generation is now additionally controlled by backend-only `ENABLE_AI_R
 21. Scheduled report generation runs only when both `ENABLE_SCHEDULER=true` and `ENABLE_AI_REPORT_GENERATION=true`.
 22. Scheduled report generation seeds and covers only the configured representative target list by default: `DGS10`, `XAU`, `BTC-USD`, `NVDA`, and `005930.KS`.
 23. The startup scheduled report job is delayed by `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS` so market warm-up and provider queues can begin before the first report attempt. If a scheduled report still starts before market warm-up has populated the target ticker, `generate_report_for_ticker()` asks `market_service.ensure_price_cache_for_ticker()` to fill that ticker's price cache once, then rechecks the cache before building report facts. For US stock targets such as `NVDA`, successful Finnhub quote data can still populate the cache even when optional profile or Stooq history calls fail. This is a scheduler/background safeguard only; user-facing report pages and chatbot requests still do not trigger report generation.
-24. Passing reports persist quality/source metadata, fact matrix summaries, source-table entries, and research packet metadata on `AIReport`, and existing report fetches return the stored metadata to `ReportCard.jsx`.
-25. The page fetches comments using the ticker or asset key.
-26. Community writes send the JWT and the backend resolves the asset, creating an asset row from the warm market cache when a comment is posted before a report has created one.
-27. Edit/delete ownership checks happen on the backend.
-28. The frontend asks the user to pick a short report reason before sending the report. The selected reason is a UI confirmation only and is not stored by the current backend contract.
-29. Comment reports are stored separately from likes and can auto-delete the comment at the 100-report threshold.
-30. The chatbot can guide users to detail, report, and community areas. For authenticated users it can summarize an already stored report, but it does not call the report-generation endpoint.
+24. Stooq-backed market facts (US index, commodity, US stock history, USD/KRW history/change) degrade through stale cache when available. USD/KRW keeps the open.er-api.com current rate even if Stooq history times out. This improves report fact availability but does not create a user-facing report generation trigger.
+25. Passing reports persist quality/source metadata, fact matrix summaries, source-table entries, and research packet metadata on `AIReport`, and existing report fetches return the stored metadata to `ReportCard.jsx`.
+26. The page fetches comments using the ticker or asset key.
+27. Community writes send the JWT and the backend resolves the asset, creating an asset row from the warm market cache when a comment is posted before a report has created one.
+28. Edit/delete ownership checks happen on the backend.
+29. The frontend asks the user to pick a short report reason before sending the report. The selected reason is a UI confirmation only and is not stored by the current backend contract.
+30. Comment reports are stored separately from likes and can auto-delete the comment at the 100-report threshold.
+31. The chatbot can guide users to detail, report, and community areas. For authenticated users it can summarize an already stored report, but it does not call the report-generation endpoint.
 
 ## Contracts
 
@@ -156,6 +157,7 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/report-max-revisions-increase-to-7-2026-06-04.md`
 - `docs/harness/report-generation-deployment-failure-remediation-plan-2026-06-07.md`
 - `docs/harness/render-standard-market-provider-timeout-remediation-2026-06-07.md`
+- `docs/harness/stooq-timeout-fallback-2026-06-07.md`
 
 ## Open Risks
 

@@ -9,6 +9,8 @@ def setup_function():
     price_providers._snapshot_cache.clear()
     price_providers._profile_cache.clear()
     price_providers._history_cache.clear()
+    price_providers._fmp_daily_call_date = None
+    price_providers._fmp_daily_call_count = 0
     market_cache.setdefault("latest_context", {}).clear()
 
 
@@ -25,6 +27,22 @@ def test_parse_stooq_csv_preserves_provider_dates():
 
 def test_parse_stooq_csv_degrades_when_key_required():
     assert price_providers._parse_stooq_csv("Get your apikey: open stooq") == []
+
+
+def test_parse_fmp_history_preserves_provider_dates():
+    payload = {
+        "historical": [
+            {"date": "2026-06-02", "close": 12.0},
+            {"date": "2026-05-31", "close": "10.5"},
+        ]
+    }
+
+    points = price_providers._parse_fmp_history(payload)
+
+    assert points == [
+        {"date": "2026-05-31", "value": 10.5},
+        {"date": "2026-06-02", "value": 12.0},
+    ]
 
 
 def test_kr_index_names_use_korean_idxnm():
@@ -108,10 +126,97 @@ async def test_coingecko_history_requires_demo_key(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_fmp_history_requires_key_and_degrades(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "FMP_API_KEY", None)
+
+    payload = await price_providers.fetch_fmp_history("^GSPC", "1mo")
+
+    assert payload["points"] == []
+    assert payload["legacy"] == []
+    assert payload["provider_meta"]["provider"] == "fmp"
+    assert payload["provider_meta"]["freshness"] == "missing_key"
+
+
+@pytest.mark.asyncio
+async def test_fmp_history_success_normalization(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "FMP_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "FMP_DAILY_CALL_BUDGET", 180)
+    monkeypatch.setattr(price_providers.settings, "FMP_FETCH_TIMEOUT_SECONDS", 10)
+    captured = {}
+
+    async def fake_get_json(provider, url, *, params=None, headers=None, timeout=10.0):
+        captured["provider"] = provider
+        captured["url"] = url
+        captured["params"] = params
+        captured["timeout"] = timeout
+        return {
+            "historical": [
+                {"date": "2026-06-01", "close": 100},
+                {"date": "2026-06-02", "close": 105},
+            ]
+        }
+
+    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
+
+    payload = await price_providers.fetch_fmp_history("^GSPC", "1mo")
+
+    assert captured["provider"] == "fmp"
+    assert captured["url"].endswith("/historical-price-eod/full")
+    assert captured["params"]["symbol"] == "^GSPC"
+    assert captured["params"]["apikey"] == "test-key"
+    assert captured["timeout"] == 10.0
+    assert price_providers._fmp_daily_call_count == 1
+    assert payload["points"] == [
+        {"date": "2026-06-01", "value": 100.0},
+        {"date": "2026-06-02", "value": 105.0},
+    ]
+    assert payload["provider_meta"]["provider"] == "fmp"
+    assert payload["provider_meta"]["freshness"] == "eod_or_delayed"
+
+
+@pytest.mark.asyncio
+async def test_fmp_daily_budget_exceeded_skips_provider_call(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "FMP_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "FMP_DAILY_CALL_BUDGET", 0)
+
+    async def fail_get_json(*args, **kwargs):
+        raise AssertionError("FMP provider should not be called when budget is 0")
+
+    monkeypatch.setattr(price_providers, "_get_json", fail_get_json)
+
+    payload = await price_providers.fetch_fmp_history("AAPL", "1mo")
+
+    assert payload["points"] == []
+    assert payload["provider_meta"]["freshness"] == "unavailable"
+    assert price_providers._fmp_daily_call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_fmp_empty_history_uses_failed_call_cooldown(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "FMP_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "FMP_DAILY_CALL_BUDGET", 180)
+    calls = {"count": 0}
+
+    async def fake_get_json(provider, url, *, params=None, headers=None, timeout=10.0):
+        calls["count"] += 1
+        return {"historical": []}
+
+    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
+
+    first = await price_providers.fetch_fmp_history("AAPL", "1mo")
+    second = await price_providers.fetch_fmp_history("AAPL", "1mo")
+
+    assert first["points"] == []
+    assert second["points"] == []
+    assert second["provider_meta"]["freshness"] == "cooldown"
+    assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_market_history_uses_ticker_period_cache(monkeypatch):
     calls = {"count": 0}
 
-    async def fake_stooq_history(ticker, period):
+    async def fake_fmp_history(ticker, period):
         calls["count"] += 1
         return {
             "ticker": ticker,
@@ -121,7 +226,7 @@ async def test_market_history_uses_ticker_period_cache(monkeypatch):
             "legacy": [{"date": "2026-06-02", "close": 100.0, "value": 100.0}],
         }
 
-    monkeypatch.setattr(price_providers, "fetch_stooq_history", fake_stooq_history)
+    monkeypatch.setattr(price_providers, "fetch_fmp_history", fake_fmp_history)
 
     first = await price_providers.fetch_market_history("AAPL", "1mo")
     second = await price_providers.fetch_market_history("AAPL", "1mo")
@@ -132,6 +237,8 @@ async def test_market_history_uses_ticker_period_cache(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_fx_snapshot_change_percent_from_stooq_close(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", True)
+
     async def fake_get_json(provider, url, **kwargs):
         return {"rates": {"KRW": 1386.0}, "provider": "open.er-api.com"}
 
@@ -155,11 +262,13 @@ async def test_fx_snapshot_change_percent_from_stooq_close(monkeypatch):
     assert snapshot["currentPrice"] == 1386.0
     assert snapshot["changePercent"] != 0.0
     assert snapshot["changePercent"] == round(((1386.0 - 1380.0) / 1380.0) * 100, 6)
-    assert snapshot["provider_meta"]["change_source"] == "stooq"
+    assert snapshot["provider_meta"]["change_source"] == "stooq_fallback"
 
 
 @pytest.mark.asyncio
 async def test_fx_snapshot_falls_back_when_stooq_empty(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", True)
+
     async def fake_get_json(provider, url, **kwargs):
         return {"rates": {"KRW": 1386.0}, "provider": "open.er-api.com"}
 
@@ -177,6 +286,88 @@ async def test_fx_snapshot_falls_back_when_stooq_empty(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_fx_snapshot_keeps_open_rate_without_stooq_fallback(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
+
+    async def fake_get_json(provider, url, **kwargs):
+        return {"rates": {"KRW": 1386.0}, "provider": "open.er-api.com"}
+
+    async def fail_stooq_history(ticker, period):
+        raise AssertionError("Stooq must not be called when fallback is disabled")
+
+    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
+    monkeypatch.setattr(price_providers, "fetch_stooq_history", fail_stooq_history)
+
+    snapshot = await price_providers._fetch_fx_snapshot("KRW=X")
+
+    assert snapshot["currentPrice"] == 1386.0
+    assert snapshot["changePercent"] == 0.0
+    assert snapshot["history_prices"] == [1386.0]
+    assert snapshot["provider_meta"]["change_source"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_stooq_history_uses_configured_timeout(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", True)
+    monkeypatch.setattr(price_providers.settings, "STOOQ_FETCH_TIMEOUT_SECONDS", 20)
+    captured = {}
+
+    async def fake_get_text(provider, url, *, params=None, headers=None, timeout=10.0):
+        captured["provider"] = provider
+        captured["timeout"] = timeout
+        return "Date,Open,High,Low,Close,Volume\n2026-06-02,1,2,1,12,100\n"
+
+    monkeypatch.setattr(price_providers, "_get_text", fake_get_text)
+
+    payload = await price_providers.fetch_stooq_history("^GSPC", "1mo")
+
+    assert captured["provider"] == "stooq"
+    assert captured["timeout"] == 20.0
+    assert payload["points"] == [{"date": "2026-06-02", "value": 12.0}]
+
+
+@pytest.mark.asyncio
+async def test_stooq_history_returns_stale_cache_when_refresh_fails(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", True)
+    cache_key = "stooq:^GSPC:1mo"
+    stale_payload = price_providers._history_payload(
+        "^GSPC",
+        [{"date": "2026-06-01", "value": 5300.0}],
+    )
+    price_providers._history_cache[cache_key] = (
+        price_providers.monotonic() - price_providers.HISTORY_CACHE_TTL_SECONDS - 1,
+        stale_payload,
+    )
+
+    async def failing_get_text(*args, **kwargs):
+        raise TimeoutError("stooq timeout")
+
+    monkeypatch.setattr(price_providers, "_get_text", failing_get_text)
+
+    payload = await price_providers.fetch_stooq_history("^GSPC", "1mo")
+
+    assert payload == stale_payload
+
+
+@pytest.mark.asyncio
+async def test_stooq_history_disabled_by_default(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
+
+    async def fail_get_text(*args, **kwargs):
+        raise AssertionError("Stooq provider should not be called by default")
+
+    monkeypatch.setattr(price_providers, "_get_text", fail_get_text)
+
+    payload = await price_providers.fetch_stooq_history("^GSPC", "1mo")
+
+    assert payload["points"] == []
+    assert payload["legacy"] == []
+
+
+@pytest.mark.asyncio
 async def test_finnhub_stock_snapshot_keeps_quote_when_optional_sources_fail(monkeypatch):
     async def fake_get_json(provider, url, **kwargs):
         assert provider == "finnhub"
@@ -189,8 +380,11 @@ async def test_finnhub_stock_snapshot_keeps_quote_when_optional_sources_fail(mon
         raise TimeoutError("stooq timeout")
 
     monkeypatch.setattr(price_providers.settings, "FINNHUB_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", True)
     monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
     monkeypatch.setattr(price_providers, "_fetch_finnhub_profile_market_cap", failing_market_cap)
+    monkeypatch.setattr(price_providers, "_fetch_fmp_profile_market_cap", failing_market_cap)
+    monkeypatch.setattr(price_providers, "fetch_fmp_history", failing_stooq_history)
     monkeypatch.setattr(price_providers, "fetch_stooq_history", failing_stooq_history)
 
     snapshot = await price_providers._fetch_finnhub_stock_snapshot("NVDA")
