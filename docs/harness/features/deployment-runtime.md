@@ -48,6 +48,7 @@ Runtime logging avoids leaking secrets in two layers. (1) Root logging stays at 
 7. Scheduler and market warm-up remain controlled by `ENABLE_SCHEDULER`, `ENABLE_MARKET_WARMUP`, `ENABLE_AI_REPORT_GENERATION`, and report scheduler environment variables.
 8. Favorite notification scheduler is controlled separately by `ENABLE_NOTIFICATION_SCHEDULER`, which defaults to false. Provider secrets for Telegram/Gmail email delivery are backend-only environment variables.
 9. AI report generation is separated from scheduler startup through `ENABLE_AI_REPORT_GENERATION`. Hosted smoke can run `ENABLE_SCHEDULER=true`, `ENABLE_AI_REPORT_GENERATION=false` to verify price/news jobs while skipping LLM-backed report generation.
+10. On Render Standard, a successful deploy with scheduler enabled can still fail the first startup report if provider cache fill loses the target ticker. The one-time startup report job is delayed by `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS` (default 180 seconds) so market warm-up and provider queues can begin first. US stock snapshots also preserve successful Finnhub quote data when optional Finnhub profile or Stooq history calls fail, reducing `No cached market data found for ticker: NVDA` during startup generation.
 
 Local Docker flow:
 
@@ -74,6 +75,7 @@ Local Docker flow:
   - `DB_PREPARED_STATEMENT_CACHE_SIZE`: optional asyncpg prepared-statement cache override for pooler compatibility testing.
   - `ENABLE_NOTIFICATION_SCHEDULER`: enables favorite notification evaluation/delivery jobs when true.
   - `ENABLE_AI_REPORT_GENERATION`: backend-only switch for scheduled/background AI report generation. When false, report scheduler jobs are not registered and direct service calls return before DB/provider/LLM generation work; stored report reads still work.
+  - `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS`: delay for the one-time startup report job after app startup. Default `180`; use 180~300 on Render while provider warm-up stabilizes.
   - `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`, `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`, `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`, `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`: notification scheduler and default rule controls.
   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`: backend-only delivery configuration names. Email delivery supports Gmail API only.
 
@@ -120,11 +122,13 @@ Local Docker flow:
 - `docs/harness/report-generation-env-switch-implementation-2026-06-03.md`
 - `docs/harness/report-404-and-secret-log-leak-remediation-plan-2026-06-04.md`
 - `docs/harness/report-404-and-secret-log-leak-remediation-implementation-2026-06-04.md`
+- `docs/harness/report-generation-deployment-failure-remediation-plan-2026-06-07.md`
+- `docs/harness/render-standard-market-provider-timeout-remediation-2026-06-07.md`
 
 ## Open Risks
 
 - Hosted backend provider and exact production/staging domains still need to be chosen before final environment values can be set.
 - Supabase direct connection versus pooler mode must be tested with SQLAlchemy asyncpg before production traffic.
-- Scheduler should start disabled for the first smoke release and be enabled only after API, DB, cost, and rate-limit checks.
+- Scheduler should start disabled for the first smoke release and be enabled only after API, DB, cost, and rate-limit checks. After enabling on Render Standard, confirm whether startup report logs show `리포트 생성 완료`, `ReportReadinessError`, `ReportQualityError`, or primary provider timeout before broadening report targets.
 - Existing local `postgres_data` volumes can preserve old DB user/password/name values. Resetting a volume is a data-loss action and needs explicit confirmation.
 - The data.go.kr `serviceKey` was confirmed exposed in 2026-06-03 runtime WARNING logs and must be rotated at the issuer with Render env vars updated. Other provider keys (Finnhub token, FRED `api_key`, ECOS key, Stooq `apikey`) that may have appeared in logs are also treated as compromised; the code guards only prevent future re-exposure.

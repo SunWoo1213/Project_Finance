@@ -220,7 +220,7 @@ async def lifespan(app: FastAPI):
             scheduler.add_job(
                 run_daily_reports_job,
                 "date",
-                run_date=datetime.now(),
+                run_date=datetime.now() + timedelta(seconds=settings.REPORT_SCHEDULER_STARTUP_DELAY_SECONDS),
                 id="generate_daily_reports_startup",
                 replace_existing=True,
                 coalesce=True,

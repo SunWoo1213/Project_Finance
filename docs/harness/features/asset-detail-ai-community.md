@@ -51,7 +51,7 @@ AI report generation is now additionally controlled by backend-only `ENABLE_AI_R
 20. Failed format checker, fact checker, qualitative checker, or evaluator results raise a quality failure and are not committed to the database. As a single exception, when the revision loop is exhausted and the only failing gate is the numeric fact checker (format already passed), `generate_report_for_ticker` deterministically sanitizes the unsupported numeric tokens (replacing them with a `(수치 미확인)` placeholder, no LLM re-call) and re-runs the format, framework, numeric, and qualitative gates; only if all gates then pass is the sanitized report saved (`metadata_json.fallback_sanitized=true` with `sanitized_numbers`). If sanitization still does not pass, the report is not saved (404 preserved).
 21. Scheduled report generation runs only when both `ENABLE_SCHEDULER=true` and `ENABLE_AI_REPORT_GENERATION=true`.
 22. Scheduled report generation seeds and covers only the configured representative target list by default: `DGS10`, `XAU`, `BTC-USD`, `NVDA`, and `005930.KS`.
-23. If a scheduled report starts before market warm-up has populated the target ticker, `generate_report_for_ticker()` asks `market_service.ensure_price_cache_for_ticker()` to fill that ticker's price cache once, then rechecks the cache before building report facts. This is a scheduler/background safeguard only; user-facing report pages and chatbot requests still do not trigger report generation.
+23. The startup scheduled report job is delayed by `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS` so market warm-up and provider queues can begin before the first report attempt. If a scheduled report still starts before market warm-up has populated the target ticker, `generate_report_for_ticker()` asks `market_service.ensure_price_cache_for_ticker()` to fill that ticker's price cache once, then rechecks the cache before building report facts. For US stock targets such as `NVDA`, successful Finnhub quote data can still populate the cache even when optional profile or Stooq history calls fail. This is a scheduler/background safeguard only; user-facing report pages and chatbot requests still do not trigger report generation.
 24. Passing reports persist quality/source metadata, fact matrix summaries, source-table entries, and research packet metadata on `AIReport`, and existing report fetches return the stored metadata to `ReportCard.jsx`.
 25. The page fetches comments using the ticker or asset key.
 26. Community writes send the JWT and the backend resolves the asset, creating an asset row from the warm market cache when a comment is posted before a report has created one.
@@ -73,7 +73,7 @@ AI report generation is now additionally controlled by backend-only `ENABLE_AI_R
 - Persisted `AIReport` quality columns include `quality_status`, `quality_feedback`, `format_check_pass`, `fact_check_pass`, `qualitative_check_pass`, `revision_count`, `data_as_of`, `source_summary`, `risk_summary`, `analysis_framework`, and `metadata_json`.
 - FastAPI lifespan attempts `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for local bootstrap only when `ENABLE_DB_SCHEMA_BOOTSTRAP=true`. Production-like deployments should set that flag to `false` and rely on Alembic migration coverage for report metadata columns.
 - Optional structured provider environment variable names for report-quality context: `FMP_API_KEY`, `FINNHUB_API_KEY`. They are optional; missing values produce provider limitation metadata rather than blocking report generation.
-- Optional report runtime policy variables: `ENABLE_AI_REPORT_GENERATION`, `ENABLE_LLM_REPORT_CRITICS`, `REPORT_CRITIC_MODE`, `REPORT_MAX_REVISIONS` (writer retry limit, default 7), `REPORT_SCHEDULER_COVERAGE`, `REPORT_SCHEDULER_INTERVAL_HOURS`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS`, and `REPORT_SCHEDULER_TARGET_TICKERS`.
+- Optional report runtime policy variables: `ENABLE_AI_REPORT_GENERATION`, `ENABLE_LLM_REPORT_CRITICS`, `REPORT_CRITIC_MODE`, `REPORT_MAX_REVISIONS` (writer retry limit, default 7), `REPORT_SCHEDULER_COVERAGE`, `REPORT_SCHEDULER_INTERVAL_HOURS`, `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS`, and `REPORT_SCHEDULER_TARGET_TICKERS`.
 - Latest context fetch: `GET /api/market/latest-context/{ticker}` is public and TTL-cached.
 - Comment list: `GET /api/community/{asset_id}/comments`
 - Chat guidance: `POST /api/chat/message`
@@ -154,6 +154,8 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/nvda-factchecker-loop-404-remediation-plan-2026-06-04.md`
 - `docs/harness/nvda-factchecker-loop-404-remediation-implementation-2026-06-04.md`
 - `docs/harness/report-max-revisions-increase-to-7-2026-06-04.md`
+- `docs/harness/report-generation-deployment-failure-remediation-plan-2026-06-07.md`
+- `docs/harness/render-standard-market-provider-timeout-remediation-2026-06-07.md`
 
 ## Open Risks
 
@@ -167,7 +169,7 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - Bull, Bear, and Risk role outputs are deterministic graph state for now; fully independent LLM-backed debate agents would increase token cost and need explicit approval.
 - Asset-specific framework depth validation is deterministic and conservative; it checks section placement and minimal evidence/limitation text, not full analytical quality.
 - Broadening scheduled AI report generation beyond the five representative target tickers remains disabled because it would increase LLM call volume.
-- Startup scheduled report generation can still encounter missing provider keys or slow providers. A ticker-level market cache fill now handles warm-up race conditions, but provider failures still lead to readiness-blocked reports instead of fabricated data.
+- Startup scheduled report generation is delayed by `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS`, but can still encounter missing provider keys or slow providers. A ticker-level market cache fill handles warm-up race conditions, and US stock snapshots keep primary Finnhub quote data when optional profile/Stooq history calls fail. Primary provider failures still lead to readiness-blocked reports instead of fabricated data.
 - Detail pages no longer trigger manual report generation on 404, so unsupported or not-yet-generated assets can show a pending report state until the scheduler produces a stored report.
 - Free users and users without loaded report entitlement now see a paywall and should not trigger report fetches from the detail page.
 - Remaining report-quality follow-ups are prioritized in `docs/harness/report-quality-follow-up-plan-2026-05-31.md`.

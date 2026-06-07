@@ -177,6 +177,31 @@ async def test_fx_snapshot_falls_back_when_stooq_empty(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_finnhub_stock_snapshot_keeps_quote_when_optional_sources_fail(monkeypatch):
+    async def fake_get_json(provider, url, **kwargs):
+        assert provider == "finnhub"
+        return {"c": 125.5, "pc": 120.0, "dp": 4.58}
+
+    async def failing_market_cap(symbol):
+        raise TimeoutError("profile timeout")
+
+    async def failing_stooq_history(ticker, period):
+        raise TimeoutError("stooq timeout")
+
+    monkeypatch.setattr(price_providers.settings, "FINNHUB_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
+    monkeypatch.setattr(price_providers, "_fetch_finnhub_profile_market_cap", failing_market_cap)
+    monkeypatch.setattr(price_providers, "fetch_stooq_history", failing_stooq_history)
+
+    snapshot = await price_providers._fetch_finnhub_stock_snapshot("NVDA")
+
+    assert snapshot["currentPrice"] == 125.5
+    assert snapshot["changePercent"] == 4.58
+    assert snapshot["marketCap"] == 0.0
+    assert snapshot["history_prices"] == [125.5]
+
+
+@pytest.mark.asyncio
 async def test_latest_context_force_refresh_respects_cooldown(monkeypatch):
     calls = {"count": 0}
 

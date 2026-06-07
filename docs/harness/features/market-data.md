@@ -38,7 +38,8 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 10. `GET /api/market/history/{ticker}?period=...` routes by ticker type:
    - Korean bonds use `fetch_kr_bond_history`.
    - US bonds use `fetch_us_bond_data`.
-   - US stocks, US indices, and commodities use Stooq daily CSV only when `STOOQ_API_KEY` is configured; otherwise they degrade to empty daily history.
+   - US stocks fetch the primary quote from Finnhub and use Stooq daily CSV as optional history when `STOOQ_API_KEY` is configured. Finnhub profile or Stooq history failures do not discard a successful quote; market cap degrades to `0.0` and history falls back to the current price.
+   - US indices and commodities use Stooq daily CSV only when `STOOQ_API_KEY` is configured; otherwise they degrade to empty daily history.
    - Crypto uses CoinGecko Demo API.
    - Korean stocks and Korean indices use 공공데이터포털 금융위원회 stock/index price APIs. The index API matches `idxNm` by the Korean index name (`코스피`/`코스닥`); the English forms return empty results.
    - USD/KRW (`KRW=X`) uses Stooq daily `usdkrw` closes for history and for the snapshot `changePercent` (latest Stooq close treated as the previous close, open.er-api.com live rate as `currentPrice`). When `STOOQ_API_KEY` is missing or Stooq returns no data, it degrades to open.er-api.com only — `changePercent=0` and a single provider-dated point. `provider_meta.change_source` reports `stooq` or `none`.
@@ -63,7 +64,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - Market provider keys: `FINNHUB_API_KEY` for US stock quote/news/events, `COINGECKO_DEMO_API_KEY` for crypto price/history, `DATA_GO_KR_API_KEY` for Korean stock/index price APIs, and optional `STOOQ_API_KEY` for US stock/index/commodity daily CSV history.
 - USD/KRW uses open.er-api.com open access data as daily reference FX. It is not treated as realtime trading-grade FX.
 - Hosted deployment startup should keep `ENABLE_MARKET_WARMUP=false` and `ENABLE_SCHEDULER=false` for the first smoke release, then enable runtime jobs after API/DB checks and cost review.
-- Optional report scheduler policy controls: `REPORT_SCHEDULER_COVERAGE=conservative`, `REPORT_SCHEDULER_INTERVAL_HOURS=6`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=5`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS=6`, `REPORT_SCHEDULER_TARGET_TICKERS=DGS10,XAU,BTC-USD,NVDA,005930.KS`
+- Optional report scheduler policy controls: `REPORT_SCHEDULER_COVERAGE=conservative`, `REPORT_SCHEDULER_INTERVAL_HOURS=6`, `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS=180`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=5`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS=6`, `REPORT_SCHEDULER_TARGET_TICKERS=DGS10,XAU,BTC-USD,NVDA,005930.KS`
 - Target report schedule rule: report generation is backend-scheduled every 6 hours and user/chatbot paths read stored reports only. The 2026-06-01 implementation limits scheduled coverage to five representative assets for API cost control; see `docs/harness/report-generation-schedule-alignment-implementation-2026-06-01.md`.
 - Supported history periods: `1d`, `1mo`, `1y`, `5y`. Free-provider replacement paths return provider-dated daily points for all periods; `1d` is no longer a 5-minute intraday chart.
 - Main market snapshot route: `/market/:ticker`
@@ -119,6 +120,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/market-data-kr-data-go-index-name-throttle-fix-2026-06-04.md`
 - `docs/harness/report-scheduler-market-cache-miss-fallback-2026-06-04.md`
 - `docs/harness/fx-change-percent-from-stooq-2026-06-04.md`
+- `docs/harness/render-standard-market-provider-timeout-remediation-2026-06-07.md`
 
 ## Open Risks
 
@@ -132,4 +134,4 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `data_go_kr` uses `DATA_GO_KR_MAX_CONCURRENCY` (default 2) rather than `Semaphore(1)`. data.go.kr `getStockPriceInfo` can spike to ~20s and the snapshot makes two calls; the concurrency bump + date-window queries + longer internal timeout (`DATA_GO_KR_FETCH_TIMEOUT_SECONDS`) let the KR queue drain across cycles. data.go.kr rate-limits aggressively and returns a `오류발생 알림화면(허용되지 않는 요청)` 404 HTML gateway block under load; the code degrades to DEFAULT + cooldown, but raising concurrency too high increases block frequency. The `getStockMarketIndex` endpoint is slower/flakier than the stock endpoint and may intermittently 404. Use `backend/scripts/probe_data_go.py` to classify data.go.kr reachability. See `docs/harness/market-data-kr-data-go-index-name-throttle-fix-2026-06-04.md`.
 - Full scheduled report coverage is intentionally not enabled; changing `REPORT_SCHEDULER_COVERAGE` away from `conservative` currently logs a warning and still avoids broad seeding because broader LLM/API usage needs product approval.
 - The report scheduler now wakes every 6 hours and uses a 6-hour per-asset cooldown, but coverage is limited to the configured representative ticker list.
-- Startup report jobs may run before the broad market warm-up completes. `ensure_price_cache_for_ticker()` now fills a single report target on cache miss, but provider key absence or provider outage still degrades to empty data/readiness block.
+- Startup report jobs are delayed by `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS` so broad market warm-up and provider queues can begin first. `ensure_price_cache_for_ticker()` still fills a single report target on cache miss, and US stock snapshots keep successful Finnhub quotes when optional profile/Stooq history calls fail. Provider key absence or primary quote outage still degrades to empty data/readiness block.

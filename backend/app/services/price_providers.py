@@ -312,8 +312,24 @@ async def _fetch_finnhub_stock_snapshot(symbol: str) -> dict[str, Any]:
     change_percent = _safe_float((payload or {}).get("dp"))
     if change_percent == 0.0 and prev_close:
         change_percent = ((current_price - prev_close) / prev_close) * 100
-    market_cap = await _fetch_finnhub_profile_market_cap(symbol)
-    history = await fetch_stooq_history(symbol, "1mo")
+    try:
+        market_cap = await _fetch_finnhub_profile_market_cap(symbol)
+    except Exception as exc:
+        logger.warning(
+            "Finnhub profile fallback used (ticker=%s): %s",
+            symbol,
+            redact_secrets(repr(exc)),
+        )
+        market_cap = 0.0
+    try:
+        history = await fetch_stooq_history(symbol, "1mo")
+    except Exception as exc:
+        logger.warning(
+            "Stooq history fallback used for stock snapshot (ticker=%s): %s",
+            symbol,
+            redact_secrets(repr(exc)),
+        )
+        history = _history_payload(symbol, [])
     history_prices = [point["value"] for point in history.get("points", [])]
     if not history_prices and current_price:
         history_prices = [current_price]

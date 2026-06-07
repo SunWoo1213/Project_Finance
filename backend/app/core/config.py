@@ -115,6 +115,7 @@ class Settings(BaseSettings):
     ENABLE_AI_REPORT_GENERATION: bool = True
     REPORT_SCHEDULER_COVERAGE: str = "conservative"
     REPORT_SCHEDULER_INTERVAL_HOURS: int = 6
+    REPORT_SCHEDULER_STARTUP_DELAY_SECONDS: int = 180
     REPORT_SCHEDULER_MAX_REPORTS_PER_RUN: int = 5
     REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS: int = 6
     REPORT_SCHEDULER_TARGET_TICKERS: str = "DGS10,XAU,BTC-USD,NVDA,005930.KS"
@@ -232,6 +233,11 @@ class Settings(BaseSettings):
         # Guard against a too-short timeout that would mass-fail assets while a
         # serialized provider queue is still draining.
         return max(5, int(value))
+
+    @field_validator("REPORT_SCHEDULER_STARTUP_DELAY_SECONDS")
+    @classmethod
+    def enforce_non_negative_startup_delay(cls, value: int) -> int:
+        return max(0, int(value))
 
     @field_validator("DATA_GO_KR_MAX_CONCURRENCY")
     @classmethod

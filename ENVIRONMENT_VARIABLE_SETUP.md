@@ -491,6 +491,7 @@ background 작업은 비용과 부하를 만들 수 있으므로 단계적으로
 - `MARKET_LATEST_CONTEXT_TTL_MINUTES`: 종목 상세 `latest-context` cache 유효시간(분). 기본값 `10`. 만료 전에는 cache를 재사용하고 만료 후 첫 요청에서 다시 가져온다.
 - 위 세 값은 모두 분 단위이며 최소 `1`로 강제된다(0/음수 입력 시 1로 보정). 간격을 줄이면 yfinance 등 외부 API 호출 빈도와 부하가 늘어난다.
 - `REPORT_SCHEDULER_*`: 저장형 AI 리포트 생성 주기와 대상 ticker.
+- `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS`: backend 시작 직후 등록되는 1회성 startup 리포트 job 지연 시간(초). 기본값 `180`. Render 같은 hosted runtime에서는 market warm-up과 provider queue가 먼저 돌도록 180~300초를 권장한다. 0/음수 입력 시 0으로 보정된다.
 - `ENABLE_LLM_REPORT_CRITICS`: 추가 LLM critic agent 사용 여부.
 - `REPORT_CRITIC_MODE`: 기본값 `deterministic` 유지 권장.
 
