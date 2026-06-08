@@ -49,6 +49,7 @@ This index tells future harness agents which feature document to read before cha
 - Stooq timeout stale cache + USD/KRW open-rate fallback: `docs/harness/stooq-timeout-fallback-2026-06-07.md`
 - Data I/O pipeline remediation plan: `docs/harness/data-io-pipeline-remediation-plan-2026-06-08.md`
 - Data I/O pipeline remediation implementation: `docs/harness/data-io-pipeline-remediation-implementation-2026-06-08.md`
+- Live ticker allowlist + mock market fallback implementation: `docs/harness/market-live-ticker-mock-fallback-implementation-2026-06-08.md`
 - 데모 환경 무료 티어 데이터 수집 주기 완화 계획: `docs/harness/demo-free-tier-data-cadence-plan-2026-06-08.md`
 - 무료 플랜 기반 Stooq primary 대체 계획(FMP Basic + 기존 무료 provider 유지): `docs/harness/market-data-free-plan-stooq-replacement-plan-2026-06-07.md`
 - 무료 플랜 기반 Stooq primary 대체 구현(FMP Basic + opt-in Stooq fallback): `docs/harness/market-data-free-plan-stooq-replacement-implementation-2026-06-07.md`
