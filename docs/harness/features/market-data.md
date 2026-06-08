@@ -133,6 +133,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/data-io-pipeline-remediation-implementation-2026-06-08.md`
 - `docs/harness/report-generation-scheduler-not-firing-log-audit-2026-06-08.md`
 - `docs/harness/market-snapshot-price-fallback-and-stale-retention-implementation-2026-06-08.md`
+- `docs/harness/asset-display-graph-removal-plan-2026-06-08.md`
 
 ## Open Risks
 

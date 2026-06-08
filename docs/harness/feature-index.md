@@ -39,6 +39,7 @@ This index tells future harness agents which feature document to read before cha
 - 배포 환경 AI 리포트 미생성 원인 분석 및 해결 계획: `docs/harness/report-generation-deployment-failure-remediation-plan-2026-06-07.md`
 - 배포 로그 기반 AI 리포트 미생성 정밀 분석(스케줄러 잡 미발화 + FMP 402): `docs/harness/report-generation-scheduler-not-firing-log-audit-2026-06-08.md`
 - STOCK_US 현재가 폴백 + 스냅샷 stale 유지 구현(provider 장애 시 readiness blocked 방지): `docs/harness/market-snapshot-price-fallback-and-stale-retention-implementation-2026-06-08.md`
+- 자산 표시 그래프 제거 계획: `docs/harness/asset-display-graph-removal-plan-2026-06-08.md`
 - 리포트 스케줄러 기동 직후 발화 보정 구현(interval next_run_time + startup 잡 통합): `docs/harness/report-scheduler-startup-firing-fix-implementation-2026-06-08.md`
 - Render Standard 전환 후 시장 provider timeout 보완: `docs/harness/render-standard-market-provider-timeout-remediation-2026-06-07.md`
 - Stooq timeout stale cache + USD/KRW open-rate fallback: `docs/harness/stooq-timeout-fallback-2026-06-07.md`

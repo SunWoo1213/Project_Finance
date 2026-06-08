@@ -164,6 +164,7 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/report-generation-scheduler-not-firing-log-audit-2026-06-08.md`
 - `docs/harness/market-snapshot-price-fallback-and-stale-retention-implementation-2026-06-08.md`
 - `docs/harness/report-scheduler-startup-firing-fix-implementation-2026-06-08.md`
+- `docs/harness/asset-display-graph-removal-plan-2026-06-08.md`
 
 ## Open Risks
 
