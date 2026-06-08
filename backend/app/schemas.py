@@ -218,7 +218,7 @@ class ChatMessageRequest(BaseModel):
     context: ChatContext = Field(default_factory=ChatContext)
     conversation_id: str | None = None
     client_message_id: str | None = None
-    history: list[ChatTurn] = Field(default_factory=list, max_length=20)
+    history: list[ChatTurn] = Field(default_factory=list, max_length=24)
 
 
 class ChatAction(BaseModel):

@@ -94,7 +94,7 @@ class Settings(BaseSettings):
     MARKET_PRICES_REFRESH_MINUTES: int = 5
     MARKET_NEWS_REFRESH_MINUTES: int = 60
     MARKET_LATEST_CONTEXT_TTL_MINUTES: int = 10
-    MARKET_LIVE_TICKERS: str = "DGS10,XAU,BTC-USD,NVDA,005930.KS,^GSPC,^NDX,KRW=X,^KS11"
+    MARKET_LIVE_TICKERS: str = "DGS10,XAU,BTC-USD,NVDA,005930.KS"
 
     # Per-asset fetch timeout for warm-up/scheduler collection (seconds).
     # Higher values let a serialized provider queue drain within one run. The KR
@@ -140,7 +140,7 @@ class Settings(BaseSettings):
     # reads stored scheduled reports (see AGENTS.md section 14).
     ENABLE_LLM_CHATBOT: bool = False
     CHATBOT_LLM_MODEL: str = "gpt-4o-mini"
-    CHATBOT_HISTORY_MAX_TURNS: int = 6
+    CHATBOT_HISTORY_MAX_TURNS: int = 10
     CHATBOT_LLM_TIMEOUT_SECONDS: int = 20
     # When on, the LLM answer's price/percent numbers are checked against the
     # assembled grounding; unverified figures get a caveat and lower confidence.

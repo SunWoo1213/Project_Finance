@@ -45,10 +45,12 @@ const useChatStore = create((set, get) => ({
     };
 
     // Send recent turns so the backend LLM path can use conversation context.
-    // The server does not persist these; they are prompt context only.
+    // 10 turns = 20 messages (user+assistant); the backend trims to
+    // CHATBOT_HISTORY_MAX_TURNS again. The server does not persist these; they
+    // are prompt context only, so clearing the chat forgets the conversation.
     const history = get()
       .messages.filter((m) => m.id !== "welcome" && (m.role === "user" || m.role === "assistant"))
-      .slice(-12)
+      .slice(-20)
       .map((m) => ({ role: m.role, content: m.content }));
 
     set((state) => ({

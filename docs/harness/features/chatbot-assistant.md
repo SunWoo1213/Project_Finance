@@ -12,6 +12,8 @@ When `ENABLE_LLM_CHATBOT=true` and `OPENAI_API_KEY` is set, the chatbot uses an 
 
 The LLM path never generates reports: there is no report-generation tool, and only stored `AIReport` summaries are passed in (AGENTS.md section 14). The frontend forwards recent turns as `history` for multi-turn context; the server does not persist them. Any failure (toggle off, missing key, LLM error/timeout, empty answer) falls back to the deterministic rule-based response, so behavior is unchanged when the toggle is off.
 
+As of 2026-06-08 the multi-turn window is **10 turns (20 messages)**: the frontend sends the last 20 user/assistant messages (`chatStore.js` `slice(-20)`) and the backend trims to `CHATBOT_HISTORY_MAX_TURNS * 2` (default 10 → 20). Because history lives only in browser session memory and is never persisted server-side, clearing the chat (trash button → `clear()`) forgets the conversation completely.
+
 The 2026-06-01 scheduler alignment implementation keeps this chatbot behavior unchanged: report generation is limited to the backend scheduler, and the chatbot reads stored reports only.
 
 The 2026-06-03 `ENABLE_AI_REPORT_GENERATION` implementation also leaves chatbot behavior unchanged. The variable controls backend scheduled/background generation only; chatbot report answers still summarize stored `AIReport` rows and must not trigger generation.
@@ -116,6 +118,7 @@ For the 2026-05-31 implementation request, verification commands were intentiona
 - `docs/harness/report-generation-env-switch-implementation-2026-06-03.md`
 - `docs/harness/chatbot-llm-intent-upgrade-plan-2026-06-04.md`
 - `docs/harness/chatbot-llm-intent-upgrade-implementation-2026-06-04.md`
+- `docs/harness/chatbot-multiturn-10turns-implementation-2026-06-08.md`
 
 ## Open Risks
 

@@ -146,7 +146,7 @@ provider 발급값이 아니라 비용·운영 정책으로 정하는 값이다.
 | 변수 | 권장값 | 이유 |
 | --- | --- | --- |
 | `CHATBOT_LLM_MODEL` | `gpt-4o-mini` | 비용 대비 합리적 기본 모델. |
-| `CHATBOT_HISTORY_MAX_TURNS` | `6` | 컨텍스트 turn 수 제한으로 토큰·비용 관리. |
+| `CHATBOT_HISTORY_MAX_TURNS` | `10` | 멀티턴 대화 맥락 유지(10턴=20메시지). 토큰·비용이 부담되면 낮춘다. |
 | `CHATBOT_LLM_TIMEOUT_SECONDS` | `20` | 응답 지연 상한. |
 
 ## 11. 결제 (Toss / mock)

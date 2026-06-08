@@ -63,6 +63,7 @@ This index tells future harness agents which feature document to read before cha
 - KR 시장데이터 복구(data.go.kr 지수 idxNm 한글화 + 스냅샷 날짜창 + data_go 동시성/타임아웃): `docs/harness/market-data-kr-data-go-index-name-throttle-fix-2026-06-04.md`
 - 챗봇 LLM 기반 의도이해·능동성 개선 계획: `docs/harness/chatbot-llm-intent-upgrade-plan-2026-06-04.md`
 - 챗봇 LLM 기반 의도이해·능동성 개선 구현: `docs/harness/chatbot-llm-intent-upgrade-implementation-2026-06-04.md`
+- 챗봇 멀티턴 대화 10턴 확장 구현: `docs/harness/chatbot-multiturn-10turns-implementation-2026-06-08.md`
 - 수신 동의 옆 Telegram chat_id·수신 이메일 인라인 설정 계획: `docs/harness/notification-channel-inline-setup-plan-2026-06-04.md`
 - 수신 동의 옆 Telegram chat_id·수신 이메일 인라인 설정 구현: `docs/harness/notification-channel-inline-setup-implementation-2026-06-04.md`
 - Gmail/Telegram notification delivery remediation plan: `docs/harness/gmail-telegram-notification-delivery-remediation-plan-2026-06-08.md`
