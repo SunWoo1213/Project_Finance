@@ -479,15 +479,10 @@ async def _market_summary_response(candidates: list, current_ticker: str | None)
             disclaimer=DISCLAIMER,
         )
 
-    macro = (market_cache.get("prices") or {}).get("macro") or {}
-    if not macro:
+    lines, updated = chat_grounding.macro_overview_lines()
+    if not lines:
         answer = "현재 시장 요약 캐시가 비어 있습니다. 홈 화면에서 주요 지수와 환율 카드를 확인해 주세요."
     else:
-        lines = []
-        for label, payload in list(macro.items())[:4]:
-            change = payload.get("changePercent", payload.get("change_pct", 0))
-            lines.append(f"{label}: {float(change or 0):+.2f}%")
-        updated = (market_cache.get("last_updated") or {}).get("prices")
         answer = "캐시 기준 주요 시장 흐름입니다. " + ", ".join(lines)
         if updated:
             answer += f" 기준 시각: {updated}."
