@@ -11,7 +11,7 @@ from ..core.cache import market_cache
 from ..core.config import settings
 from ..models import AIReport, Asset, User
 from ..schemas import ChatContext, ChatMessageRequest, ChatResponse
-from . import chat_llm
+from . import chat_grounding, chat_llm
 from .chat_tools import (
     ambiguous_bond_candidates,
     action_for_asset,
@@ -212,12 +212,18 @@ async def _try_llm_response(
             if report is not None:
                 report_summary = _summarize_report(report)
 
+        # Structured snapshots for every resolved ticker keep the grounded
+        # number set accurate; the snippet stays for human-readable context.
+        quote_tickers = [c.ticker for c in candidates] or ([current_ticker] if current_ticker else [])
+        quotes = [q for q in (chat_grounding.asset_snapshot(t) for t in quote_tickers) if q]
+
         grounding = {
             "candidates": [{"name": c.name, "ticker": c.ticker} for c in candidates],
             "category": category["label"] if category else None,
             "current_ticker": current_ticker,
             "authenticated": authenticated,
-            "market_snippet": _cached_market_snippet(primary_ticker),
+            "market_snippet": chat_grounding.asset_snippet(primary_ticker),
+            "quotes": quotes,
             "report_summary": report_summary,
             "actions": actions,
         }
@@ -232,53 +238,28 @@ async def _try_llm_response(
     if plan is None:
         return None
 
+    answer = plan.answer
+    confidence = plan.confidence
+    # Numeric guard: never surface price/percent figures that are not backed by
+    # the assembled grounding. We do not rewrite the sentence; we lower
+    # confidence and add a short caveat so the user is not misled.
+    if settings.CHATBOT_GROUNDING_GUARD:
+        guard = chat_grounding.guard_answer(answer, grounding)
+        if not guard.grounded:
+            confidence = min(confidence, 0.5)
+            answer = f"{answer} (일부 수치는 최신 캐시에서 확인되지 않아 참고용으로만 봐주세요.)"
+
     selected_actions = [actions[i] for i in plan.action_indices]
     disclaimer = None if plan.intent == "non_financial" else DISCLAIMER
     return ChatResponse(
-        answer=plan.answer,
+        answer=answer,
         intent=plan.intent,
-        confidence=plan.confidence,
+        confidence=confidence,
         actions=selected_actions,
         cards=cards if plan.intent != "non_financial" else [],
         requires_auth=not authenticated and plan.intent in {"report_help", "community_help", "auth_help"},
         disclaimer=disclaimer,
     )
-
-
-def _cached_market_snippet(ticker: str | None) -> str | None:
-    prices = market_cache.get("prices") or {}
-    if ticker:
-        for group in prices.values():
-            if not isinstance(group, dict):
-                continue
-            for label, payload in group.items():
-                if not isinstance(payload, dict):
-                    continue
-                if str(payload.get("symbol")) == ticker:
-                    change = payload.get("changePercent", payload.get("change_pct"))
-                    price = payload.get("price", payload.get("close"))
-                    parts = [str(label)]
-                    if price is not None:
-                        parts.append(f"가격 {price}")
-                    if change is not None:
-                        try:
-                            parts.append(f"{float(change):+.2f}%")
-                        except (TypeError, ValueError):
-                            pass
-                    return " ".join(parts)
-    macro = prices.get("macro") or {}
-    if not macro:
-        return None
-    lines = []
-    for label, payload in list(macro.items())[:4]:
-        if not isinstance(payload, dict):
-            continue
-        change = payload.get("changePercent", payload.get("change_pct", 0))
-        try:
-            lines.append(f"{label} {float(change or 0):+.2f}%")
-        except (TypeError, ValueError):
-            continue
-    return ", ".join(lines) if lines else None
 
 
 def _auth_help_response() -> ChatResponse:

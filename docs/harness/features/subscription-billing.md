@@ -6,7 +6,9 @@ Date: 2026-06-01
 
 Subscription billing is partially implemented. The app has plan metadata, an authenticated current-entitlement endpoint, backend report/chatbot gates, frontend pricing/success/cancel routes, a subscription store, plan badge, report paywall UI, database-backed subscription snapshots, a provider-neutral payment boundary with a local mock provider, and a first Toss Payments billing-auth intent flow.
 
-Production Toss Payments billing is not complete yet. With `PAYMENT_PROVIDER=toss` and `TOSS_CLIENT_KEY`, `POST /api/billing/checkout` creates a pending server-side billing intent in `BillingEvent` and returns `/billing/toss/auth?intent_id=...`; the frontend page starts Toss SDK v2 `requestBillingAuth()`. Billing key storage, first charge approval, recurring renewal, and entitlement activation still require an approved DB schema migration. Until `PAYMENT_PROVIDER` and provider settings are configured, checkout and webhook routes return a clear provider-unavailable error. When the mock provider is configured, `GET /api/billing/me` reads the latest stored subscription row and webhook processing can activate Plus/Pro entitlements without generating reports.
+Production Toss Payments billing is not complete yet. With `PAYMENT_PROVIDER=toss` and `TOSS_CLIENT_KEY`, `POST /api/billing/checkout` creates a pending server-side billing intent in `BillingEvent` and returns `/billing/toss/auth?intent_id=...`; the frontend page starts Toss SDK v2 `requestBillingAuth()`. Billing key storage, first charge approval, recurring renewal, and entitlement activation still require an approved DB schema migration. Until `PAYMENT_PROVIDER` and provider settings are configured, checkout and webhook routes return a clear provider-unavailable error.
+
+When the mock provider is configured (`PAYMENT_PROVIDER=mock`, development/demo only), `POST /api/billing/checkout` activates the requested paid tier immediately without any payment: it creates/updates a single `provider="mock"` subscription row (`mock_{user_id}`) to ACTIVE for 30 days via `activate_mock_subscription`, expires the user's other active/canceled rows, and returns `{ checkout_url: <success_url>, activated: true }`. The frontend then refreshes `GET /api/billing/me` and navigates to the success page with entitlements already granted. This mock-only path must never be enabled in production, because it grants paid entitlement for free. `GET /api/billing/me` still reads the latest stored subscription row, and webhook processing remains available to activate Plus/Pro entitlements without generating reports.
 
 The target tier model is:
 
@@ -43,7 +45,7 @@ The target tier model is:
 4. Free users see report upgrade prompts and no chatbot launcher.
 5. Plus users can fetch stored reports but do not see the chatbot launcher.
 6. Pro users can fetch stored reports and use the chatbot.
-7. Plan purchase starts from `POST /api/billing/checkout`; it rejects Free, requires provider configuration, and returns a provider checkout URL without granting entitlement.
+7. Plan purchase starts from `POST /api/billing/checkout`; it rejects Free and requires provider configuration. For `toss` it returns a billing-auth URL without granting entitlement. For the `mock` provider (development/demo only) it activates the paid tier immediately and returns `activated: true`.
 8. The payment provider completes billing authorization or subscription creation.
 9. Provider webhook verifies the event signature and updates local subscription state.
 10. Frontend success page refreshes `GET /api/billing/me`, but access is granted only after backend subscription state is active.
@@ -52,7 +54,7 @@ The target tier model is:
 
 - Plan metadata endpoint: `GET /api/billing/plans`
 - Current billing endpoint: `GET /api/billing/me`
-- Checkout endpoint: `POST /api/billing/checkout` returns a `checkout_url` for Plus/Pro when a provider is configured; it does not create paid entitlement.
+- Checkout endpoint: `POST /api/billing/checkout` returns a `checkout_url` for Plus/Pro when a provider is configured. For `toss`/unset it does not create paid entitlement. For `mock` (development/demo only) it activates the paid tier immediately and returns `activated: true`.
 - Toss billing-auth intent endpoint: `GET /api/billing/checkout/{intent_id}` returns non-secret SDK parameters for the authenticated owner of a pending Toss billing intent.
 - Toss billing-key finalize endpoint: `POST /api/billing/toss/billing-key` validates the owner and `customerKey`, then currently returns `501` until the billing schema migration for secure billingKey and renewal state storage is approved.
 - Cancellation endpoint: `POST /api/billing/cancel` schedules cancellation at period end for the current active provider-backed subscription.
@@ -81,6 +83,8 @@ The target tier model is:
 
 ## Change Records
 
+- `docs/harness/mock-payment-instant-subscription-activation-plan-2026-06-08.md`
+- `docs/harness/mock-payment-instant-subscription-activation-implementation-2026-06-08.md`
 - `docs/harness/toss-payments-billing-integration-plan-2026-06-03.md`
 - `docs/harness/toss-payments-billing-auth-phase1-implementation-2026-06-08.md`
 - `docs/harness/subscription-tier-payment-plan-2026-06-01.md`
