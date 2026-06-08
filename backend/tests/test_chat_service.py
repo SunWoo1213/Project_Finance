@@ -39,6 +39,28 @@ async def test_chat_service_guides_unauthenticated_report_to_login():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message,ticker",
+    [
+        ("네이버 주가 보여줘", "/detail/035420.KS"),
+        ("엘지엔솔 어때", "/detail/373220.KS"),
+        ("브로드컴 상세", "/detail/AVGO"),
+        ("일라이릴리 보여줘", "/detail/LLY"),
+        ("포스코홀딩스 보여줘", "/detail/005490.KS"),
+    ],
+)
+async def test_chat_service_resolves_expanded_aliases(message, ticker):
+    response = await handle_chat_message(
+        ChatMessageRequest(message=message),
+        current_user=None,
+        db=UnusedDb(),
+    )
+
+    assert response.intent == "asset_detail_navigation"
+    assert response.actions[0].url == ticker
+
+
+@pytest.mark.asyncio
 async def test_chat_service_routes_nasdaq_market_snapshot():
     response = await handle_chat_message(
         ChatMessageRequest(message="나스닥 오늘 흐름"),

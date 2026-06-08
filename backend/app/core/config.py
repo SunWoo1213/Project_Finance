@@ -141,6 +141,9 @@ class Settings(BaseSettings):
     CHATBOT_LLM_MODEL: str = "gpt-4o-mini"
     CHATBOT_HISTORY_MAX_TURNS: int = 6
     CHATBOT_LLM_TIMEOUT_SECONDS: int = 20
+    # When on, the LLM answer's price/percent numbers are checked against the
+    # assembled grounding; unverified figures get a caveat and lower confidence.
+    CHATBOT_GROUNDING_GUARD: bool = True
 
     # Payment provider boundary. Secret values must be supplied through env.
     PAYMENT_PROVIDER: str | None = None

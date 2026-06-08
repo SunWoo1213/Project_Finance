@@ -104,6 +104,22 @@ def _grounding_block(grounding: dict[str, Any]) -> str:
     if grounding.get("current_ticker"):
         lines.append(f"현재 화면 자산: {grounding['current_ticker']}")
     lines.append(f"로그인 상태: {'예' if grounding.get('authenticated') else '아니오'}")
+    quotes = grounding.get("quotes") or []
+    for quote in quotes:
+        currency = quote.get("currency")
+        price = quote.get("price")
+        change = quote.get("change_pct")
+        parts = [f"{quote.get('name')}({quote.get('ticker')})"]
+        if price is not None:
+            parts.append(f"가격 {price}{(' ' + currency) if currency and currency != '%' else ('%' if currency == '%' else '')}")
+        if change is not None:
+            try:
+                parts.append(f"{float(change):+.2f}%")
+            except (TypeError, ValueError):
+                pass
+        if quote.get("as_of"):
+            parts.append(f"기준 {quote['as_of']}")
+        lines.append("시세(캐시): " + " ".join(parts))
     if grounding.get("market_snippet"):
         lines.append(f"시장 스냅샷(캐시): {grounding['market_snippet']}")
     if grounding.get("report_summary"):

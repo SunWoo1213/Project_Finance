@@ -7,7 +7,6 @@ from urllib.parse import unquote
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.cache import market_cache
 from ..core.config import settings
 from ..models import AIReport, Asset, User
 from ..schemas import ChatContext, ChatMessageRequest, ChatResponse

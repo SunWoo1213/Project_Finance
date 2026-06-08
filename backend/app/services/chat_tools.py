@@ -149,6 +149,18 @@ def is_financial_query(query: str) -> bool:
         ticker = candidate.ticker.lower()
         if ticker in normalized or ticker.replace(".ks", "") in normalized:
             return True
+    # Keep the financial gate aligned with entity resolution: any known asset
+    # alias/name or category keyword counts as financial, so newly added
+    # aliases (e.g. 네이버, 엘지엔솔, 브로드컴) are not rejected as off-topic.
+    compact = normalized.replace(" ", "")
+    for _candidate, aliases in _asset_aliases():
+        for alias in aliases:
+            alias_norm = normalize_query(alias)
+            alias_compact = alias_norm.replace(" ", "")
+            if alias_norm and (alias_norm in normalized or alias_compact in compact):
+                return True
+    if find_category(query) is not None:
+        return True
     return False
 
 
