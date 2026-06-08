@@ -5,7 +5,7 @@ from typing import Any
 
 from ..core.config import settings
 
-DEFAULT_LIVE_TICKERS = "DGS10,XAU,BTC-USD,NVDA,005930.KS"
+DEFAULT_LIVE_TICKERS = "DGS10,XAU,BTC-USD,NVDA,005930.KS,^GSPC,^NDX,KRW=X,^KS11"
 MOCK_PROVIDER = "demo_mock"
 
 _BASE_VALUES = {

@@ -32,7 +32,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 4. Scheduled AI report generation remains cost-controlled by default: it seeds and iterates only the representative report target list (`DGS10`, `XAU`, `BTC-USD`, `NVDA`, `005930.KS`), respects a per-run cap of 5, and runs on a 6-hour interval/cooldown.
 5. `GET /api/market/prices` returns the cached category object.
 6. `GET /api/market/news` returns the cached news object.
-6a. Free-tier demo mode limits live market provider calls through `MARKET_LIVE_TICKERS`, defaulting to `DGS10,XAU,BTC-USD,NVDA,005930.KS`. Price/news warm-up, latest-context, and history requests for all other tickers return deterministic `demo_mock` payloads instead of calling external providers. Set `MARKET_LIVE_TICKERS=*` only when broad live provider coverage is intentionally allowed.
+6a. Free-tier demo mode limits live market provider calls through `MARKET_LIVE_TICKERS`, defaulting to `DGS10,XAU,BTC-USD,NVDA,005930.KS,^GSPC,^NDX,KRW=X,^KS11`. The four home-dashboard cards (`^GSPC`, `^NDX`, `KRW=X`, `^KS11`) are included so the main dashboard shows live provider data; KOSDAQ (`^KQ11`) stays mock. Price/news warm-up, latest-context, and history requests for all other tickers return deterministic `demo_mock` payloads instead of calling external providers. Set `MARKET_LIVE_TICKERS=*` only when broad live provider coverage is intentionally allowed.
 7. The home page renders S&P 500, Nasdaq 100, USD/KRW, and KOSPI from the `macro` cache and lists cached global news below the market cards.
 8. Main market cards route to `/market/:ticker`, which shows provider-dated daily history and a link to the related dashboard instead of the AI report/community detail flow.
 9. `GET /api/market/latest-context/{ticker}` fetches ticker-specific news and calendar events with a short per-ticker TTL cache. The TTL is configurable in minutes via `MARKET_LATEST_CONTEXT_TTL_MINUTES` (default 10, minimum 1); `_latest_context_ttl_seconds()` in `market_service.py` reads it at call time. `force_refresh=true` still respects a 5-minute minimum cooldown.
@@ -61,7 +61,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - History endpoint: `GET /api/market/history/{ticker}`
 - Optional runtime controls for local smoke checks: `ENABLE_MARKET_WARMUP=false`, `ENABLE_SCHEDULER=false`
 - Market data refresh cadence controls (minutes, report-independent): `MARKET_PRICES_REFRESH_MINUTES=5`, `MARKET_NEWS_REFRESH_MINUTES=60`, `MARKET_LATEST_CONTEXT_TTL_MINUTES=10`. Values are clamped to a minimum of 1 and loaded at process start (restart required after change).
-- Live provider allowlist: `MARKET_LIVE_TICKERS=DGS10,XAU,BTC-USD,NVDA,005930.KS` by default. Non-allowlisted tickers use local `demo_mock` values for prices, news, latest context, and history so demo deployments do not spend free API quota across the full asset universe. Use `*` to disable the allowlist.
+- Live provider allowlist: `MARKET_LIVE_TICKERS=DGS10,XAU,BTC-USD,NVDA,005930.KS,^GSPC,^NDX,KRW=X,^KS11` by default. The four home-dashboard indices/FX (`^GSPC`, `^NDX`, `KRW=X`, `^KS11`) are allowlisted so the main dashboard renders live data. Non-allowlisted tickers (including KOSDAQ `^KQ11`) use local `demo_mock` values for prices, news, latest context, and history so demo deployments do not spend free API quota across the full asset universe. Use `*` to disable the allowlist.
 - Per-asset fetch timeout controls (seconds, report-independent): `MARKET_PRICE_FETCH_TIMEOUT_SECONDS=55`, `MARKET_NEWS_FETCH_TIMEOUT_SECONDS=20`. Values are clamped to a minimum of 5 and loaded at process start. These bound each asset/news collection so a serialized provider queue can drain within one run. The price timeout default must stay above `2 * DATA_GO_KR_FETCH_TIMEOUT_SECONDS` because the KR stock snapshot makes two data.go.kr calls.
 - data.go.kr (KR stock/index) provider tuning (report-independent): `DATA_GO_KR_FETCH_TIMEOUT_SECONDS=25` (per-call httpx timeout; data.go.kr can spike to ~20s), `DATA_GO_KR_MAX_CONCURRENCY=2` (provider semaphore size; default conservative because data.go.kr rate-limits with a `허용되지 않는 요청` gateway block under load — raise to 3 via env only if the deployment tolerates it). Both clamped (timeout min 5, concurrency min 1) and loaded at process start.
 - FMP provider tuning (report-independent): `FMP_FETCH_TIMEOUT_SECONDS=10` (minimum 5), `FMP_DAILY_CALL_BUDGET=180` (minimum 0). FMP targets use 12-hour internal cache, 30-minute failed-call cooldown, `Semaphore(1)`, and `provider_meta.freshness=eod_or_delayed`.
@@ -138,6 +138,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/asset-display-graph-removal-plan-2026-06-08.md`
 - `docs/harness/asset-display-graph-removal-implementation-2026-06-08.md`
 - `docs/harness/market-live-ticker-mock-fallback-implementation-2026-06-08.md`
+- `docs/harness/dashboard-indices-live-provider-2026-06-08.md`
 
 ## Open Risks
 
