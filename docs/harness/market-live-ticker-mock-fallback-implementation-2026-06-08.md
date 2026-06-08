@@ -30,11 +30,12 @@ Date: 2026-06-08
 
 ## Verification Performed
 
-- 예정: `python -m pytest tests/test_price_providers.py tests/test_market_history_route.py`
+- `python -m pytest tests/test_price_providers.py tests/test_market_history_route.py`
+  - 결과: 39 passed, 1 warning
+  - warning: 기존 `langchain_community.tools.DuckDuckGoSearchResults` deprecation warning
 
 ## Commands Not Run
 
-- 작성 시점에는 아직 최종 pytest 실행 전이다. 실행 결과는 작업 완료 보고에 별도로 남긴다.
 - 실제 provider smoke는 API quota 절약 목적의 변경이므로 실행하지 않는다.
 
 ## Follow-up Risks
