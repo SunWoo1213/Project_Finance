@@ -118,6 +118,32 @@ class BillingCheckoutResponse(BaseModel):
     checkout_url: str
 
 
+class TossBillingIntentResponse(BaseModel):
+    provider: str = "toss"
+    mode: str = "billing_auth"
+    intent_id: str
+    client_key: str
+    customer_key: str
+    tier: SubscriptionTier
+    amount_krw: int
+    order_name: str
+    success_url: str
+    fail_url: str
+
+
+class TossBillingKeyRequest(BaseModel):
+    intent_id: str
+    auth_key: str = Field(..., alias="authKey")
+    customer_key: str = Field(..., alias="customerKey")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class TossBillingKeyResponse(BaseModel):
+    finalized: bool
+    message: str
+
+
 class BillingCancelResponse(BaseModel):
     canceled: bool
     message: str
@@ -294,7 +320,7 @@ class ChannelConnectResponse(BaseModel):
 
 class TelegramVerifyRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=40)
-    chat_id: str = Field(..., min_length=1, max_length=255)
+    chat_id: str = Field(..., min_length=3, max_length=32, pattern=r"^-?\d+$")
 
 
 class EmailVerifyRequest(BaseModel):
@@ -332,3 +358,4 @@ class NotificationTestResponse(BaseModel):
     sent_events: int
     failed_events: int
     message: str
+    delivery_status: dict[str, Any] = Field(default_factory=dict)

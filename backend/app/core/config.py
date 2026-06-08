@@ -145,6 +145,17 @@ class Settings(BaseSettings):
     PAYMENT_PLUS_PLAN_ID: str | None = None
     PAYMENT_PRO_PLAN_ID: str | None = None
     PAYMENT_MOCK_CHECKOUT_BASE_URL: str | None = None
+    TOSS_API_BASE_URL: str = "https://api.tosspayments.com"
+    TOSS_CLIENT_KEY: str | None = None
+    TOSS_SECRET_KEY: str | None = None
+    TOSS_PLUS_AMOUNT_KRW: int = 1000
+    TOSS_PRO_AMOUNT_KRW: int = 3000
+    TOSS_BILLING_SUCCESS_URL: str | None = None
+    TOSS_BILLING_FAIL_URL: str | None = None
+    ENABLE_BILLING_SCHEDULER: bool = False
+    BILLING_RENEWAL_INTERVAL_MINUTES: int = 60
+    BILLING_RETRY_LIMIT: int = 3
+    BILLING_RETRY_BACKOFF_HOURS: int = 24
 
     # Favorite asset notification boundary. Provider secrets must stay in env only.
     ENABLE_NOTIFICATION_SCHEDULER: bool = False
@@ -243,6 +254,21 @@ class Settings(BaseSettings):
     @field_validator("FMP_DAILY_CALL_BUDGET")
     @classmethod
     def enforce_non_negative_fmp_budget(cls, value: int) -> int:
+        return max(0, int(value))
+
+    @field_validator("TOSS_PLUS_AMOUNT_KRW", "TOSS_PRO_AMOUNT_KRW")
+    @classmethod
+    def enforce_non_negative_payment_amount(cls, value: int) -> int:
+        return max(0, int(value))
+
+    @field_validator("BILLING_RENEWAL_INTERVAL_MINUTES", "BILLING_RETRY_BACKOFF_HOURS")
+    @classmethod
+    def enforce_minimum_billing_interval(cls, value: int) -> int:
+        return max(1, int(value))
+
+    @field_validator("BILLING_RETRY_LIMIT")
+    @classmethod
+    def enforce_non_negative_retry_limit(cls, value: int) -> int:
         return max(0, int(value))
 
     @field_validator("REPORT_SCHEDULER_STARTUP_DELAY_SECONDS")

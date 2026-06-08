@@ -30,6 +30,12 @@ from ..models import (
 
 DEFAULT_CHANNELS = ("in_app",)
 DELIVERY_CHANNELS = ("telegram", "email")
+GMAIL_REQUIRED_SETTINGS = (
+    "EMAIL_FROM_ADDRESS",
+    "GMAIL_CLIENT_ID",
+    "GMAIL_CLIENT_SECRET",
+    "GMAIL_REFRESH_TOKEN",
+)
 
 
 @dataclass
@@ -43,6 +49,41 @@ class GmailAccessTokenResult:
     success: bool
     access_token: str | None = None
     error_message: str | None = None
+
+
+def _missing_setting_names(names: tuple[str, ...]) -> list[str]:
+    return [name for name in names if not getattr(settings, name)]
+
+
+def get_delivery_configuration_status() -> dict[str, Any]:
+    provider = (settings.EMAIL_PROVIDER or "gmail").strip().lower()
+    gmail_missing = _missing_setting_names(GMAIL_REQUIRED_SETTINGS)
+    telegram_missing = [] if settings.TELEGRAM_BOT_TOKEN else ["TELEGRAM_BOT_TOKEN"]
+    email_configured = provider == "gmail" and not gmail_missing
+
+    return {
+        "scheduler": {
+            "enabled": bool(settings.ENABLE_SCHEDULER and settings.ENABLE_NOTIFICATION_SCHEDULER),
+            "enable_scheduler": bool(settings.ENABLE_SCHEDULER),
+            "enable_notification_scheduler": bool(settings.ENABLE_NOTIFICATION_SCHEDULER),
+        },
+        "email": {
+            "provider": provider,
+            "configured": email_configured,
+            "missing_keys": gmail_missing if provider == "gmail" else [],
+            "error": None if email_configured else (
+                "EMAIL_PROVIDER must be gmail."
+                if provider != "gmail"
+                else "Gmail email settings are incomplete."
+            ),
+        },
+        "telegram": {
+            "configured": not telegram_missing,
+            "missing_keys": telegram_missing,
+            "error": None if not telegram_missing else "Telegram bot token is not configured.",
+            "verification_mode": "manual_chat_id",
+        },
+    }
 
 
 def _now() -> datetime:
@@ -578,6 +619,8 @@ async def _send_telegram(chat_id: str, event: NotificationEvent) -> DeliveryResu
             if 200 <= response.status < 300:
                 return DeliveryResult(success=True)
             return DeliveryResult(success=False, error_message=f"Telegram returned HTTP {response.status}.")
+    except urllib.error.HTTPError as exc:
+        return DeliveryResult(success=False, error_message=_http_error_message("Telegram", exc))
     except (urllib.error.URLError, TimeoutError) as exc:
         return DeliveryResult(success=False, error_message=str(exc))
 
@@ -612,16 +655,11 @@ async def _send_email(destination: str, event: NotificationEvent) -> DeliveryRes
 async def _send_gmail_message(destination: str, subject: str, body: str) -> DeliveryResult:
     provider = (settings.EMAIL_PROVIDER or "gmail").strip().lower()
     if provider != "gmail":
-        return DeliveryResult(success=False, error_message="Only Gmail email provider is supported.")
-    if not all(
-        [
-            settings.EMAIL_FROM_ADDRESS,
-            settings.GMAIL_CLIENT_ID,
-            settings.GMAIL_CLIENT_SECRET,
-            settings.GMAIL_REFRESH_TOKEN,
-        ]
-    ):
-        return DeliveryResult(success=False, error_message="Gmail email settings are incomplete.")
+        return DeliveryResult(success=False, error_message="EMAIL_PROVIDER must be gmail.")
+    missing_settings = _missing_setting_names(GMAIL_REQUIRED_SETTINGS)
+    if missing_settings:
+        missing_names = ", ".join(missing_settings)
+        return DeliveryResult(success=False, error_message=f"Gmail email settings are incomplete: {missing_names}.")
 
     access_token = _refresh_gmail_access_token()
     if not access_token.success:
@@ -689,5 +727,21 @@ def _http_error_message(provider: str, exc: urllib.error.HTTPError) -> str:
         payload = json.loads(exc.read().decode("utf-8"))
     except Exception:
         payload = {}
-    detail = payload.get("error_description") or payload.get("error") or exc.reason
+    detail = _safe_error_detail(payload, exc.reason)
     return f"{provider} returned HTTP {exc.code}: {detail}"
+
+
+def _safe_error_detail(payload: dict[str, Any], fallback: Any) -> str:
+    detail = payload.get("error_description")
+    error = payload.get("error")
+    if not detail and isinstance(error, dict):
+        status = error.get("status")
+        code = error.get("code")
+        message = error.get("message")
+        parts = [str(part) for part in (status, code, message) if part]
+        detail = " - ".join(parts)
+    elif not detail and error:
+        detail = str(error)
+    if not detail:
+        detail = str(fallback or "unknown_error")
+    return detail[:300]

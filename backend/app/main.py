@@ -25,12 +25,14 @@ try:
         fetch_kr_bond_data,
         fetch_kr_bond_history,
         fetch_us_bond_data,
+        fetch_us_bond_history,
     )
 except ModuleNotFoundError:
     from .services.macro_service import (
         fetch_kr_bond_data,
         fetch_kr_bond_history,
         fetch_us_bond_data,
+        fetch_us_bond_history,
     )
 from .api import auth, billing, chat, community, favorites, notifications, profile
 from .models import User
@@ -429,27 +431,29 @@ async def get_market_history(ticker: str, period: str = Query("1y", pattern="^(1
                 "legacy": [{"date": p["date"], "close": p["value"], "value": p["value"]} for p in points],
             }
         elif asset_ticker in ["DGS10", "DGS30", "DGS1", "DGS3MO", "DGS2MO"]:
-            data = await fetch_us_bond_data(asset_ticker)
-            history_prices = data.get("history_prices", [])
-            if not history_prices:
+            points = await fetch_us_bond_history(asset_ticker, limit=period_days_map.get(period, 365))
+            if not points:
                 raise HTTPException(status_code=404, detail=f"No US bond history found for ticker: {asset_ticker}")
-            points = build_points(history_prices)
             return {
                 "ticker": asset_ticker,
                 "series_type": "yield",
                 "unit": "%",
                 "points": points,
                 "legacy": [{"date": p["date"], "close": p["value"], "value": p["value"]} for p in points],
+                "provider_meta": {"provider": "fred", "series_id": asset_ticker, "freshness": "provider_observation"},
             }
 
         data = await fetch_market_history(asset_ticker, period)
-        return {
+        response = {
             "ticker": data.get("ticker", asset_ticker),
             "series_type": data.get("series_type", "price"),
             "unit": data.get("unit", "USD"),
             "points": data.get("points", []),
             "legacy": data.get("legacy", []),
         }
+        if data.get("provider_meta"):
+            response["provider_meta"] = data["provider_meta"]
+        return response
     except HTTPException:
         raise
     except Exception as e:

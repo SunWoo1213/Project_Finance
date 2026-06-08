@@ -13,6 +13,7 @@ import Pricing from "./pages/Pricing";
 import MyPage from "./pages/MyPage";
 import BillingSuccess from "./pages/BillingSuccess";
 import BillingCancel from "./pages/BillingCancel";
+import TossBillingAuth from "./pages/TossBillingAuth";
 import useAuthStore from "./store/authStore";
 import useFavoriteStore from "./store/favoriteStore";
 import useSubscriptionStore from "./store/subscriptionStore";
@@ -85,6 +86,7 @@ function App() {
               <Route path="/settings/notifications" element={<MyPage />} />
               <Route path="/billing/success" element={<BillingSuccess />} />
               <Route path="/billing/cancel" element={<BillingCancel />} />
+              <Route path="/billing/toss/auth" element={<TossBillingAuth />} />
             </Routes>
           </main>
           {canUseChatbot && <ChatbotLauncher />}

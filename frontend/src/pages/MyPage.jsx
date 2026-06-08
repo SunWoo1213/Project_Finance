@@ -59,6 +59,9 @@ const fallbackAssets = Object.entries(ASSET_NAMES).map(([symbol, name]) => ({
   categoryKey: null,
 }));
 
+const telegramManualHelp =
+  "Telegram bot과 먼저 대화를 시작한 뒤, 숫자 chat_id와 발급된 연결 코드를 함께 입력해 검증합니다.";
+
 export default function MyPage() {
   const [searchParams] = useSearchParams();
   const nextPath = searchParams.get("next");
@@ -211,7 +214,9 @@ export default function MyPage() {
     try {
       const response = await apiClient.post("/api/notifications/channels/telegram/connect", {}, { headers });
       setTelegramCode(response.data.verification_code || "");
+      setStatusMessage(response.data.message || telegramManualHelp);
       setStatusMessage("Telegram 연결 코드가 발급되었습니다. 봇과 대화 후 코드를 전송하세요.");
+      setStatusMessage(response.data.message || telegramManualHelp);
       await reloadChannels();
     } catch (error) {
       setStatusMessage(error?.response?.data?.detail || "Telegram 연결 코드를 만들지 못했습니다.");

@@ -77,6 +77,7 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 - `docs/harness/project-defect-remediation-plan-2026-06-02.md`
 - `docs/harness/notification-channel-inline-setup-plan-2026-06-04.md`
 - `docs/harness/notification-channel-inline-setup-implementation-2026-06-04.md`
+- `docs/harness/gmail-telegram-notification-delivery-remediation-plan-2026-06-08.md`
 
 ## Open Risks
 

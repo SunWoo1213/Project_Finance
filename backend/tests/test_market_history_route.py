@@ -33,3 +33,42 @@ async def test_get_market_history_calls_kr_bond_service_with_asset_ticker(monkey
     assert result["series_type"] == "yield"
     assert result["unit"] == "%"
     assert len(result["points"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_get_market_history_preserves_us_bond_provider_dates(monkeypatch):
+    captured = {"ticker": None, "limit": None}
+
+    async def fake_fetch_us_bond_history(ticker, limit=30):
+        captured["ticker"] = ticker
+        captured["limit"] = limit
+        return [{"date": "2026-06-01", "value": 4.4}, {"date": "2026-06-03", "value": 4.5}]
+
+    monkeypatch.setattr(main, "fetch_us_bond_history", fake_fetch_us_bond_history)
+
+    result = await main.get_market_history("DGS10", "1mo")
+
+    assert captured == {"ticker": "DGS10", "limit": 30}
+    assert result["series_type"] == "yield"
+    assert result["unit"] == "%"
+    assert result["points"] == [{"date": "2026-06-01", "value": 4.4}, {"date": "2026-06-03", "value": 4.5}]
+    assert result["provider_meta"]["provider"] == "fred"
+
+
+@pytest.mark.asyncio
+async def test_get_market_history_passes_provider_metadata(monkeypatch):
+    async def fake_fetch_market_history(ticker, period):
+        return {
+            "ticker": ticker,
+            "series_type": "price",
+            "unit": "KRW",
+            "points": [{"date": "2026-06-03", "value": 1386.0}],
+            "legacy": [{"date": "2026-06-03", "close": 1386.0, "value": 1386.0}],
+            "provider_meta": {"provider": "open.er-api.com", "freshness": "daily_reference"},
+        }
+
+    monkeypatch.setattr(main, "fetch_market_history", fake_fetch_market_history)
+
+    result = await main.get_market_history("KRW=X", "1d")
+
+    assert result["provider_meta"] == {"provider": "open.er-api.com", "freshness": "daily_reference"}

@@ -1,15 +1,66 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import useAuthStore from "../store/authStore";
 import useSubscriptionStore from "../store/subscriptionStore";
+import { apiClient, authHeader } from "../utils/apiClient";
 
 export default function BillingSuccess() {
   const { token } = useAuthStore();
   const { fetchMe, tier, status, isLoading } = useSubscriptionStore();
+  const [searchParams] = useSearchParams();
   const [pollCount, setPollCount] = useState(0);
+  const [finalizeMessage, setFinalizeMessage] = useState("");
+  const [finalizeAttempted, setFinalizeAttempted] = useState(false);
 
   const isActivePaid = useMemo(() => ["PLUS", "PRO"].includes(tier) && status === "ACTIVE", [status, tier]);
+  const tossAuthParams = useMemo(
+    () => ({
+      provider: searchParams.get("provider"),
+      intentId: searchParams.get("intent_id"),
+      authKey: searchParams.get("authKey"),
+      customerKey: searchParams.get("customerKey"),
+    }),
+    [searchParams]
+  );
+
+  useEffect(() => {
+    const isTossRedirect =
+      tossAuthParams.provider === "toss" && tossAuthParams.intentId && tossAuthParams.authKey && tossAuthParams.customerKey;
+    if (!token || !isTossRedirect || finalizeAttempted) {
+      return;
+    }
+
+    let canceled = false;
+    const finalizeTossBilling = async () => {
+      setFinalizeAttempted(true);
+      try {
+        await apiClient.post(
+          "/api/billing/toss/billing-key",
+          {
+            intent_id: tossAuthParams.intentId,
+            authKey: tossAuthParams.authKey,
+            customerKey: tossAuthParams.customerKey,
+          },
+          { headers: authHeader(token) }
+        );
+        if (!canceled) {
+          setFinalizeMessage("결제 승인 결과를 확인했습니다.");
+          await fetchMe(token);
+        }
+      } catch (error) {
+        if (!canceled) {
+          setFinalizeMessage(error?.response?.data?.detail || "결제 인증 후 서버 승인 단계가 완료되지 않았습니다.");
+        }
+      }
+    };
+
+    finalizeTossBilling();
+
+    return () => {
+      canceled = true;
+    };
+  }, [fetchMe, finalizeAttempted, token, tossAuthParams]);
 
   useEffect(() => {
     if (!token || isActivePaid || pollCount >= 6) {
@@ -36,6 +87,11 @@ export default function BillingSuccess() {
         <p className="mt-4 text-sm leading-6 text-slate-300">
           결제 성공 페이지에 도착해도 권한은 결제 제공자의 webhook으로 확인된 서버 상태를 기준으로 반영됩니다.
         </p>
+        {finalizeMessage && (
+          <div className="mt-5 rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">
+            {finalizeMessage}
+          </div>
+        )}
         <div className="mt-5 rounded-xl bg-slate-900/60 p-4 text-sm text-slate-300">
           {isLoading
             ? "구독 상태를 다시 확인하고 있습니다..."

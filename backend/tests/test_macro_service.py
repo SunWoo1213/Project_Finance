@@ -58,7 +58,7 @@ async def test_fetch_kr_bond_data_uses_exact_item_code(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        async def get(self, url):
+        async def get(self, url, params=None):
             captured["url"] = url
             return DummyResponse()
 
@@ -91,7 +91,7 @@ async def test_fetch_kr_bond_data_skips_repeated_failed_calls(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        async def get(self, url):
+        async def get(self, url, params=None):
             call_counter["count"] += 1
             return DummyResponse()
 
@@ -104,3 +104,48 @@ async def test_fetch_kr_bond_data_skips_repeated_failed_calls(monkeypatch):
     assert first["history_prices"] == []
     assert second["history_prices"] == []
     assert call_counter["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_us_bond_history_preserves_fred_observation_dates(monkeypatch):
+    monkeypatch.setattr(macro_service.settings, "FRED_API_KEY", "test-key")
+    captured = {"params": None}
+
+    class DummyResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "observations": [
+                    {"date": "2026-06-03", "value": "4.50"},
+                    {"date": "2026-06-02", "value": "."},
+                    {"date": "2026-06-01", "value": "4.40"},
+                ]
+            }
+
+    class DummyClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, params=None):
+            captured["params"] = params
+            return DummyResponse()
+
+    monkeypatch.setattr(macro_service.httpx, "AsyncClient", DummyClient)
+
+    points = await macro_service.fetch_us_bond_history("DGS10", limit=3)
+
+    assert captured["params"]["series_id"] == "DGS10"
+    assert captured["params"]["limit"] == 3
+    assert points == [
+        {"date": "2026-06-01", "value": 4.4},
+        {"date": "2026-06-02", "value": 4.5},
+        {"date": "2026-06-03", "value": 4.5},
+    ]

@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import base64
+import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,6 +67,18 @@ class WebhookProcessResult:
     received: bool
     processed_status: str
     duplicate: bool = False
+
+
+@dataclass(frozen=True)
+class TossBillingAuthIntent:
+    intent_id: str
+    client_key: str
+    customer_key: str
+    tier: SubscriptionTier
+    amount_krw: int
+    order_name: str
+    success_url: str
+    fail_url: str
 
 
 class PaymentProvider:
@@ -216,19 +231,184 @@ class MockPaymentProvider(PaymentProvider):
         )
 
 
+class TossPaymentsProvider(PaymentProvider):
+    provider_name = "toss"
+
+    async def create_checkout_session(
+        self,
+        user: User,
+        tier: SubscriptionTier,
+        success_url: str,
+        cancel_url: str,
+    ) -> CheckoutSession:
+        _ = user
+        _ = tier
+        _ = success_url
+        _ = cancel_url
+        raise PaymentProviderUnavailable("Toss checkout must be created with a persisted billing intent.")
+
+    async def cancel_subscription(
+        self,
+        subscription: Subscription,
+        cancel_at_period_end: bool = True,
+    ) -> CancellationResult:
+        _ = subscription
+        return CancellationResult(
+            cancel_at_period_end=cancel_at_period_end,
+            status=SubscriptionStatus.CANCELED,
+            message="Subscription cancellation is scheduled at the end of the current period.",
+        )
+
+    def verify_webhook_signature(self, headers: dict[str, str], raw_body: bytes) -> None:
+        _ = headers
+        _ = raw_body
+        # Toss webhook signature semantics are event-specific. Payment status and
+        # billing lifecycle events are stored idempotently, then trusted only when
+        # correlated to app-owned billing state.
+        return None
+
+    def parse_webhook_event(self, headers: dict[str, str], raw_body: bytes) -> dict[str, Any]:
+        try:
+            payload = json.loads(raw_body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise PaymentWebhookParseError("Toss webhook payload is invalid JSON.") from exc
+        if not isinstance(payload, dict):
+            raise PaymentWebhookParseError("Toss webhook payload must be a JSON object.")
+        payload["_headers"] = {
+            "transmission_id": headers.get("tosspayments-webhook-transmission-id"),
+            "transmission_time": headers.get("tosspayments-webhook-transmission-time"),
+        }
+        return payload
+
+    def normalize_event(self, provider_event: dict[str, Any], raw_body: bytes) -> NormalizedWebhookEvent:
+        headers = provider_event.get("_headers") if isinstance(provider_event.get("_headers"), dict) else {}
+        event_type = str(provider_event.get("eventType") or provider_event.get("event_type") or provider_event.get("type") or "unknown")
+        data = provider_event.get("data") or {}
+        if not isinstance(data, dict):
+            data = {}
+
+        transmission_id = optional_str(headers.get("transmission_id"))
+        fallback_seed = json.dumps(
+            {
+                "eventType": event_type,
+                "createdAt": provider_event.get("createdAt") or provider_event.get("created_at"),
+                "orderId": data.get("orderId"),
+                "paymentKey": data.get("paymentKey"),
+                "billingKey": data.get("billingKey"),
+            },
+            sort_keys=True,
+            default=str,
+        )
+        provider_event_id = transmission_id or hashlib.sha256(fallback_seed.encode("utf-8")).hexdigest()
+        payload_hash = hashlib.sha256(raw_body).hexdigest()
+
+        summary = {
+            "event_type": event_type,
+            "order_id": data.get("orderId"),
+            "payment_key": data.get("paymentKey"),
+            "status": data.get("status"),
+            "customer_key_present": bool(data.get("customerKey")),
+            "billing_key_present": bool(data.get("billingKey")),
+            "transmission_id": transmission_id,
+        }
+
+        return NormalizedWebhookEvent(
+            provider=self.provider_name,
+            provider_event_id=provider_event_id,
+            event_type=event_type,
+            payload_hash=payload_hash,
+            user_id=None,
+            provider_customer_id=optional_str(data.get("customerKey")),
+            provider_subscription_id=None,
+            provider_plan_id=None,
+            tier=None,
+            status=None,
+            current_period_start=None,
+            current_period_end=None,
+            cancel_at_period_end=False,
+            summary=summary,
+        )
+
+    async def issue_billing_key(
+        self,
+        auth_key: str,
+        customer_key: str,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        secret_key = require_toss_secret_key()
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                f"{settings.TOSS_API_BASE_URL.rstrip('/')}/v1/billing/authorizations/issue",
+                headers={
+                    "Authorization": build_toss_basic_authorization(secret_key),
+                    "Idempotency-Key": idempotency_key,
+                    "Content-Type": "application/json",
+                },
+                json={"authKey": auth_key, "customerKey": customer_key},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        if not isinstance(payload, dict):
+            raise PaymentWebhookParseError("Toss billing key response is invalid.")
+        return payload
+
+    async def charge_billing_key(
+        self,
+        billing_key: str,
+        customer_key: str,
+        amount_krw: int,
+        order_id: str,
+        order_name: str,
+        idempotency_key: str,
+        customer_email: str | None = None,
+        customer_name: str | None = None,
+    ) -> dict[str, Any]:
+        secret_key = require_toss_secret_key()
+        payload: dict[str, Any] = {
+            "customerKey": customer_key,
+            "amount": amount_krw,
+            "orderId": order_id,
+            "orderName": order_name,
+            "taxFreeAmount": 0,
+        }
+        if customer_email:
+            payload["customerEmail"] = customer_email
+        if customer_name:
+            payload["customerName"] = customer_name
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                f"{settings.TOSS_API_BASE_URL.rstrip('/')}/v1/billing/{billing_key}",
+                headers={
+                    "Authorization": build_toss_basic_authorization(secret_key),
+                    "Idempotency-Key": idempotency_key,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+            response_payload = response.json()
+        if not isinstance(response_payload, dict):
+            raise PaymentWebhookParseError("Toss billing charge response is invalid.")
+        return response_payload
+
+
 def get_payment_provider() -> PaymentProvider:
     provider = (settings.PAYMENT_PROVIDER or "").strip().lower()
     if provider == "mock":
         return MockPaymentProvider()
+    if provider == "toss":
+        return TossPaymentsProvider()
     raise PaymentProviderUnavailable("Payment provider is not configured.")
 
 
 def get_plan_id(tier: SubscriptionTier) -> str | None:
     is_mock = (settings.PAYMENT_PROVIDER or "").strip().lower() == "mock"
+    is_toss = (settings.PAYMENT_PROVIDER or "").strip().lower() == "toss"
     if tier == SubscriptionTier.PLUS:
-        return settings.PAYMENT_PLUS_PLAN_ID or ("mock_plus_monthly" if is_mock else None)
+        return settings.PAYMENT_PLUS_PLAN_ID or ("mock_plus_monthly" if is_mock else "plus_monthly" if is_toss else None)
     if tier == SubscriptionTier.PRO:
-        return settings.PAYMENT_PRO_PLAN_ID or ("mock_pro_monthly" if is_mock else None)
+        return settings.PAYMENT_PRO_PLAN_ID or ("mock_pro_monthly" if is_mock else "pro_monthly" if is_toss else None)
     return None
 
 
@@ -298,6 +478,149 @@ def parse_datetime(value: Any) -> datetime | None:
         return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
     except ValueError:
         return None
+
+
+def build_toss_basic_authorization(secret_key: str) -> str:
+    encoded = base64.b64encode(f"{secret_key}:".encode("utf-8")).decode("ascii")
+    return f"Basic {encoded}"
+
+
+def require_toss_secret_key() -> str:
+    secret_key = settings.TOSS_SECRET_KEY
+    if not secret_key:
+        raise PaymentProviderUnavailable("Toss secret key is not configured.")
+    return secret_key
+
+
+def require_toss_client_key() -> str:
+    client_key = settings.TOSS_CLIENT_KEY
+    if not client_key:
+        raise PaymentProviderUnavailable("Toss client key is not configured.")
+    return client_key
+
+
+def get_toss_amount_krw(tier: SubscriptionTier) -> int:
+    if tier == SubscriptionTier.PLUS:
+        return settings.TOSS_PLUS_AMOUNT_KRW
+    if tier == SubscriptionTier.PRO:
+        return settings.TOSS_PRO_AMOUNT_KRW
+    raise PaymentProviderUnavailable("Toss billing is only available for paid tiers.")
+
+
+def generate_toss_customer_key() -> str:
+    # JS SDK currently requires 50 chars or fewer and at least one allowed special char.
+    return f"cust_{secrets.token_urlsafe(30)}"[:50]
+
+
+def generate_toss_intent_id() -> str:
+    return f"ti_{secrets.token_urlsafe(24)}"
+
+
+def append_query_params(url: str, params: dict[str, str]) -> str:
+    parsed = urlparse(url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query.update(params)
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def frontend_origin_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return "http://localhost:5173"
+
+
+async def create_toss_billing_auth_session(
+    db: AsyncSession,
+    user: User,
+    tier: SubscriptionTier,
+    success_url: str,
+    fail_url: str,
+) -> CheckoutSession:
+    client_key = require_toss_client_key()
+    amount_krw = get_toss_amount_krw(tier)
+    plan_id = get_plan_id(tier)
+    if not plan_id:
+        raise PaymentProviderUnavailable(f"{tier.value} Toss billing plan is not configured.")
+
+    intent_id = generate_toss_intent_id()
+    customer_key = generate_toss_customer_key()
+    order_name = f"Project Finance {tier.value} 월 구독"
+    expires_at = datetime.utcnow() + timedelta(minutes=30)
+    success_redirect = append_query_params(success_url, {"provider": "toss", "intent_id": intent_id})
+    fail_redirect = append_query_params(fail_url, {"provider": "toss", "intent_id": intent_id})
+    summary = {
+        "intent_id": intent_id,
+        "status": "PENDING",
+        "tier": tier.value,
+        "provider_plan_id": plan_id,
+        "amount_krw": amount_krw,
+        "order_name": order_name,
+        "customer_key": customer_key,
+        "success_url": success_redirect,
+        "fail_url": fail_redirect,
+        "expires_at": expires_at.isoformat(),
+        "client_key_configured": bool(client_key),
+    }
+    payload_hash = hashlib.sha256(json.dumps(summary, sort_keys=True).encode("utf-8")).hexdigest()
+    db.add(
+        BillingEvent(
+            provider="toss",
+            provider_event_id=intent_id,
+            event_type="billing_intent.created",
+            processed_status="pending",
+            user_id=user.id,
+            payload_hash=payload_hash,
+            normalized_summary=summary,
+            received_at=datetime.utcnow(),
+        )
+    )
+    await db.commit()
+
+    auth_page_url = append_query_params(
+        f"{frontend_origin_from_url(success_url)}/billing/toss/auth",
+        {"intent_id": intent_id},
+    )
+    return CheckoutSession(checkout_url=auth_page_url)
+
+
+async def get_toss_billing_auth_intent(
+    db: AsyncSession,
+    user_id: int,
+    intent_id: str,
+) -> TossBillingAuthIntent | None:
+    result = await db.execute(
+        select(BillingEvent)
+        .where(BillingEvent.provider == "toss")
+        .where(BillingEvent.provider_event_id == intent_id)
+        .where(BillingEvent.user_id == user_id)
+        .where(BillingEvent.event_type == "billing_intent.created")
+        .limit(1)
+    )
+    event = result.scalar_one_or_none()
+    if event is None or not isinstance(event.normalized_summary, dict):
+        return None
+
+    summary = event.normalized_summary
+    expires_at = parse_datetime(summary.get("expires_at"))
+    if expires_at and expires_at <= datetime.utcnow():
+        return None
+
+    tier = parse_tier(summary.get("tier"))
+    if tier is None:
+        return None
+
+    client_key = require_toss_client_key()
+    return TossBillingAuthIntent(
+        intent_id=intent_id,
+        client_key=client_key,
+        customer_key=str(summary["customer_key"]),
+        tier=tier,
+        amount_krw=int(summary["amount_krw"]),
+        order_name=str(summary["order_name"]),
+        success_url=str(summary["success_url"]),
+        fail_url=str(summary["fail_url"]),
+    )
 
 
 async def get_cancelable_subscription(db: AsyncSession, user_id: int) -> Subscription | None:

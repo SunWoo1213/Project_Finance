@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import useAuthStore from "../store/authStore";
 import useSubscriptionStore from "../store/subscriptionStore";
@@ -7,6 +7,9 @@ import useSubscriptionStore from "../store/subscriptionStore";
 export default function BillingCancel() {
   const { token } = useAuthStore();
   const { fetchMe, tier, status, isLoading } = useSubscriptionStore();
+  const [searchParams] = useSearchParams();
+  const failCode = searchParams.get("code");
+  const failMessage = searchParams.get("message");
 
   useEffect(() => {
     if (token) {
@@ -21,6 +24,11 @@ export default function BillingCancel() {
         <p className="mt-4 text-sm leading-6 text-slate-300">
           결제가 완료되지 않았거나 사용자가 결제 화면을 닫았습니다. 현재 구독 권한은 변경되지 않습니다.
         </p>
+        {(failCode || failMessage) && (
+          <div className="mt-5 rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">
+            {[failCode, failMessage].filter(Boolean).join(" / ")}
+          </div>
+        )}
         <div className="mt-5 rounded-xl bg-slate-900/60 p-4 text-sm text-slate-300">
           {isLoading ? "현재 구독 상태를 확인하고 있습니다..." : `현재 상태: ${tier} / ${status}`}
         </div>

@@ -3,7 +3,7 @@
 Date: 2026-06-02
 Last updated: 2026-06-03
 
-이 문서는 루트의 `.env_example`을 기준으로 로컬 개발, hosted smoke, 운영 배포 환경에 실제 환경변수 값을 채우는 절차를 설명한다. 실제 `.env` 값, API key, DB password, JWT secret, OAuth secret, webhook secret은 문서나 Git에 남기지 않는다.
+이 문서는 루트의 `.env.example`을 기준으로 로컬 개발, hosted smoke, 운영 배포 환경에 실제 환경변수 값을 채우는 절차를 설명한다. 실제 `.env` 값, API key, DB password, JWT secret, OAuth secret, webhook secret은 문서나 Git에 남기지 않는다.
 
 이 문서의 목표는 세 가지다.
 
@@ -13,7 +13,7 @@ Last updated: 2026-06-03
 
 ## 기본 원칙
 
-- `.env_example`은 공개 예시 파일이다. 실제 값은 `.env`, `frontend/.env`, 배포 플랫폼의 환경변수 저장소에만 둔다.
+- `.env.example`은 공개 예시 파일이다. 실제 값은 `.env`, `frontend/.env`, 배포 플랫폼의 환경변수 저장소에만 둔다.
 - `.env`와 `frontend/.env`는 커밋하지 않는다.
 - `<your_...>`, `<replace_...>`처럼 꺾쇠로 감싼 값은 placeholder다. 실제 `.env`에서는 자기 환경에 맞는 값으로 바꾼다.
 - `VITE_`로 시작하는 값은 브라우저 번들에 노출된다. API key, password, JWT secret, provider secret을 `VITE_` 변수로 만들지 않는다.
@@ -49,7 +49,7 @@ Last updated: 2026-06-03
 | Google 로그인 | `GOOGLE_CLIENT_ID`, `VITE_GOOGLE_CLIENT_ID` |
 | AI 리포트/챗봇 실제 LLM 호출 | `OPENAI_API_KEY` |
 | 시장/거시 데이터 품질 개선 | `ALPHA_VANTAGE_API_KEY`, `FRED_API_KEY`, `ECOS_API_KEY`, `FMP_API_KEY`, `FINNHUB_API_KEY` |
-| 결제 provider 연동 | `PAYMENT_PROVIDER`, `PAYMENT_WEBHOOK_SECRET`, `PAYMENT_PLUS_PLAN_ID`, `PAYMENT_PRO_PLAN_ID` |
+| 결제 provider 연동 | `PAYMENT_PROVIDER`, `PAYMENT_WEBHOOK_SECRET`, `PAYMENT_PLUS_PLAN_ID`, `PAYMENT_PRO_PLAN_ID`, `TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY` |
 | 관심자산 알림 발송 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `GMAIL_*` |
 
 비밀값인지 헷갈리면 이렇게 판단한다.
@@ -90,7 +90,7 @@ AI 리포트 scheduler나 알림 scheduler를 켜면 외부 API와 LLM 비용이
 
 ### 2.1 변수값 확보를 시작하기 전에
 
-`.env_example`의 값은 한 번에 모두 발급받는 것이 아니라, 아래 순서대로 나누어 채우는 것이 읽기 쉽고 실수도 적다.
+`.env.example`의 값은 한 번에 모두 발급받는 것이 아니라, 아래 순서대로 나누어 채우는 것이 읽기 쉽고 실수도 적다.
 
 1. 로컬에서 직접 정하는 값부터 채운다.
 2. 앱이 실행되는 주소를 확인해 frontend/backend URL 값을 채운다.
@@ -527,8 +527,15 @@ ENABLE_LLM_REPORT_CRITICS=false
 - `PAYMENT_WEBHOOK_SECRET`: provider webhook 서명 검증 secret.
 - `PAYMENT_PLUS_PLAN_ID`, `PAYMENT_PRO_PLAN_ID`: provider에 생성한 상품 또는 요금제 ID.
 - `PAYMENT_MOCK_CHECKOUT_BASE_URL`: mock checkout redirect base URL.
+- `TOSS_CLIENT_KEY`: Toss JS SDK에 전달되는 public client key. 브라우저에 전달되지만 source에 하드코딩하지 않는다.
+- `TOSS_SECRET_KEY`: Toss Core API 호출용 backend-only secret key. `VITE_` 변수, frontend `.env`, 문서, 로그에 넣지 않는다.
+- `TOSS_PLUS_AMOUNT_KRW`, `TOSS_PRO_AMOUNT_KRW`: backend가 Toss 결제 승인에 사용할 월 결제 금액.
+- `TOSS_BILLING_SUCCESS_URL`, `TOSS_BILLING_FAIL_URL`: 배포 환경에서 Toss billing-auth callback URL을 고정해야 할 때 쓰는 override.
+- `ENABLE_BILLING_SCHEDULER`, `BILLING_RENEWAL_INTERVAL_MINUTES`, `BILLING_RETRY_LIMIT`, `BILLING_RETRY_BACKOFF_HOURS`: Toss 정기 결제 scheduler와 retry 정책. 실제 돈을 청구할 수 있으므로 기본 비활성으로 둔다.
 
-운영 결제 연동 전에는 VAT, 환불, 실패 결제, downgrade 정책을 먼저 확정한다. Webhook secret은 backend-only 값이다.
+Toss Payments 자동결제를 검증할 때는 `PAYMENT_PROVIDER=toss`, test `TOSS_CLIENT_KEY`, test `TOSS_SECRET_KEY`를 backend 환경변수에 넣는다. 첫 단계에서는 `/api/billing/checkout`이 서버에 pending billing intent를 만들고 frontend `/billing/toss/auth`가 Toss SDK `requestBillingAuth()`를 호출한다. billingKey 저장, 첫 결제 승인, 정기 결제 scheduler는 DB migration과 idempotency/retry 설계가 필요하므로 별도 확인 후 활성화한다.
+
+운영 결제 연동 전에는 Toss 자동결제 계약, VAT, 환불, 실패 결제, downgrade 정책을 먼저 확정한다. Webhook secret과 Toss secret key는 backend-only 값이다.
 
 ## 13. Favorite asset notifications
 
@@ -642,7 +649,7 @@ npm run build
 
 새 환경변수를 추가하거나 기존 변수 의미를 바꾸면 함께 갱신한다.
 
-- `.env_example`
+- `.env.example`
 - `backend/app/core/config.py`
 - 관련 feature document under `docs/harness/features/`
 - 변경 기록 under `docs/harness/`

@@ -60,6 +60,24 @@ def test_recent_basdt_window_is_ordered_yyyymmdd():
     assert window["beginBasDt"] < window["endBasDt"]
 
 
+def test_period_to_days_uses_daily_point_policy():
+    assert price_providers._period_to_days("1d") == 7
+    assert price_providers._period_to_days("1mo") == 30
+
+
+def test_provider_date_normalization_accepts_rfc_and_iso_dates():
+    assert price_providers._normalize_provider_date("Wed, 03 Jun 2026 00:00:01 +0000") == "2026-06-03"
+    assert price_providers._normalize_provider_date("2026-06-04T00:00:01+00:00") == "2026-06-04"
+
+
+def test_data_go_key_decodes_url_encoded_portal_key(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "DATA_GO_KR_API_KEY", "abc%2Bdef%3D%3D")
+
+    params = price_providers._data_go_params({"numOfRows": 1})
+
+    assert params["serviceKey"] == "abc+def=="
+
+
 def test_data_go_semaphore_uses_configured_concurrency(monkeypatch):
     monkeypatch.setattr(price_providers.settings, "DATA_GO_KR_MAX_CONCURRENCY", 2)
     price_providers._provider_semaphores.clear()
@@ -113,6 +131,39 @@ async def test_kr_index_snapshot_query_uses_korean_name_and_date_window(monkeypa
     assert captured["url"] == price_providers.DATA_GO_INDEX_URL
     assert captured["params"]["idxNm"] == "코스피"
     assert "beginBasDt" in captured["params"] and "endBasDt" in captured["params"]
+
+
+@pytest.mark.asyncio
+async def test_data_go_stock_history_sorts_before_period_limit(monkeypatch):
+    rows = [
+        {"basDt": "20260608", "clpr": "108"},
+        {"basDt": "20260607", "clpr": "107"},
+        {"basDt": "20260606", "clpr": "106"},
+        {"basDt": "20260605", "clpr": "105"},
+        {"basDt": "20260604", "clpr": "104"},
+        {"basDt": "20260603", "clpr": "103"},
+        {"basDt": "20260602", "clpr": "102"},
+        {"basDt": "20260601", "clpr": "101"},
+    ]
+
+    async def fake_rows(url, params):
+        return rows
+
+    monkeypatch.setattr(price_providers, "_fetch_data_go_rows", fake_rows)
+
+    payload = await price_providers.fetch_data_go_stock_history("005930.KS", "1d")
+
+    assert [point["date"] for point in payload["points"]] == [
+        "2026-06-02",
+        "2026-06-03",
+        "2026-06-04",
+        "2026-06-05",
+        "2026-06-06",
+        "2026-06-07",
+        "2026-06-08",
+    ]
+    assert payload["points"][0]["value"] == 102.0
+    assert payload["provider_meta"]["provider"] == "data_go_kr"
 
 
 @pytest.mark.asyncio
@@ -304,6 +355,29 @@ async def test_fx_snapshot_keeps_open_rate_without_stooq_fallback(monkeypatch):
     assert snapshot["changePercent"] == 0.0
     assert snapshot["history_prices"] == [1386.0]
     assert snapshot["provider_meta"]["change_source"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_fx_history_fallback_normalizes_open_er_api_rfc_date(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
+
+    async def fake_fx_snapshot(ticker):
+        return {
+            "currentPrice": 1386.0,
+            "provider_meta": {
+                "provider": "open.er-api.com",
+                "as_of": "Wed, 03 Jun 2026 00:00:01 +0000",
+                "freshness": "daily_reference",
+                "change_source": "none",
+            },
+        }
+
+    monkeypatch.setattr(price_providers, "_fetch_fx_snapshot", fake_fx_snapshot)
+
+    payload = await price_providers.fetch_market_history("KRW=X", "1d")
+
+    assert payload["points"] == [{"date": "2026-06-03", "value": 1386.0}]
+    assert payload["provider_meta"]["provider"] == "open.er-api.com"
 
 
 @pytest.mark.asyncio

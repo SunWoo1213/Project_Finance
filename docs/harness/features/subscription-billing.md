@@ -4,9 +4,9 @@ Date: 2026-06-01
 
 ## Current Behavior
 
-Subscription billing is partially implemented. The app has plan metadata, an authenticated current-entitlement endpoint, backend report/chatbot gates, frontend pricing/success/cancel routes, a subscription store, plan badge, report paywall UI, database-backed subscription snapshots, and a provider-neutral payment boundary with a local mock provider.
+Subscription billing is partially implemented. The app has plan metadata, an authenticated current-entitlement endpoint, backend report/chatbot gates, frontend pricing/success/cancel routes, a subscription store, plan badge, report paywall UI, database-backed subscription snapshots, a provider-neutral payment boundary with a local mock provider, and a first Toss Payments billing-auth intent flow.
 
-There is still no production payment provider integration. Until `PAYMENT_PROVIDER` and provider plan/webhook settings are configured, checkout and webhook routes return a clear provider-unavailable error. When the mock provider is configured, `GET /api/billing/me` reads the latest stored subscription row and webhook processing can activate Plus/Pro entitlements without generating reports.
+Production Toss Payments billing is not complete yet. With `PAYMENT_PROVIDER=toss` and `TOSS_CLIENT_KEY`, `POST /api/billing/checkout` creates a pending server-side billing intent in `BillingEvent` and returns `/billing/toss/auth?intent_id=...`; the frontend page starts Toss SDK v2 `requestBillingAuth()`. Billing key storage, first charge approval, recurring renewal, and entitlement activation still require an approved DB schema migration. Until `PAYMENT_PROVIDER` and provider settings are configured, checkout and webhook routes return a clear provider-unavailable error. When the mock provider is configured, `GET /api/billing/me` reads the latest stored subscription row and webhook processing can activate Plus/Pro entitlements without generating reports.
 
 The target tier model is:
 
@@ -53,6 +53,8 @@ The target tier model is:
 - Plan metadata endpoint: `GET /api/billing/plans`
 - Current billing endpoint: `GET /api/billing/me`
 - Checkout endpoint: `POST /api/billing/checkout` returns a `checkout_url` for Plus/Pro when a provider is configured; it does not create paid entitlement.
+- Toss billing-auth intent endpoint: `GET /api/billing/checkout/{intent_id}` returns non-secret SDK parameters for the authenticated owner of a pending Toss billing intent.
+- Toss billing-key finalize endpoint: `POST /api/billing/toss/billing-key` validates the owner and `customerKey`, then currently returns `501` until the billing schema migration for secure billingKey and renewal state storage is approved.
 - Cancellation endpoint: `POST /api/billing/cancel` schedules cancellation at period end for the current active provider-backed subscription.
 - Manual grant: `python -m scripts.grant_subscription --email <email> --tier PLUS|PRO [--days N]` creates/updates a `provider="manual"` subscription row to grant paid entitlement without payment; `--revoke` expires it. Operator-only, no auth gate.
 - Webhook endpoint: `POST /api/billing/webhook` verifies signatures, stores an idempotent billing event summary, and applies normalized subscription transitions.
@@ -80,6 +82,7 @@ The target tier model is:
 ## Change Records
 
 - `docs/harness/toss-payments-billing-integration-plan-2026-06-03.md`
+- `docs/harness/toss-payments-billing-auth-phase1-implementation-2026-06-08.md`
 - `docs/harness/subscription-tier-payment-plan-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-implementation-2026-06-01.md`
 - `docs/harness/subscription-tier-payment-verification-2026-06-01.md`

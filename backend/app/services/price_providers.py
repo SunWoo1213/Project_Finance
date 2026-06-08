@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from email.utils import parsedate_to_datetime
 import html
 import io
 import logging
@@ -8,7 +9,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from time import monotonic
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx
 
@@ -215,8 +216,9 @@ def _history_payload(
     *,
     unit: str = "USD",
     provider_meta: dict[str, Any] | None = None,
+    limit: int | None = None,
 ) -> dict[str, Any]:
-    normalized_points = _normalize_points(points)
+    normalized_points = _normalize_points(points, limit=limit)
     payload = {
         "ticker": ticker,
         "series_type": "price",
@@ -234,7 +236,7 @@ def _history_payload(
 
 def _period_to_days(period: str) -> int:
     return {
-        "1d": 30,
+        "1d": 7,
         "1mo": 30,
         "1y": 365,
         "5y": 1825,
@@ -266,7 +268,7 @@ def _coingecko_key() -> str:
 
 
 def _data_go_key() -> str:
-    return settings.DATA_GO_KR_API_KEY or ""
+    return unquote(settings.DATA_GO_KR_API_KEY or "")
 
 
 def _stooq_key() -> str:
@@ -800,7 +802,16 @@ async def fetch_stooq_history(ticker: str, period: str = "1y") -> dict[str, Any]
         )
         return _history_payload(ticker.upper(), [])
     points = _parse_stooq_csv(text, limit=_period_to_days(period))
-    payload = _history_payload(ticker.upper(), points)
+    payload = _history_payload(
+        ticker.upper(),
+        points,
+        provider_meta={
+            "provider": "stooq",
+            "symbol": stooq_symbol,
+            "freshness": "daily_csv_opt_in_fallback",
+            "license_scope": "fallback_only",
+        },
+    )
     if not points:
         _mark_failed_call(cache_key)
     return _cache_set(_history_cache, cache_key, payload)
@@ -829,6 +840,25 @@ def _data_go_params(extra: dict[str, Any]) -> dict[str, Any]:
         "pageNo": 1,
         **extra,
     }
+
+
+def _normalize_provider_date(value: Any) -> str:
+    raw = str(value or "").strip()
+    if raw:
+        iso_candidate = raw[:10]
+        try:
+            datetime.strptime(iso_candidate, "%Y-%m-%d")
+            return iso_candidate
+        except ValueError:
+            pass
+        try:
+            parsed = parsedate_to_datetime(raw)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc).date().isoformat()
+        except (TypeError, ValueError, IndexError, OverflowError):
+            pass
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 def _recent_basdt_window(days: int = 20) -> dict[str, str]:
@@ -886,7 +916,17 @@ async def fetch_data_go_stock_history(ticker: str, period: str = "1y") -> dict[s
         point for point in (_data_go_row_to_point(row) for row in rows)
         if point is not None
     ]
-    payload = _history_payload(ticker.upper(), points[-_period_to_days(period):], unit="KRW")
+    payload = _history_payload(
+        ticker.upper(),
+        points,
+        unit="KRW",
+        provider_meta={
+            "provider": "data_go_kr",
+            "endpoint": "getStockPriceInfo",
+            "freshness": "t_plus_1_or_delayed",
+        },
+        limit=_period_to_days(period),
+    )
     if not points:
         _mark_failed_call(cache_key)
     return _cache_set(_history_cache, cache_key, payload)
@@ -918,7 +958,17 @@ async def fetch_data_go_index_history(ticker: str, period: str = "1y") -> dict[s
         point for point in (_data_go_row_to_point(row) for row in rows)
         if point is not None
     ]
-    payload = _history_payload(ticker.upper(), points[-_period_to_days(period):], unit="KRW")
+    payload = _history_payload(
+        ticker.upper(),
+        points,
+        unit="KRW",
+        provider_meta={
+            "provider": "data_go_kr",
+            "endpoint": "getStockMarketIndex",
+            "freshness": "t_plus_1_or_delayed",
+        },
+        limit=_period_to_days(period),
+    )
     if not points:
         _mark_failed_call(cache_key)
     return _cache_set(_history_cache, cache_key, payload)
@@ -1037,19 +1087,27 @@ async def fetch_market_history(ticker: str, period: str = "1y") -> dict[str, Any
             payload = await fetch_coingecko_history(normalized, period)
         elif normalized == "KRW=X":
             points: list[dict[str, Any]] = []
+            provider_meta: dict[str, Any] | None = None
             if settings.ENABLE_STOOQ_FALLBACK:
                 stooq_history = await fetch_stooq_history(normalized, period)
                 points = list(stooq_history.get("points", []))
+                provider_meta = stooq_history.get("provider_meta")
             if not points:
                 snapshot = await _fetch_fx_snapshot(normalized)
                 if snapshot.get("currentPrice"):
+                    provider_meta = dict(snapshot.get("provider_meta") or {})
                     as_of = (
-                        snapshot.get("provider_meta", {}).get("as_of")
+                        provider_meta.get("as_of")
                         or datetime.now(timezone.utc).strftime("%Y-%m-%d")
                     )
-                    date = str(as_of)[:10]
+                    date = _normalize_provider_date(as_of)
                     points.append({"date": date, "value": snapshot["currentPrice"]})
-            payload = _history_payload(normalized, points, unit="KRW")
+            payload = _history_payload(
+                normalized,
+                points,
+                unit="KRW",
+                provider_meta=provider_meta,
+            )
         elif _is_kr_stock(normalized):
             payload = await fetch_data_go_stock_history(normalized, period)
         elif normalized in KR_INDEX_NAMES:

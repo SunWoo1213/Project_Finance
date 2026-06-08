@@ -37,7 +37,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 9. `GET /api/market/latest-context/{ticker}` fetches ticker-specific news and calendar events with a short per-ticker TTL cache. The TTL is configurable in minutes via `MARKET_LATEST_CONTEXT_TTL_MINUTES` (default 10, minimum 1); `_latest_context_ttl_seconds()` in `market_service.py` reads it at call time. `force_refresh=true` still respects a 5-minute minimum cooldown.
 10. `GET /api/market/history/{ticker}?period=...` routes by ticker type:
    - Korean bonds use `fetch_kr_bond_history`.
-   - US bonds use `fetch_us_bond_data`.
+   - US bonds use `fetch_us_bond_history` so FRED observation dates are preserved.
    - US stocks fetch the primary quote from Finnhub and use FMP EOD history/profile as optional support. Finnhub profile, FMP profile, FMP history, or opt-in Stooq fallback failures do not discard a successful Finnhub quote; market cap degrades to `0.0` and history falls back to the current price.
    - US indices and commodities use FMP quote/EOD history first. FMP responses are cached with a 12-hour TTL and guarded by a process-local daily call budget so the 5-minute scheduler does not burn through the free plan. If FMP is missing, over budget, or unavailable, they degrade to empty data unless `ENABLE_STOOQ_FALLBACK=true` provides a Stooq fallback.
    - Crypto uses CoinGecko Demo API.
@@ -69,7 +69,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - Hosted deployment startup should keep `ENABLE_MARKET_WARMUP=false` and `ENABLE_SCHEDULER=false` for the first smoke release, then enable runtime jobs after API/DB checks and cost review.
 - Optional report scheduler policy controls: `REPORT_SCHEDULER_COVERAGE=conservative`, `REPORT_SCHEDULER_INTERVAL_HOURS=6`, `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS=180`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=5`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS=6`, `REPORT_SCHEDULER_TARGET_TICKERS=DGS10,XAU,BTC-USD,NVDA,005930.KS`
 - Target report schedule rule: report generation is backend-scheduled every 6 hours and user/chatbot paths read stored reports only. The 2026-06-01 implementation limits scheduled coverage to five representative assets for API cost control; see `docs/harness/report-generation-schedule-alignment-implementation-2026-06-01.md`.
-- Supported history periods: `1d`, `1mo`, `1y`, `5y`. Free-provider replacement paths return provider-dated daily points for all periods; `1d` is no longer a 5-minute intraday chart.
+- Supported history periods: `1d`, `1mo`, `1y`, `5y`. Free-provider replacement paths return provider-dated daily points for all periods; `1d` is 7 daily points, `1mo` is 30 daily points, `1y` is 365 daily points, and `5y` is 1825 daily points. `1d` is no longer a 5-minute intraday chart.
 - Main market snapshot route: `/market/:ticker`
 - Chat market guidance endpoint: `POST /api/chat/message`
 - Preferred history shape:
@@ -78,6 +78,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
   - `unit`
   - `points: [{ date, value }]`
   - `legacy` compatibility array
+  - optional `provider_meta`
 
 ## Change Rules
 
@@ -127,6 +128,9 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/stooq-timeout-fallback-2026-06-07.md`
 - `docs/harness/market-data-free-plan-stooq-replacement-plan-2026-06-07.md`
 - `docs/harness/market-data-free-plan-stooq-replacement-implementation-2026-06-07.md`
+- `docs/harness/demo-free-tier-data-cadence-plan-2026-06-08.md`
+- `docs/harness/data-io-pipeline-remediation-plan-2026-06-08.md`
+- `docs/harness/data-io-pipeline-remediation-implementation-2026-06-08.md`
 
 ## Open Risks
 

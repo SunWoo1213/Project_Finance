@@ -981,6 +981,32 @@ async def generate_daily_reports() -> None:
 
                     # Rate-limit protection between LLM calls.
                     await asyncio.sleep(10)
+                except ReportReadinessError as exc:
+                    await db_session.rollback()
+                    logger.error(
+                        "%s report generation failed (failure_type=readiness_blocked, missing_required=%s, blocking_reasons=%s)",
+                        ticker,
+                        exc.metadata.get("missing_required_facts", []),
+                        (exc.metadata.get("readiness") or {}).get("blocking_reasons", []),
+                        exc_info=True,
+                    )
+                except ReportQualityError as exc:
+                    await db_session.rollback()
+                    logger.error(
+                        "%s report generation failed (failure_type=quality_failed, revision_count=%s, feedback=%s)",
+                        ticker,
+                        exc.revision_count,
+                        exc.feedback,
+                        exc_info=True,
+                    )
+                except ValueError as exc:
+                    await db_session.rollback()
+                    logger.error(
+                        "%s report generation failed (failure_type=provider_unavailable, error=%s)",
+                        ticker,
+                        exc,
+                        exc_info=True,
+                    )
                 except Exception as exc:
                     await db_session.rollback()
                     logger.error("%s 리포트 실패: %s", ticker, exc, exc_info=True)

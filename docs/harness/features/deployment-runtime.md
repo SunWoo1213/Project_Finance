@@ -80,6 +80,10 @@ Local Docker flow:
   - `STOOQ_FETCH_TIMEOUT_SECONDS`: Stooq daily CSV single-call timeout in seconds. Default `12`; minimum `5`. Use `20` or `30` when Render-to-Stooq connection timeouts repeat.
   - `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`, `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`, `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`, `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`: notification scheduler and default rule controls.
   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`: backend-only delivery configuration names. Email delivery supports Gmail API only.
+  - `TOSS_CLIENT_KEY`: Toss Payments JS SDK client key. It is public to the browser during the billing-auth flow but should still be supplied through environment configuration rather than hardcoded source.
+  - `TOSS_SECRET_KEY`: Toss Payments Core API backend-only secret key. Never expose it through `VITE_` variables, frontend source, logs, or docs.
+  - `TOSS_API_BASE_URL`, `TOSS_PLUS_AMOUNT_KRW`, `TOSS_PRO_AMOUNT_KRW`, `TOSS_BILLING_SUCCESS_URL`, `TOSS_BILLING_FAIL_URL`: Toss billing-auth and approval configuration.
+  - `ENABLE_BILLING_SCHEDULER`, `BILLING_RENEWAL_INTERVAL_MINUTES`, `BILLING_RETRY_LIMIT`, `BILLING_RETRY_BACKOFF_HOURS`: billing scheduler controls. This scheduler is separate from market/report schedulers and should stay disabled until billing-key storage, idempotency, retry, and duplicate-charge protections are verified.
 
 ## Change Rules
 
@@ -127,6 +131,9 @@ Local Docker flow:
 - `docs/harness/report-generation-deployment-failure-remediation-plan-2026-06-07.md`
 - `docs/harness/render-standard-market-provider-timeout-remediation-2026-06-07.md`
 - `docs/harness/stooq-timeout-fallback-2026-06-07.md`
+- `docs/harness/toss-payments-billing-auth-phase1-implementation-2026-06-08.md`
+- `docs/harness/demo-free-tier-data-cadence-plan-2026-06-08.md`
+- `docs/harness/data-io-pipeline-remediation-plan-2026-06-08.md`
 
 ## Open Risks
 

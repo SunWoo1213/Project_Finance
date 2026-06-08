@@ -141,6 +141,14 @@ async def fetch_commodity_data(ticker: str) -> dict[str, Any]:
 
 
 async def fetch_us_bond_data(series_id: str) -> dict[str, Any]:
+    points = await fetch_us_bond_history(series_id)
+    history_prices = [point["value"] for point in points]
+    if not history_prices:
+        logger.warning("Empty US bond history from FRED: %s", series_id)
+    return _normalize_history(history_prices)
+
+
+async def fetch_us_bond_history(series_id: str, limit: int = 30) -> list[dict[str, Any]]:
     api_key = settings.FRED_API_KEY
     if not api_key:
         raise ValueError("FRED_API_KEY is not set")
@@ -155,7 +163,7 @@ async def fetch_us_bond_data(series_id: str) -> dict[str, Any]:
         "api_key": api_key,
         "file_type": "json",
         "sort_order": "desc",
-        "limit": 30,
+        "limit": max(1, int(limit)),
     }
 
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -164,22 +172,25 @@ async def fetch_us_bond_data(series_id: str) -> dict[str, Any]:
         payload = response.json()
 
     observations = payload.get("observations", [])
-    history_desc: list[float] = []
-    last_valid: float | None = None
+    history_desc: list[dict[str, Any]] = []
+    last_valid_value: float | None = None
     for item in observations:
         raw_val = item.get("value")
+        raw_date = str(item.get("date") or "").strip()
+        if not raw_date:
+            continue
         if raw_val in (None, "."):
-            if last_valid is not None:
-                history_desc.append(last_valid)
+            if last_valid_value is not None:
+                history_desc.append({"date": raw_date, "value": last_valid_value})
             continue
         value = float(raw_val)
-        last_valid = value
-        history_desc.append(value)
+        last_valid_value = value
+        history_desc.append({"date": raw_date, "value": value})
 
-    history_prices = list(reversed(history_desc))
-    if not history_prices:
+    points = list(reversed(history_desc))
+    if not points:
         logger.warning("Empty US bond history from FRED: %s", normalized_series_id)
-    return _normalize_history(history_prices)
+    return points
 
 
 async def fetch_kr_bond_data(

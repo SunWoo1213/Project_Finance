@@ -19,6 +19,7 @@ from ..services.notification_service import (
     create_channel_verification,
     create_test_notification,
     delete_channel,
+    get_delivery_configuration_status,
     get_or_create_preferences,
     list_channels,
     list_history,
@@ -92,7 +93,10 @@ async def connect_telegram(
         channel="telegram",
         verification_code=connection.verification_code or "",
         verification_expires_at=connection.verification_expires_at,
-        message="Telegram bot에 /start <code> 형식으로 코드를 전달한 뒤 verify를 호출하세요.",
+        message=(
+            "Telegram verification uses manual chat_id entry. "
+            "Start a chat with the bot, find your numeric chat_id, then submit it with this code."
+        ),
     )
 
 
@@ -140,13 +144,13 @@ async def request_email_verification(
     if not delivery.success:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Gmail 확인 코드 발송에 실패했습니다. {delivery.error_message}",
+            detail=f"Gmail verification code delivery failed. {delivery.error_message}",
         )
     return ChannelConnectResponse(
         channel="email",
         verification_code=None,
         verification_expires_at=connection.verification_expires_at,
-        message="Gmail로 확인 코드를 보냈습니다.",
+        message="A Gmail verification code has been sent.",
     )
 
 
@@ -203,5 +207,6 @@ async def send_test_notification(
         created_events=created,
         sent_events=sent,
         failed_events=failed,
-        message="테스트 알림 처리가 완료되었습니다.",
+        message="Test notification processing completed.",
+        delivery_status=get_delivery_configuration_status(),
     )
