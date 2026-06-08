@@ -4,7 +4,7 @@ Date: 2026-05-30
 
 ## Current Behavior
 
-The asset detail screen combines market summary, favorite toggling, chart history, latest news/calendar context, AI report access, and the per-asset discussion area. AI reports are visible only to users with report entitlement and render through `ReportCard.jsx`, including bull/bear summaries plus the final Markdown report. Comments can be read by anyone, but creating, editing, deleting, liking, and reporting comments require an app JWT.
+The asset detail screen combines market summary, favorite toggling, latest news/calendar context, AI report access, and the per-asset discussion area. It no longer renders a price history chart or calls the market history endpoint from the detail page. AI reports are visible only to users with report entitlement and render through `ReportCard.jsx`, including bull/bear summaries plus the final Markdown report. Comments can be read by anyone, but creating, editing, deleting, liking, and reporting comments require an app JWT.
 
 Comment reports are one-per-user per comment. When a comment reaches 100 accumulated reports, the backend automatically deletes that comment.
 
@@ -17,7 +17,6 @@ AI report generation is now additionally controlled by backend-only `ENABLE_AI_R
 - Detail page workflow: `frontend/src/pages/AssetDetail.jsx`
 - Favorite state: `frontend/src/store/favoriteStore.js`
 - Report display support: `frontend/src/components/ReportCard.jsx`
-- Chart support: `frontend/src/components/SparklineChart.jsx`
 - Auth state dependency: `frontend/src/store/authStore.js`
 - Report endpoints: `backend/app/main.py`
 - Chatbot report/community guidance: `backend/app/api/chat.py`, `backend/app/services/chat_service.py`
@@ -32,7 +31,7 @@ AI report generation is now additionally controlled by backend-only `ENABLE_AI_R
 1. Detail route `/detail/:ticker` loads `AssetDetail.jsx`.
 2. The page fetches cached prices to find the selected ticker and asset group.
 3. The page reads local favorite state and can toggle the current ticker into `favoriteAssets`.
-4. The page fetches history for the selected ticker and period.
+4. The header shows cached current price, change badge, market cap or macro classification, and the favorite toggle without a chart.
 5. The page fetches `GET /api/market/latest-context/{ticker}` for ticker-specific recent news and calendar events.
 6. If authenticated and entitled, the page fetches `GET /api/reports/{ticker}`. Current tier behavior is Free: no report access, Plus: report access, Pro: report access.
 7. If no stored report exists, the page displays a scheduled-report-pending state and does not call `POST /api/ai/generate/{ticker}`.
@@ -162,9 +161,13 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/data-io-pipeline-remediation-plan-2026-06-08.md`
 - `docs/harness/data-io-pipeline-remediation-implementation-2026-06-08.md`
 - `docs/harness/report-generation-scheduler-not-firing-log-audit-2026-06-08.md`
+- `docs/harness/report-generation-pipeline-diagnosis-2026-06-08.md`
 - `docs/harness/market-snapshot-price-fallback-and-stale-retention-implementation-2026-06-08.md`
 - `docs/harness/report-scheduler-startup-firing-fix-implementation-2026-06-08.md`
 - `docs/harness/asset-display-graph-removal-plan-2026-06-08.md`
+- `docs/harness/asset-display-graph-removal-implementation-2026-06-08.md`
+- `docs/harness/report-backend-generation-failure-analysis-2026-06-08.md`
+- `docs/harness/report-backend-generation-remediation-plan-2026-06-08.md`
 
 ## Open Risks
 
@@ -179,6 +182,7 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - Asset-specific framework depth validation is deterministic and conservative; it checks section placement and minimal evidence/limitation text, not full analytical quality.
 - Broadening scheduled AI report generation beyond the five representative target tickers remains disabled because it would increase LLM call volume.
 - Startup scheduled report generation is delayed by `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS`, but can still encounter missing provider keys or slow providers. A ticker-level market cache fill handles warm-up race conditions, and US stock snapshots keep primary Finnhub quote data when optional profile/Stooq history calls fail. Primary provider failures still lead to readiness-blocked reports instead of fabricated data.
+- Backend report creation can still fail before persistence because the scheduler-only path must pass runtime switches, provider readiness, OpenAI writer/evaluator calls, deterministic quality gates, and DB commit. `docs/harness/report-backend-generation-failure-analysis-2026-06-08.md` records the current failure taxonomy and `docs/harness/report-backend-generation-remediation-plan-2026-06-08.md` records the recovery plan.
 - Detail pages no longer trigger manual report generation on 404, so unsupported or not-yet-generated assets can show a pending report state until the scheduler produces a stored report.
 - Free users and users without loaded report entitlement now see a paywall and should not trigger report fetches from the detail page.
 - Remaining report-quality follow-ups are prioritized in `docs/harness/report-quality-follow-up-plan-2026-05-31.md`.

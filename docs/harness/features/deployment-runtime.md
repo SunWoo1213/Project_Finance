@@ -139,11 +139,14 @@ Local Docker flow:
 - `docs/harness/data-io-pipeline-remediation-implementation-2026-06-08.md`
 - `docs/harness/report-generation-scheduler-not-firing-log-audit-2026-06-08.md`
 - `docs/harness/report-scheduler-startup-firing-fix-implementation-2026-06-08.md`
+- `docs/harness/report-backend-generation-failure-analysis-2026-06-08.md`
+- `docs/harness/report-backend-generation-remediation-plan-2026-06-08.md`
 
 ## Open Risks
 
 - Hosted backend provider and exact production/staging domains still need to be chosen before final environment values can be set.
 - Supabase direct connection versus pooler mode must be tested with SQLAlchemy asyncpg before production traffic.
 - Scheduler should start disabled for the first smoke release and be enabled only after API, DB, cost, and rate-limit checks. After enabling on Render Standard, confirm whether startup report logs show `리포트 생성 완료`, `ReportReadinessError`, `ReportQualityError`, or primary provider timeout before broadening report targets.
+- AI report generation recovery should proceed one target at a time. Even when scheduler startup is fixed, provider readiness, OpenAI availability, quality gates, and DB commit can independently keep `ai_reports` empty; see `docs/harness/report-backend-generation-failure-analysis-2026-06-08.md`.
 - Existing local `postgres_data` volumes can preserve old DB user/password/name values. Resetting a volume is a data-loss action and needs explicit confirmation.
 - The data.go.kr `serviceKey` was confirmed exposed in 2026-06-03 runtime WARNING logs and must be rotated at the issuer with Render env vars updated. Other provider keys (Finnhub token, FRED `api_key`, ECOS key, Stooq `apikey`) that may have appeared in logs are also treated as compromised; the code guards only prevent future re-exposure.

@@ -4,7 +4,7 @@ Date: 2026-05-30
 
 ## Current Behavior
 
-Market data powers the home page, market snapshot route, category lists, asset detail header, chart history, latest-context panel, and news cache. The backend warms an in-memory cache on startup and refreshes broad price/news data on a scheduler instead of calling external providers for every user request.
+Market data powers the home page, market snapshot route, category lists, asset detail header, market snapshot chart history, latest-context panel, and news cache. The backend warms an in-memory cache on startup and refreshes broad price/news data on a scheduler instead of calling external providers for every user request.
 
 Supported groups include major indices, US/Korean stocks, bonds, commodities, and crypto. Some ticker conventions are application-specific, such as `KTB_10Y` for Korean government bonds and `DGS10` for US Treasury yield data.
 
@@ -18,7 +18,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - Home page: `frontend/src/pages/Home.jsx`
 - Main market snapshot page: `frontend/src/pages/MarketSnapshot.jsx`
 - Category list: `frontend/src/pages/CategoryView.jsx`
-- Detail chart and market summary: `frontend/src/pages/AssetDetail.jsx`
+- Detail market summary: `frontend/src/pages/AssetDetail.jsx`
 - Shared frontend asset-type mapping: `frontend/src/utils/assetCategories.js`
 - Asset display names: `frontend/src/utils/constants.js`
 - Price/yield formatting: `frontend/src/utils/formatters.js`
@@ -46,7 +46,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
    - Stooq history calls are disabled by default. When `ENABLE_STOOQ_FALLBACK=true`, they use `STOOQ_FETCH_TIMEOUT_SECONDS` (default 12 seconds) and stale Stooq cache can be reused after refresh failure.
 11. Frontend pages select the relevant group and normalize fallback fields such as `points`, `legacy`, `value`, `currentPrice`, and `changePercent`.
 12. `CategoryView.jsx` and `AssetDetail.jsx` both use `getUiCategory` from `frontend/src/utils/assetCategories.js`, so Korean stocks, crypto, bonds, commodities, FX, and macro index tickers share the same display category rules.
-13. Category lists let users favorite individual assets from the rightmost star button and open favorited assets through the right-side favorites panel.
+13. Category lists render text-first asset cards without mini graphs, let users favorite individual assets from the rightmost star button, and open favorited assets through the right-side favorites panel.
 14. The chatbot can summarize the existing `market_cache` and ticker latest-context data, using existing cache/TTL/cooldown behavior rather than adding a fresh report generation path.
 15. Favorite asset notifications evaluate cached price/news data only. The evaluator does not call external market providers directly and does not generate AI reports.
 16. Frontend market pages use the shared API client, so hosted API origin is controlled by `VITE_API_BASE_URL` instead of page-level localhost literals.
@@ -134,6 +134,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/report-generation-scheduler-not-firing-log-audit-2026-06-08.md`
 - `docs/harness/market-snapshot-price-fallback-and-stale-retention-implementation-2026-06-08.md`
 - `docs/harness/asset-display-graph-removal-plan-2026-06-08.md`
+- `docs/harness/asset-display-graph-removal-implementation-2026-06-08.md`
 
 ## Open Risks
 

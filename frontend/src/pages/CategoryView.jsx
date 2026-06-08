@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Star } from 'lucide-react';
-import SparklineChart from '../components/SparklineChart';
 import useAuthStore from '../store/authStore';
 import useFavoriteStore from '../store/favoriteStore';
 import { apiClient } from '../utils/apiClient';
@@ -52,7 +51,6 @@ export default function CategoryView({ categoryKey, title }) {
             const uiCategory = getUiCategory(categoryKey, data.symbol);
             const changeValue = data.changePercent ?? data.change_pct ?? 0;
             const badge = formatChangeBadge(changeValue);
-            const strokeColor = changeValue >= 0 ? '#ef4444' : '#3b82f6';
             const marketCap = Number(data.marketCap ?? 0);
             const isMacro = marketCap <= 0 || uiCategory === 'US_BOND' || uiCategory === 'COMMODITY';
             const displayName = resolveAssetName(data.symbol, data.label);
@@ -62,7 +60,7 @@ export default function CategoryView({ categoryKey, title }) {
               <div 
                 key={data.symbol}
                 onClick={() => navigate(`/detail/${encodeURIComponent(data.symbol)}`)}
-                className="flex cursor-pointer items-center gap-4 rounded-xl bg-slate-800 p-4 shadow-md transition hover:bg-slate-700"
+                className="flex cursor-pointer items-center gap-3 rounded-xl bg-slate-800 p-4 shadow-md transition hover:bg-slate-700 sm:gap-4"
               >
                 <div className="flex min-w-0 flex-1 flex-col">
                   <h3 className="truncate text-lg font-bold text-slate-200">
@@ -70,12 +68,8 @@ export default function CategoryView({ categoryKey, title }) {
                   </h3>
                   <span className="text-sm text-slate-400">{formatTicker(data.symbol)}</span>
                 </div>
-                
-                <div className="hidden h-12 min-w-40 flex-[1.4] sm:block">
-                  <SparklineChart data={data.history_prices} color={strokeColor} category={uiCategory} />
-                </div>
 
-                <div className="flex min-w-32 flex-col items-end">
+                <div className="flex min-w-[8rem] shrink-0 flex-col items-end">
                   <div className="text-lg font-bold">
                     {formatPrice(data.price, uiCategory)}
                   </div>

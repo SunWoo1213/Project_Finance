@@ -1,6 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalendarDays, ExternalLink, Flag, Heart, Newspaper, RefreshCw, Send, Star } from "lucide-react";
 
 import Paywall from "../components/Paywall";
@@ -33,9 +32,6 @@ export default function AssetDetail() {
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedPeriod, setSelectedPeriod] = useState("1y");
-  const [chartData, setChartData] = useState([]);
-  const [historyMeta, setHistoryMeta] = useState({ seriesType: "price", unit: "USD" });
   const [assetGroup, setAssetGroup] = useState("us_top10");
   const [latestContext, setLatestContext] = useState(null);
   const [isLatestContextLoading, setIsLatestContextLoading] = useState(false);
@@ -92,45 +88,6 @@ export default function AssetDetail() {
   useEffect(() => {
     fetchLatestContext(false);
   }, [fetchLatestContext]);
-
-  useEffect(() => {
-    const fetchHistory = async () => {
-      if (!assetTicker) {
-        setChartData([]);
-        return;
-      }
-
-      try {
-        const res = await apiClient.get(
-          `/api/market/history/${encodeURIComponent(assetTicker)}?period=${selectedPeriod}`
-        );
-        const payload = res.data;
-
-        if (Array.isArray(payload)) {
-          setChartData(payload);
-          setHistoryMeta({ seriesType: "price", unit: "USD" });
-          return;
-        }
-
-        const points = Array.isArray(payload?.points)
-          ? payload.points
-          : Array.isArray(payload?.legacy)
-          ? payload.legacy
-          : [];
-
-        setChartData(points);
-        setHistoryMeta({
-          seriesType: payload?.series_type || "price",
-          unit: payload?.unit || "USD",
-        });
-      } catch (error) {
-        console.error("Failed to load history:", error);
-        setChartData([]);
-      }
-    };
-
-    fetchHistory();
-  }, [assetTicker, selectedPeriod]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -328,15 +285,12 @@ export default function AssetDetail() {
 
   const changeValue = marketInfo.changePercent ?? marketInfo.change_pct ?? 0;
   const badge = formatChangeBadge(changeValue);
-  const strokeColor = changeValue >= 0 ? "#ef4444" : "#3b82f6";
   const formattedTicker = formatTicker(assetTicker);
   const displayName = resolveAssetName(assetTicker, formattedTicker);
   const favorited = isFavorite(assetTicker);
-  const hasChartData = Array.isArray(chartData) && chartData.length > 0;
 
   const uiCategory = getUiCategory(assetGroup, assetTicker);
 
-  const isBond = uiCategory.includes("BOND");
   const marketCap = Number(marketInfo.marketCap ?? 0);
   const isMacro =
     marketCap <= 0 ||
@@ -344,13 +298,6 @@ export default function AssetDetail() {
     uiCategory === "KR_BOND" ||
     uiCategory === "COMMODITY" ||
     uiCategory === "FX";
-
-  const periods = [
-    { label: "1일", value: "1d" },
-    { label: "1개월", value: "1mo" },
-    { label: "1년", value: "1y" },
-    { label: "5년", value: "5y" },
-  ];
 
   const formatCommentCreatedAt = (value) =>
     new Date(value).toLocaleString("ko-KR", {
@@ -417,63 +364,6 @@ export default function AssetDetail() {
           </button>
         </div>
 
-        {!isBond && (
-          <div className="relative flex h-[400px] flex-col rounded-3xl border border-slate-700 bg-slate-800/50 p-6 shadow-inner">
-            <div className="relative z-10 mb-4 flex justify-end gap-2">
-              {periods.map((p) => (
-                <button
-                  key={p.value}
-                  onClick={() => setSelectedPeriod(p.value)}
-                  className={`rounded-full px-4 py-1.5 text-sm font-bold transition-colors ${
-                    selectedPeriod === p.value
-                      ? "scale-105 transform bg-emerald-500 text-slate-900 shadow-md"
-                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="h-[280px] w-full">
-              {hasChartData ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 20, right: 30, left: 10, bottom: 5 }}>
-                    <XAxis dataKey="date" stroke="#94a3b8" tick={{ fontSize: 12 }} minTickGap={30} />
-                    <YAxis
-                      domain={["dataMin", "dataMax"]}
-                      orientation="right"
-                      axisLine={false}
-                      tickLine={false}
-                      stroke="#94a3b8"
-                      tickFormatter={(value) => formatPrice(value, uiCategory)}
-                      tick={{ fontSize: 12 }}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#1e293b",
-                        border: "none",
-                        borderRadius: "8px",
-                        color: "#f8fafc",
-                      }}
-                      itemStyle={{ color: strokeColor }}
-                      formatter={(value) => [formatPrice(value, uiCategory), historyMeta.seriesType === "yield" ? "Yield" : "Price"]}
-                    />
-                    <Line type="monotone" dataKey="value" stroke={strokeColor} strokeWidth={3} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-slate-400">차트 데이터가 없습니다.</div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {isBond && (
-          <div className="mt-2 rounded-2xl border border-slate-700/70 bg-slate-800/40 px-4 py-3 text-sm text-slate-400">
-            채권 자산은 AI 매크로 분석 리포트를 중심으로 제공합니다.
-          </div>
-        )}
       </section>
 
       <section>
@@ -550,7 +440,7 @@ export default function AssetDetail() {
         </div>
       </section>
 
-      <section className={`relative ${isBond ? "mt-2" : ""}`}>
+      <section className="relative">
         <h2 className="mb-4 px-2 text-2xl font-bold tracking-tight">AI 분석 리포트</h2>
         <div className={`transition-all duration-500 ${reportLocked ? "select-none opacity-60 blur-md" : ""}`}>
           <ReportCard reportData={report} isReportLoading={false} />
