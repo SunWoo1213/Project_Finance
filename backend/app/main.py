@@ -18,6 +18,7 @@ from .services.ai_service import (
     generate_daily_reports,
 )
 from .services.market_service import fetch_latest_asset_context, update_news_task, update_prices_task
+from .services.demo_market_data import is_live_market_ticker, mock_history_payload
 from .services.notification_service import evaluate_notifications, send_pending_notifications
 from .services.price_providers import fetch_market_history
 try:
@@ -385,16 +386,8 @@ async def get_market_history(ticker: str, period: str = Query("1y", pattern="^(1
     try:
         period_days_map = {"1d": 7, "1mo": 30, "1y": 365, "5y": 1825}
         asset_ticker = (ticker or "").strip().upper()
-
-        def build_points(history_prices: list[float]) -> list[dict]:
-            base_date = datetime.now()
-            return [
-                {
-                    "date": (base_date - timedelta(days=(len(history_prices) - 1 - i))).strftime("%Y-%m-%d"),
-                    "value": float(price),
-                }
-                for i, price in enumerate(history_prices)
-            ]
+        if not is_live_market_ticker(asset_ticker):
+            return mock_history_payload(asset_ticker, period)
 
         # Bond providers preserve the existing FRED/ECOS routes.
         if asset_ticker in [

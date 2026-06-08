@@ -33,8 +33,9 @@ Plan: `docs/harness/asset-display-graph-removal-plan-2026-06-08.md`
 
 ## 검증
 
-- 예정: `cd frontend; npm run lint`
-- 예정: `cd frontend; npm run build`
+- `cd frontend; npm run lint` 통과.
+- `cd frontend; npm run build` 통과.
+- `vite build`에서 minified chunk가 500 kB를 넘는다는 경고가 출력되었지만 빌드는 성공했다.
 
 ## 후속 위험
 

@@ -7,6 +7,12 @@ from typing import Any
 from ..core.cache import market_cache
 from ..core.config import settings
 try:
+    from app.services.demo_market_data import (
+        is_live_market_ticker,
+        mock_latest_context,
+        mock_news_items,
+        mock_price_payload,
+    )
     from app.services.macro_service import fetch_commodity_data, fetch_kr_bond_data, fetch_us_bond_data
     from app.services.price_providers import (
         fetch_latest_provider_context,
@@ -14,6 +20,7 @@ try:
         fetch_market_snapshot,
     )
 except ModuleNotFoundError:
+    from .demo_market_data import is_live_market_ticker, mock_latest_context, mock_news_items, mock_price_payload
     from .macro_service import fetch_commodity_data, fetch_kr_bond_data, fetch_us_bond_data
     from .price_providers import fetch_latest_provider_context, fetch_market_news_items, fetch_market_snapshot
 
@@ -145,6 +152,9 @@ def _to_frontend_shape(normalized: dict[str, Any]) -> dict[str, Any]:
 
 
 async def fetch_asset_data(ticker: str, category: str) -> dict[str, Any]:
+    if not is_live_market_ticker(ticker):
+        return _coerce_normalized_payload(mock_price_payload(ticker, category))
+
     if category == "COMMODITY":
         raw = await fetch_commodity_data(ticker)
     elif category == "KR_BOND":
@@ -241,6 +251,12 @@ async def fetch_latest_asset_context(ticker: str, *, force_refresh: bool = False
         return cached
 
     symbol = _resolve_provider_news_symbol(asset_ticker)
+    if not is_live_market_ticker(asset_ticker):
+        payload = mock_latest_context(asset_ticker, symbol)
+        cache_bucket[asset_ticker] = payload
+        market_cache.setdefault("last_updated", {}).setdefault("latest_context", {})[asset_ticker] = now.isoformat()
+        return payload
+
     try:
         fetched = await asyncio.wait_for(
             fetch_latest_provider_context(symbol),
@@ -291,6 +307,13 @@ async def ensure_price_cache_for_ticker(ticker: str) -> dict[str, Any] | None:
             if existing:
                 return existing
 
+            if not is_live_market_ticker(payload["ticker"]):
+                normalized = _coerce_normalized_payload(mock_price_payload(payload["ticker"], payload["category"]))
+                cached_payload = {"symbol": payload["ticker"], **_to_frontend_shape(normalized)}
+                market_cache.setdefault("prices", {}).setdefault(group_name, {})[label] = cached_payload
+                market_cache.setdefault("last_updated", {})["prices"] = datetime.now(timezone.utc).isoformat()
+                return cached_payload
+
             try:
                 normalized = await asyncio.wait_for(
                     fetch_asset_data(payload["ticker"], payload["category"]),
@@ -323,6 +346,11 @@ async def _collect_prices_group(
         ticker = payload["ticker"]
         category = payload["category"]
         try:
+            if not is_live_market_ticker(ticker):
+                normalized = _coerce_normalized_payload(mock_price_payload(ticker, category))
+                results[label] = {"symbol": ticker, **_to_frontend_shape(normalized)}
+                return
+
             timeout_seconds = settings.MARKET_PRICE_FETCH_TIMEOUT_SECONDS
             normalized = await asyncio.wait_for(fetch_asset_data(ticker, category), timeout=timeout_seconds)
             results[label] = {"symbol": ticker, **_to_frontend_shape(normalized)}
@@ -343,6 +371,10 @@ async def _collect_news_group(group_name: str, tickers: dict[str, str]) -> tuple
 
     async def collect_one(label: str, symbol: str) -> None:
         try:
+            if not is_live_market_ticker(label) and not is_live_market_ticker(symbol):
+                results[label] = {"symbol": symbol, "items": mock_news_items(symbol)}
+                return
+
             timeout_seconds = settings.MARKET_NEWS_FETCH_TIMEOUT_SECONDS
             news_data = await asyncio.wait_for(fetch_market_news_items(symbol), timeout=timeout_seconds)
             results[label] = {"symbol": symbol, "items": news_data}

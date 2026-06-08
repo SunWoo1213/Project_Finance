@@ -587,7 +587,68 @@ async def test_market_snapshot_does_not_cache_zero_price_without_stale(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_market_price_collection_mocks_non_live_tickers(monkeypatch):
+    monkeypatch.setattr(market_service.settings, "MARKET_LIVE_TICKERS", "NVDA")
+
+    async def fail_fetch_asset_data(*args, **kwargs):
+        raise AssertionError("non-live ticker should not call a provider")
+
+    monkeypatch.setattr(market_service, "fetch_asset_data", fail_fetch_asset_data)
+
+    group_name, results = await market_service._collect_prices_group(
+        "us_top10",
+        {"AAPL": {"ticker": "AAPL", "category": "STOCK_US"}},
+    )
+
+    assert group_name == "us_top10"
+    assert results["AAPL"]["symbol"] == "AAPL"
+    assert results["AAPL"]["price"] > 0
+    assert len(results["AAPL"]["history_prices"]) == 30
+
+
+@pytest.mark.asyncio
+async def test_market_price_collection_keeps_live_tickers_on_provider_path(monkeypatch):
+    monkeypatch.setattr(market_service.settings, "MARKET_LIVE_TICKERS", "NVDA")
+    calls = {"count": 0}
+
+    async def fake_fetch_asset_data(ticker, category):
+        calls["count"] += 1
+        return {
+            "currentPrice": 125.0,
+            "changePercent": 1.5,
+            "history_prices": [124.0, 125.0],
+            "marketCap": 1.0,
+        }
+
+    monkeypatch.setattr(market_service, "fetch_asset_data", fake_fetch_asset_data)
+
+    _, results = await market_service._collect_prices_group(
+        "us_top10",
+        {"NVDA": {"ticker": "NVDA", "category": "STOCK_US"}},
+    )
+
+    assert calls["count"] == 1
+    assert results["NVDA"]["price"] == 125.0
+
+
+@pytest.mark.asyncio
+async def test_market_news_collection_mocks_non_live_tickers(monkeypatch):
+    monkeypatch.setattr(market_service.settings, "MARKET_LIVE_TICKERS", "NVDA")
+
+    async def fail_news_items(*args, **kwargs):
+        raise AssertionError("non-live ticker should not call a news provider")
+
+    monkeypatch.setattr(market_service, "fetch_market_news_items", fail_news_items)
+
+    _, results = await market_service._collect_news_group("us_top10", {"AAPL": "AAPL"})
+
+    assert results["AAPL"]["symbol"] == "AAPL"
+    assert results["AAPL"]["items"][0]["source"] == "demo_mock"
+
+
+@pytest.mark.asyncio
 async def test_latest_context_force_refresh_respects_cooldown(monkeypatch):
+    monkeypatch.setattr(market_service.settings, "MARKET_LIVE_TICKERS", "AAPL")
     calls = {"count": 0}
 
     async def fake_context(ticker):

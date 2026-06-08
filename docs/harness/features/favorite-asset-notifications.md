@@ -82,6 +82,7 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 - `docs/harness/gmail-telegram-notification-delivery-remediation-plan-2026-06-08.md`
 - `docs/harness/gmail-telegram-notification-delivery-remediation-implementation-2026-06-08.md`
 - `docs/harness/notification-delivery-not-sending-diagnosis-2026-06-08.md`
+- `docs/harness/gmail-oauth-refresh-token-setup-documentation-2026-06-08.md`
 
 ## Open Risks
 

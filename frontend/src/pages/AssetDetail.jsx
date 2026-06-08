@@ -363,7 +363,6 @@ export default function AssetDetail() {
             {favorited ? "즐겨찾기 해제" : "즐겨찾기"}
           </button>
         </div>
-
       </section>
 
       <section>

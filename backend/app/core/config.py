@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     MARKET_PRICES_REFRESH_MINUTES: int = 5
     MARKET_NEWS_REFRESH_MINUTES: int = 60
     MARKET_LATEST_CONTEXT_TTL_MINUTES: int = 10
+    MARKET_LIVE_TICKERS: str = "DGS10,XAU,BTC-USD,NVDA,005930.KS"
 
     # Per-asset fetch timeout for warm-up/scheduler collection (seconds).
     # Higher values let a serialized provider queue drain within one run. The KR
