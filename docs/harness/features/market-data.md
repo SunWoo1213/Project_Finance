@@ -131,10 +131,14 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/demo-free-tier-data-cadence-plan-2026-06-08.md`
 - `docs/harness/data-io-pipeline-remediation-plan-2026-06-08.md`
 - `docs/harness/data-io-pipeline-remediation-implementation-2026-06-08.md`
+- `docs/harness/report-generation-scheduler-not-firing-log-audit-2026-06-08.md`
+- `docs/harness/market-snapshot-price-fallback-and-stale-retention-implementation-2026-06-08.md`
 
 ## Open Risks
 
 - Market routes still live in `backend/app/main.py`; growth may justify moving them to `backend/app/api/market.py`.
+- Data I/O remediation on 2026-06-08 fixed open.er-api.com RFC date parsing, data.go.kr serviceKey decoding/history row ordering, `period=1d` point-count policy, US bond provider-date preservation, and history `provider_meta` passthrough. Broader provider failure/cooldown tests and real-key smoke remain.
+- STOCK_US 현재가 폴백(Finnhub→FMP→Stooq 종가)과 스냅샷 stale 유지가 2026-06-08 구현됨(`market-snapshot-price-fallback-and-stale-retention-implementation-2026-06-08.md`). 다만 **콜드 스타트에서 직전 유효 스냅샷이 한 번도 없고 모든 provider가 실패하면** 여전히 가격 0이 될 수 있어, 최초 1회 provider 성공과 키/플랜 점검은 필요하다.
 - New market page API calls should continue to use `frontend/src/utils/apiClient.js`; avoid reintroducing page-level API origin literals.
 - External provider behavior can change without code changes.
 - Free provider constraints remain: FMP Basic is EOD/delayed and limited by daily quota/licensing, Stooq daily CSV is opt-in fallback only, open.er-api.com is daily reference FX with attribution requirements, 공공데이터포털 data can be T+1 despite realtime metadata, and Naver Finance News is a non-contractual page-based source.

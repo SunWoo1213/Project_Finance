@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import PlanBadge from "../components/PlanBadge";
@@ -39,7 +40,8 @@ function formatPrice(value) {
 
 export default function Pricing() {
   const { token } = useAuthStore();
-  const { tier: currentTier } = useSubscriptionStore();
+  const { tier: currentTier, fetchMe } = useSubscriptionStore();
+  const navigate = useNavigate();
   const [plans, setPlans] = useState(FALLBACK_PLANS);
   const [isLoading, setIsLoading] = useState(true);
   const [checkoutTier, setCheckoutTier] = useState(null);
@@ -78,6 +80,12 @@ export default function Pricing() {
         },
         { headers: authHeader(token) }
       );
+      if (data?.activated) {
+        await fetchMe(token);
+        toast.success("구독이 활성화되었습니다.");
+        navigate("/billing/success");
+        return;
+      }
       if (data?.checkout_url) {
         window.location.assign(data.checkout_url);
         return;

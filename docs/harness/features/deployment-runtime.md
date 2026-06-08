@@ -74,12 +74,13 @@ Local Docker flow:
   - `SQLALCHEMY_ECHO`: default false so production does not log SQL statements.
   - `DB_POOL_PRE_PING`: default true for connection health checks.
   - `DB_PREPARED_STATEMENT_CACHE_SIZE`: optional asyncpg prepared-statement cache override for pooler compatibility testing.
-  - `ENABLE_NOTIFICATION_SCHEDULER`: enables favorite notification evaluation/delivery jobs when true.
+- `ENABLE_NOTIFICATION_SCHEDULER`: enables favorite notification evaluation/delivery jobs when true.
+- `ENABLE_SCHEDULER`: must also be true for notification scheduler jobs to register.
   - `ENABLE_AI_REPORT_GENERATION`: backend-only switch for scheduled/background AI report generation. When false, report scheduler jobs are not registered and direct service calls return before DB/provider/LLM generation work; stored report reads still work.
   - `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS`: delay for the one-time startup report job after app startup. Default `180`; use 180~300 on Render while provider warm-up stabilizes.
   - `STOOQ_FETCH_TIMEOUT_SECONDS`: Stooq daily CSV single-call timeout in seconds. Default `12`; minimum `5`. Use `20` or `30` when Render-to-Stooq connection timeouts repeat.
   - `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`, `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`, `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`, `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`: notification scheduler and default rule controls.
-  - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`: backend-only delivery configuration names. Email delivery supports Gmail API only.
+  - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`: backend-only delivery configuration names. Email delivery supports Gmail API only. Current Telegram verification uses manual numeric `chat_id` entry; no inbound webhook handler is active.
   - `TOSS_CLIENT_KEY`: Toss Payments JS SDK client key. It is public to the browser during the billing-auth flow but should still be supplied through environment configuration rather than hardcoded source.
   - `TOSS_SECRET_KEY`: Toss Payments Core API backend-only secret key. Never expose it through `VITE_` variables, frontend source, logs, or docs.
   - `TOSS_API_BASE_URL`, `TOSS_PLUS_AMOUNT_KRW`, `TOSS_PRO_AMOUNT_KRW`, `TOSS_BILLING_SUCCESS_URL`, `TOSS_BILLING_FAIL_URL`: Toss billing-auth and approval configuration.
@@ -124,6 +125,7 @@ Local Docker flow:
 - `docs/harness/docker-database-compatibility-remediation-plan-2026-06-02.md`
 - `docs/harness/docker-database-compatibility-implementation-2026-06-02.md`
 - `docs/harness/gmail-only-email-notification-implementation-2026-06-02.md`
+- `docs/harness/gmail-telegram-notification-delivery-remediation-implementation-2026-06-08.md`
 - `docs/harness/report-generation-env-switch-plan-2026-06-03.md`
 - `docs/harness/report-generation-env-switch-implementation-2026-06-03.md`
 - `docs/harness/report-404-and-secret-log-leak-remediation-plan-2026-06-04.md`
@@ -134,6 +136,9 @@ Local Docker flow:
 - `docs/harness/toss-payments-billing-auth-phase1-implementation-2026-06-08.md`
 - `docs/harness/demo-free-tier-data-cadence-plan-2026-06-08.md`
 - `docs/harness/data-io-pipeline-remediation-plan-2026-06-08.md`
+- `docs/harness/data-io-pipeline-remediation-implementation-2026-06-08.md`
+- `docs/harness/report-generation-scheduler-not-firing-log-audit-2026-06-08.md`
+- `docs/harness/report-scheduler-startup-firing-fix-implementation-2026-06-08.md`
 
 ## Open Risks
 

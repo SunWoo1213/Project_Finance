@@ -160,6 +160,10 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/stooq-timeout-fallback-2026-06-07.md`
 - `docs/harness/demo-free-tier-data-cadence-plan-2026-06-08.md`
 - `docs/harness/data-io-pipeline-remediation-plan-2026-06-08.md`
+- `docs/harness/data-io-pipeline-remediation-implementation-2026-06-08.md`
+- `docs/harness/report-generation-scheduler-not-firing-log-audit-2026-06-08.md`
+- `docs/harness/market-snapshot-price-fallback-and-stale-retention-implementation-2026-06-08.md`
+- `docs/harness/report-scheduler-startup-firing-fix-implementation-2026-06-08.md`
 
 ## Open Risks
 

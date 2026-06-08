@@ -623,6 +623,71 @@ async def get_toss_billing_auth_intent(
     )
 
 
+def mock_provider_subscription_id(user_id: int) -> str:
+    """mock provider 내에서 사용자당 단일 구독 행을 유지하기 위한 식별자."""
+    return f"mock_{user_id}"
+
+
+async def activate_mock_subscription(
+    db: AsyncSession,
+    user: User,
+    tier: SubscriptionTier,
+    period_days: int = 30,
+) -> Subscription:
+    """mock 결제 환경에서 결제 없이 즉시 유료 구독을 활성화한다.
+
+    개발/데모 전용 경로다. PAYMENT_PROVIDER=mock 일 때만 호출해야 하며,
+    운영(Toss) 환경에서는 절대 사용하지 않는다. 사용자당 provider="mock" 단일
+    행을 유지하고, 같은 사용자의 다른 ACTIVE/CANCELED 구독은 EXPIRED 처리한다.
+    """
+    if tier not in {SubscriptionTier.PLUS, SubscriptionTier.PRO}:
+        raise PaymentProviderUnavailable("Mock activation is only available for paid tiers.")
+
+    plan_id = get_plan_id(tier)
+    if not plan_id:
+        raise PaymentProviderUnavailable(f"{tier.value} payment plan is not configured.")
+
+    now = datetime.utcnow()
+    provider_subscription_id = mock_provider_subscription_id(user.id)
+    subscription = await find_subscription_by_provider(db, "mock", provider_subscription_id)
+    if subscription is None:
+        subscription = Subscription(
+            user_id=user.id,
+            provider="mock",
+            provider_subscription_id=provider_subscription_id,
+            created_at=now,
+        )
+        db.add(subscription)
+
+    subscription.tier = tier.value
+    subscription.status = SubscriptionStatus.ACTIVE.value
+    subscription.provider_plan_id = plan_id
+    subscription.current_period_start = now
+    subscription.current_period_end = now + timedelta(days=period_days)
+    subscription.cancel_at_period_end = False
+    subscription.canceled_at = None
+    subscription.ended_at = None
+    subscription.updated_at = now
+
+    await db.flush()
+
+    prior_result = await db.execute(
+        select(Subscription)
+        .where(Subscription.user_id == user.id)
+        .where(Subscription.id != subscription.id)
+        .where(Subscription.status.in_([SubscriptionStatus.ACTIVE.value, SubscriptionStatus.CANCELED.value]))
+    )
+    for prior_subscription in prior_result.scalars():
+        prior_subscription.status = SubscriptionStatus.EXPIRED.value
+        prior_subscription.cancel_at_period_end = False
+        prior_subscription.ended_at = now
+        prior_subscription.updated_at = now
+
+    await db.commit()
+    await db.refresh(subscription)
+    return subscription
+
+
 async def get_cancelable_subscription(db: AsyncSession, user_id: int) -> Subscription | None:
     result = await db.execute(
         select(Subscription)

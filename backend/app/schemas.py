@@ -116,6 +116,7 @@ class BillingCheckoutRequest(BaseModel):
 
 class BillingCheckoutResponse(BaseModel):
     checkout_url: str
+    activated: bool = False
 
 
 class TossBillingIntentResponse(BaseModel):

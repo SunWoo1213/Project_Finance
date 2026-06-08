@@ -20,6 +20,7 @@ from ..services.payment_service import (
     PaymentProviderUnavailable,
     PaymentSignatureVerificationError,
     PaymentWebhookParseError,
+    activate_mock_subscription,
     apply_cancellation_result,
     create_toss_billing_auth_session,
     get_cancelable_subscription,
@@ -73,6 +74,11 @@ async def create_checkout_session(
     cancel_url = payload.cancel_url or "http://localhost:5173/billing/cancel"
     try:
         provider = get_payment_provider()
+        if provider.provider_name == "mock":
+            # 개발/데모 전용: mock provider에서는 결제 없이 즉시 유료 구독을 활성화한다.
+            # 운영(Toss) 환경에서는 이 분기로 진입하지 않는다.
+            await activate_mock_subscription(db=db, user=current_user, tier=payload.tier)
+            return BillingCheckoutResponse(checkout_url=success_url, activated=True)
         if provider.provider_name == "toss":
             session = await create_toss_billing_auth_session(
                 db=db,

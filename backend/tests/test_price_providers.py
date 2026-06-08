@@ -470,6 +470,123 @@ async def test_finnhub_stock_snapshot_keeps_quote_when_optional_sources_fail(mon
 
 
 @pytest.mark.asyncio
+async def test_finnhub_stock_snapshot_falls_back_to_fmp_quote_when_finnhub_502(monkeypatch):
+    # Finnhub /quote가 502로 실패해도 FMP quote로 현재가를 채워야 한다(가격 0 회피).
+    async def failing_get_json(provider, url, **kwargs):
+        assert provider == "finnhub"
+        raise RuntimeError("502 Bad Gateway")
+
+    async def fake_fmp_quote(symbol):
+        assert symbol == "NVDA"
+        return {
+            "currentPrice": 130.0,
+            "changePercent": 2.5,
+            "history_prices": [130.0],
+            "marketCap": 3.0e12,
+        }
+
+    async def failing_market_cap(symbol):
+        raise TimeoutError("profile timeout")
+
+    async def failing_history(ticker, period):
+        raise TimeoutError("history timeout")
+
+    monkeypatch.setattr(price_providers.settings, "FINNHUB_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
+    monkeypatch.setattr(price_providers, "_get_json", failing_get_json)
+    monkeypatch.setattr(price_providers, "_fetch_fmp_quote_snapshot", fake_fmp_quote)
+    monkeypatch.setattr(price_providers, "_fetch_finnhub_profile_market_cap", failing_market_cap)
+    monkeypatch.setattr(price_providers, "_fetch_fmp_profile_market_cap", failing_market_cap)
+    monkeypatch.setattr(price_providers, "fetch_fmp_history", failing_history)
+
+    snapshot = await price_providers._fetch_finnhub_stock_snapshot("NVDA")
+
+    assert snapshot["currentPrice"] == 130.0
+    assert snapshot["changePercent"] == 2.5
+    # finnhub/FMP profile이 모두 실패하면 FMP quote의 marketCap을 tertiary로 사용한다.
+    assert snapshot["marketCap"] == 3.0e12
+    assert snapshot["history_prices"] == [130.0]
+
+
+@pytest.mark.asyncio
+async def test_finnhub_stock_snapshot_falls_back_to_history_last_close(monkeypatch):
+    # quote 계열(Finnhub·FMP)이 모두 비면 history의 마지막 종가로 현재가를 채운다.
+    async def failing_get_json(provider, url, **kwargs):
+        raise RuntimeError("502 Bad Gateway")
+
+    async def empty_fmp_quote(symbol):
+        return dict(price_providers.DEFAULT_RESPONSE)
+
+    async def failing_market_cap(symbol):
+        raise TimeoutError("profile timeout")
+
+    async def fake_history(ticker, period):
+        return price_providers._history_payload(
+            "NVDA",
+            [
+                {"date": "2026-06-06", "value": 118.0},
+                {"date": "2026-06-07", "value": 120.0},
+            ],
+        )
+
+    monkeypatch.setattr(price_providers.settings, "FINNHUB_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
+    monkeypatch.setattr(price_providers, "_get_json", failing_get_json)
+    monkeypatch.setattr(price_providers, "_fetch_fmp_quote_snapshot", empty_fmp_quote)
+    monkeypatch.setattr(price_providers, "_fetch_finnhub_profile_market_cap", failing_market_cap)
+    monkeypatch.setattr(price_providers, "_fetch_fmp_profile_market_cap", failing_market_cap)
+    monkeypatch.setattr(price_providers, "fetch_fmp_history", fake_history)
+
+    snapshot = await price_providers._fetch_finnhub_stock_snapshot("NVDA")
+
+    assert snapshot["currentPrice"] == 120.0
+    assert snapshot["changePercent"] == round(((120.0 - 118.0) / 118.0) * 100, 6)
+    assert snapshot["history_prices"] == [118.0, 120.0]
+
+
+@pytest.mark.asyncio
+async def test_market_snapshot_keeps_stale_when_live_returns_no_price(monkeypatch):
+    # 전 provider 실패로 현재가가 0이면 직전 유효 스냅샷(stale)을 유지해야 한다.
+    cache_key = "snapshot:STOCK_US:NVDA"
+    good = {
+        "currentPrice": 121.0,
+        "changePercent": 1.0,
+        "history_prices": [121.0],
+        "marketCap": 1.0,
+    }
+    # TTL이 지난(stale) 타임스탬프로 심어 _cache_get은 miss → live fetch로 진입하게 한다.
+    price_providers._snapshot_cache[cache_key] = (
+        price_providers.monotonic() - price_providers.SNAPSHOT_CACHE_TTL_SECONDS - 1,
+        good,
+    )
+
+    async def zero_snapshot(symbol):
+        return dict(price_providers.DEFAULT_RESPONSE)
+
+    monkeypatch.setattr(price_providers, "_fetch_finnhub_stock_snapshot", zero_snapshot)
+
+    snapshot = await price_providers.fetch_market_snapshot("NVDA", "STOCK_US")
+
+    assert snapshot == good
+    # stale 경로는 last-good 값을 다시 캐시에 적어 다음 TTL 윈도까지 제공한다.
+    assert price_providers._snapshot_cache[cache_key][1] == good
+
+
+@pytest.mark.asyncio
+async def test_market_snapshot_does_not_cache_zero_price_without_stale(monkeypatch):
+    # 직전 유효값이 없으면 0을 반환하되, 캐시에 0을 덮어써 고착시키지 않는다.
+    async def zero_snapshot(symbol):
+        return dict(price_providers.DEFAULT_RESPONSE)
+
+    monkeypatch.setattr(price_providers, "_fetch_finnhub_stock_snapshot", zero_snapshot)
+
+    snapshot = await price_providers.fetch_market_snapshot("NVDA", "STOCK_US")
+
+    assert snapshot["currentPrice"] == 0.0
+    assert "snapshot:STOCK_US:NVDA" not in price_providers._snapshot_cache
+
+
+@pytest.mark.asyncio
 async def test_latest_context_force_refresh_respects_cooldown(monkeypatch):
     calls = {"count": 0}
 

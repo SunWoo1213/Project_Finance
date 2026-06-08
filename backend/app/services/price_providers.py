@@ -603,19 +603,45 @@ async def _fetch_finnhub_profile_market_cap(symbol: str) -> float:
 
 async def _fetch_finnhub_stock_snapshot(symbol: str) -> dict[str, Any]:
     token = _finnhub_token()
-    if not token:
-        return dict(DEFAULT_RESPONSE)
+    current_price = 0.0
+    change_percent = 0.0
+    # Finnhub /quote는 primary 현재가 소스다. 502 등 단일 provider 장애가
+    # 스냅샷 전체를 0으로 만들지 않도록 예외를 삼키고 FMP/Stooq 폴백으로 넘어간다.
+    if token:
+        try:
+            payload = await _get_json(
+                "finnhub",
+                f"{FINNHUB_BASE_URL}/quote",
+                params={"symbol": symbol, "token": token},
+            )
+            current_price = _safe_float((payload or {}).get("c"))
+            prev_close = _safe_float((payload or {}).get("pc"), default=current_price)
+            change_percent = _safe_float((payload or {}).get("dp"))
+            if change_percent == 0.0 and prev_close:
+                change_percent = ((current_price - prev_close) / prev_close) * 100
+        except Exception as exc:
+            logger.warning(
+                "Finnhub quote unavailable (ticker=%s): %s",
+                symbol,
+                redact_secrets(repr(exc)),
+            )
 
-    payload = await _get_json(
-        "finnhub",
-        f"{FINNHUB_BASE_URL}/quote",
-        params={"symbol": symbol, "token": token},
-    )
-    current_price = _safe_float((payload or {}).get("c"))
-    prev_close = _safe_float((payload or {}).get("pc"), default=current_price)
-    change_percent = _safe_float((payload or {}).get("dp"))
-    if change_percent == 0.0 and prev_close:
-        change_percent = ((current_price - prev_close) / prev_close) * 100
+    # 현재가 폴백 1: Finnhub quote 실패/빈값이면 FMP quote로 현재가·등락률 보강.
+    fmp_quote: dict[str, Any] | None = None
+    if not current_price:
+        try:
+            fmp_quote = await _fetch_fmp_quote_snapshot(symbol)
+        except Exception as exc:
+            logger.warning(
+                "FMP quote fallback failed for stock snapshot (ticker=%s): %s",
+                symbol,
+                redact_secrets(repr(exc)),
+            )
+            fmp_quote = None
+        if fmp_quote and _safe_float(fmp_quote.get("currentPrice")):
+            current_price = _safe_float(fmp_quote.get("currentPrice"))
+            change_percent = _safe_float(fmp_quote.get("changePercent"))
+
     try:
         market_cap = await _fetch_finnhub_profile_market_cap(symbol)
     except Exception as exc:
@@ -635,6 +661,8 @@ async def _fetch_finnhub_stock_snapshot(symbol: str) -> dict[str, Any]:
                 redact_secrets(repr(exc)),
             )
             market_cap = 0.0
+    if not market_cap and fmp_quote:
+        market_cap = _safe_float(fmp_quote.get("marketCap"))
     try:
         history = await fetch_fmp_history(symbol, "1mo")
     except Exception as exc:
@@ -655,6 +683,12 @@ async def _fetch_finnhub_stock_snapshot(symbol: str) -> dict[str, Any]:
             )
             history = _history_payload(symbol, [])
     history_prices = [point["value"] for point in history.get("points", [])]
+    # 현재가 폴백 2: quote 계열이 모두 비면 history(FMP→Stooq 종가)의 마지막 값으로 채운다.
+    if not current_price and history_prices:
+        current_price = _safe_float(history_prices[-1])
+        if len(history_prices) >= 2:
+            prev_price = _safe_float(history_prices[-2])
+            change_percent = 0.0 if not prev_price else ((current_price - prev_price) / prev_price) * 100
     if not history_prices and current_price:
         history_prices = [current_price]
     return {
@@ -1043,6 +1077,8 @@ async def fetch_market_snapshot(ticker: str, category: str | None = None) -> dic
     normalized = (ticker or "").strip().upper()
     category = (category or "").strip().upper()
     cache_key = f"snapshot:{category}:{normalized}"
+    # _cache_get은 TTL 만료 시 항목을 pop하므로, stale 폴백에 쓸 직전 유효값을 먼저 확보한다.
+    stale_snapshot = _cache_get_stale(_snapshot_cache, cache_key)
     cached = _cache_get(_snapshot_cache, cache_key, SNAPSHOT_CACHE_TTL_SECONDS)
     if cached is not None:
         return cached
@@ -1067,6 +1103,21 @@ async def fetch_market_snapshot(ticker: str, category: str | None = None) -> dic
     except Exception as exc:
         logger.warning("Market snapshot provider failed (ticker=%s, category=%s): %s", normalized, category, redact_secrets(repr(exc)))
         payload = dict(DEFAULT_RESPONSE)
+
+    # 전 provider 실패로 현재가가 0이면 직전 유효 스냅샷(stale)을 유지한다.
+    # 가격 0이 캐시에 고착되면 리포트 readiness가 blocked되어 미생성으로 굳기 때문이다.
+    # stale을 다시 캐시에 적어 다음 TTL 윈도까지 마지막 유효값을 제공하고, 만료되면 live를
+    # 재시도한다(실패는 _get_json cooldown으로 throttle). 직전 유효값이 없으면 0을 반환하되
+    # 캐시에 덮어쓰지 않아 다음 호출이 곧바로 live 재시도하도록 둔다.
+    if not _safe_float(payload.get("currentPrice")):
+        if stale_snapshot is not None and _safe_float(stale_snapshot.get("currentPrice")):
+            logger.warning(
+                "Market snapshot stale fallback used (ticker=%s, category=%s): live fetch returned no price",
+                normalized,
+                category,
+            )
+            return _cache_set(_snapshot_cache, cache_key, stale_snapshot)
+        return payload
 
     return _cache_set(_snapshot_cache, cache_key, payload)
 

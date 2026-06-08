@@ -210,6 +210,10 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     logger.error(f"리포트 생성 중 에러 발생: {e}", exc_info=True)
 
+            # interval 트리거의 최초 발화는 기본적으로 +1주기(=INTERVAL_HOURS) 후다.
+            # sleep/재시작형 런타임(예: Render free)에서는 인스턴스가 그 전에 종료돼 리포트가
+            # 한 번도 생성되지 못한다. 기동 직후(startup delay 후)에 1회 발화하도록 next_run_time을
+            # 명시하고 이후 주기를 따른다. 별도 startup date job은 이 한 줄로 대체된다.
             scheduler.add_job(
                 run_daily_reports_job,
                 "interval",
@@ -218,17 +222,12 @@ async def lifespan(app: FastAPI):
                 replace_existing=True,
                 coalesce=True,
                 max_instances=1,
+                next_run_time=datetime.now() + timedelta(seconds=settings.REPORT_SCHEDULER_STARTUP_DELAY_SECONDS),
             )
-            scheduler.add_job(
-                run_daily_reports_job,
-                "date",
-                run_date=datetime.now() + timedelta(seconds=settings.REPORT_SCHEDULER_STARTUP_DELAY_SECONDS),
-                id="generate_daily_reports_startup",
-                replace_existing=True,
-                coalesce=True,
-                max_instances=1,
+            report_scheduler_status = (
+                f"reports: in {settings.REPORT_SCHEDULER_STARTUP_DELAY_SECONDS}s "
+                f"then every {settings.REPORT_SCHEDULER_INTERVAL_HOURS} hours"
             )
-            report_scheduler_status = f"reports: every {settings.REPORT_SCHEDULER_INTERVAL_HOURS} hours"
         else:
             logger.info("AI report generation scheduler skipped because ENABLE_AI_REPORT_GENERATION=false")
             report_scheduler_status = "reports: disabled by ENABLE_AI_REPORT_GENERATION"

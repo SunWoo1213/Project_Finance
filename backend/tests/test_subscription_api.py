@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from app.api import billing
 from app.core.config import settings
@@ -156,26 +157,103 @@ async def test_billing_checkout_provider_unavailable_returns_clear_error(tier, m
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tier", ["PLUS", "PRO"])
-async def test_billing_checkout_paid_tiers_return_provider_checkout_url(tier, monkeypatch):
+async def test_billing_checkout_mock_activates_subscription_immediately(tier, monkeypatch):
     monkeypatch.setattr(settings, "PAYMENT_PROVIDER", "mock")
+    engine, Session = await create_test_sessionmaker()
+    async with Session() as db:
+        user = User(email="mock-checkout@example.com", nickname="mock-checkout")
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        user_id = user.id
+
+    async def override_mock_user():
+        return SimpleNamespace(id=user_id, email="mock-checkout@example.com", nickname="mock-checkout")
+
+    async def override_real_db():
+        async with Session() as db:
+            yield db
+
     app = FastAPI()
     app.include_router(billing.router)
-    app.dependency_overrides[billing.get_current_user] = override_current_user
-    app.dependency_overrides[billing.get_db] = override_db
+    app.dependency_overrides[billing.get_current_user] = override_mock_user
+    app.dependency_overrides[billing.get_db] = override_real_db
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post(
-            "/api/billing/checkout",
-            json={
-                "tier": tier,
-                "success_url": "http://frontend.test/billing/success",
-                "cancel_url": "http://frontend.test/billing/cancel",
-            },
-        )
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/billing/checkout",
+                json={
+                    "tier": tier,
+                    "success_url": "http://frontend.test/billing/success",
+                    "cancel_url": "http://frontend.test/billing/cancel",
+                },
+            )
 
-    assert response.status_code == 200
-    assert response.json()["checkout_url"].startswith("http://frontend.test/billing/success?")
-    assert f"tier={tier}" in response.json()["checkout_url"]
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["activated"] is True
+            assert payload["checkout_url"] == "http://frontend.test/billing/success"
+
+            me_response = await client.get("/api/billing/me")
+
+        assert me_response.status_code == 200
+        me_payload = me_response.json()
+        assert me_payload["tier"] == tier
+        assert me_payload["status"] == "ACTIVE"
+        assert me_payload["entitlements"]["can_view_reports"] is True
+        assert me_payload["entitlements"]["can_use_chatbot"] is (tier == "PRO")
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_billing_checkout_mock_reactivation_keeps_single_active_row(monkeypatch):
+    monkeypatch.setattr(settings, "PAYMENT_PROVIDER", "mock")
+    engine, Session = await create_test_sessionmaker()
+    async with Session() as db:
+        user = User(email="mock-reactivate@example.com", nickname="mock-reactivate")
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        user_id = user.id
+
+    async def override_mock_user():
+        return SimpleNamespace(id=user_id, email="mock-reactivate@example.com", nickname="mock-reactivate")
+
+    async def override_real_db():
+        async with Session() as db:
+            yield db
+
+    app = FastAPI()
+    app.include_router(billing.router)
+    app.dependency_overrides[billing.get_current_user] = override_mock_user
+    app.dependency_overrides[billing.get_db] = override_real_db
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            first = await client.post("/api/billing/checkout", json={"tier": "PLUS"})
+            second = await client.post("/api/billing/checkout", json={"tier": "PRO"})
+
+            assert first.status_code == 200
+            assert second.status_code == 200
+
+            me_response = await client.get("/api/billing/me")
+
+        assert me_response.json()["tier"] == "PRO"
+
+        async with Session() as db:
+            result = await db.execute(
+                select(Subscription).where(Subscription.user_id == user_id)
+            )
+            subscriptions = list(result.scalars())
+
+        active = [sub for sub in subscriptions if sub.status == SubscriptionStatus.ACTIVE.value]
+        assert len(subscriptions) == 1
+        assert len(active) == 1
+        assert active[0].tier == SubscriptionTier.PRO.value
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

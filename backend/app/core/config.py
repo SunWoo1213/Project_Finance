@@ -119,7 +119,10 @@ class Settings(BaseSettings):
     ENABLE_AI_REPORT_GENERATION: bool = True
     REPORT_SCHEDULER_COVERAGE: str = "conservative"
     REPORT_SCHEDULER_INTERVAL_HOURS: int = 6
-    REPORT_SCHEDULER_STARTUP_DELAY_SECONDS: int = 180
+    # 기동 후 첫 리포트 생성까지 지연(초). interval 잡의 next_run_time으로 사용된다.
+    # sleep/재시작형 런타임에서 인스턴스가 일찍 죽어도 첫 발화를 놓치지 않도록 짧게 둔다
+    # (warm-up은 비차단이고, generate_report_for_ticker가 per-ticker 캐시 fill로 보강).
+    REPORT_SCHEDULER_STARTUP_DELAY_SECONDS: int = 60
     REPORT_SCHEDULER_MAX_REPORTS_PER_RUN: int = 5
     REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS: int = 6
     REPORT_SCHEDULER_TARGET_TICKERS: str = "DGS10,XAU,BTC-USD,NVDA,005930.KS"

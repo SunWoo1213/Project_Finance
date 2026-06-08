@@ -10,6 +10,8 @@ Date: 2026-06-02
 
 ## Ownership Map
 
+2026-06-08 implementation note: Gmail delivery now exposes secret-safe configuration diagnostics through the notification test response. Telegram verification is the manual numeric `chat_id` flow; this backend still does not process Telegram inbound `/start <code>` webhook messages.
+
 - Backend models: `backend/app/models.py`
 - Backend schemas: `backend/app/schemas.py`
 - Favorites API: `backend/app/api/favorites.py`
@@ -78,6 +80,8 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 - `docs/harness/notification-channel-inline-setup-plan-2026-06-04.md`
 - `docs/harness/notification-channel-inline-setup-implementation-2026-06-04.md`
 - `docs/harness/gmail-telegram-notification-delivery-remediation-plan-2026-06-08.md`
+- `docs/harness/gmail-telegram-notification-delivery-remediation-implementation-2026-06-08.md`
+- `docs/harness/notification-delivery-not-sending-diagnosis-2026-06-08.md`
 
 ## Open Risks
 

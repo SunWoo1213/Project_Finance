@@ -148,6 +148,25 @@ Date: 2026-06-03
 - **수정**: (1) `_normalize_numeric_token`에 `abs()`를 적용해 **부호 비민감(절댓값) 매칭**으로 정합화(방향 검증은 evaluator/qualitative 책임). (2) `ALLOWED_NUMBERS_LIMIT=150`으로 화이트리스트 cap 상향 + `_fact_number_payload`로 소스 공유. (3) 루프 소진 시(`format_check_pass=True && fact_check_pass=False`) `sanitize_unsupported_numbers`로 미지원 숫자만 `(수치 미확인)`으로 결정적 치환 후 **포맷·프레임워크·숫자·정성 게이트 전부 재검증, 통과분만 저장**(LLM 재호출 없음, 미통과 시 미저장 유지). 파일: [nodes.py](../../backend/app/services/graph/nodes.py), [ai_service.py](../../backend/app/services/ai_service.py), [test_ai_report_quality_gate.py](../../backend/tests/test_ai_report_quality_gate.py). 원인 분석: [nvda-report-factchecker-loop-root-cause](nvda-report-factchecker-loop-root-cause-2026-06-04.md). 출처: [nvda-factchecker-loop-404-remediation-implementation](nvda-factchecker-loop-404-remediation-implementation-2026-06-04.md).
 - **예방**: 숫자 검증의 "동일성" 정의를 명확히 — 크기 검증과 방향 검증을 한 정규화에 섞지 않는다(부호는 절댓값 게이트의 책임이 아님). 로그 종료 패턴(정상 트레이스백 + 종료 로그)으로 "코드가 던진 예외"와 "외부 프로세스 킬"을 구분한다. 결정적 폴백은 "실패본 저장"이 아니라 **재검증 통과분만 저장**으로 게이트 정신을 보존한다.
 
+## 15. 리포트 스케줄러 잡이 인스턴스 수명보다 늦게 발화해 NVDA 404 지속 (사례 14와 다른 실패 모드)
+
+- **증상/맥락**: Render 배포에서 `GET /api/reports/NVDA` 404가 "항상" 발생. 2026-06-08 01:03~01:05 UTC 로그 분석.
+- **에러(로그)**: 로그 전체에 `"AI 리포트 생성 시작"`이 **단 한 번도 없음**. 1분 간격 `Notification delivery`만 발화(01:04:18, 01:05:18). 01:04:23에 `Shutting down` → `Scheduler has been shut down` → `Finished server process [64]` 후 재기동. 추가로 `FMP history unavailable (... 402 Payment Required)` 다수.
+- **원인(두 갈래)**:
+  1. **스케줄러 리포트 잡 미발화(1순위)**: `generate_daily_reports` 주기 잡은 `interval` 6시간이라 **최초 발화가 기동 +6시간 후**다(`next_run_time` 미지정). 실질 경로인 startup 잡은 `run_date=now()+180초`인데, Render sleep/재시작형 인스턴스가 **180초를 연속 가동하지 못하고** 종료·재기동하며 타이머가 0부터 다시 시작 → 리포트 잡이 영영 발화하지 못하고 `ai_reports`가 비어 404. 1분 알림 잡만 종료 전에 발화하므로 로그에 보임.
+  2. **FMP 402(2순위, 직접 차단 아님)**: `historical-price-eod/full`이 플랜 미포함이라 history 결측. 단 NVDA(STOCK_US)는 가격이 있으면 readiness가 `blocked`가 아닌 `limited`(blocking은 가격뿐, `_grade_report_readiness`)라 생성은 진행. XAU/BTC-USD(COMMODITY/CRYPTO)는 필수 3개 이상 결측 시 `blocked` 유발 가능.
+- **수정**: (분석 단계, 코드 미변경) 방향 — startup delay 단축 또는 `interval` 잡에 `next_run_time=now()` 부여, 상시 가동 런타임 전환(Option A), 또는 리포트 생성을 token-protected task endpoint + 외부 cron으로 분리(Option B). 모두 cadence/비용/런타임 변경이라 사용자 승인 필요. 분석: [report-generation-scheduler-not-firing-log-audit](report-generation-scheduler-not-firing-log-audit-2026-06-08.md). 선행 계획: [report-generation-deployment-failure-remediation-plan](report-generation-deployment-failure-remediation-plan-2026-06-07.md).
+- **수정(2026-06-08)**: `generate_daily_reports`(interval) 잡에 `next_run_time=now()+STARTUP_DELAY`를 부여해 기동 직후 1회 발화하도록 하고 중복 startup date 잡을 제거, `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS` 기본값 180→60초로 단축. 파일: [main.py](../../backend/app/main.py), [config.py](../../backend/app/core/config.py), [test_ai_report_generation_switch.py](../../backend/tests/test_ai_report_generation_switch.py). 출처: [report-scheduler-startup-firing-fix-implementation](report-scheduler-startup-firing-fix-implementation-2026-06-08.md). 단 인스턴스가 60초 전에 죽으면 여전히 발화 못 함 → 근본 안정화는 상시 가동 런타임 또는 외부 cron 필요.
+- **예방**: in-process scheduler는 **상시 가동 프로세스를 전제**한다 — sleep/재시작형(Render Free 등) 런타임에서는 startup 지연 잡과 장주기 `interval` 잡이 발화 전 죽는다. "잡이 돌았는데 실패"(사례 14: `AI 리포트 생성 시작/종료` 존재)와 "잡이 애초에 발화 못함"(이번: 시작 로그 부재 + `Finished server process`)을 **로그 한 줄로 구분**한다. APScheduler `interval`의 최초 발화는 +1주기 후이므로, 기동 직후 발화가 필요하면 `next_run_time`을 명시.
+
+## 16. 상위 provider 전면 장애(Finnhub 502 + FMP 402) → 가격 0 캐시 → readiness blocked로 리포트 미생성 (사례 15와 다른 차단 지점)
+
+- **증상/맥락**: 2026-06-08 01:23 UTC 재배포 로그. 이번엔 스케줄러가 정상 기동(`Scheduler started`, `service is live`, `reports: every 12 hours`)했는데도 워밍업에서 시장 데이터가 전면 실패. `GET /api/reports/{ticker}` 404 지속.
+- **에러(로그)**: `Market snapshot provider failed (ticker=AAPL/NVDA/MSFT/.../TSLA, category=STOCK_US): 502 Bad Gateway (finnhub.io/quote)` — US 주식 전 종목. `FMP quote/history unavailable (^NDX): 402 Payment Required`.
+- **원인**: STOCK_US 경로(`_fetch_finnhub_stock_snapshot`)는 **현재가(quote) 호출에 폴백이 없다**. `_get_json("finnhub", ".../quote")`이 502로 던지면 함수 내 try/except(market_cap·history 폴백)를 거치지 못하고 dispatcher의 `except`까지 전파되어 `DEFAULT_RESPONSE`(가격 0)를 캐시한다(`price_providers.py:609-613, 1051-1071`). 가격 0 → `_grade_report_readiness`가 `price_value in (None,"",0)`로 `blocked`(`ai_service.py:451-452`) → `ReportReadinessError` → 미저장 → 404. FMP는 402로 폴백 불가, Stooq는 opt-in이고 history만 보강(live quote 대체 못 함).
+- **수정**: (분석 단계, 코드 미변경) 방향 — (1) STOCK_US 현재가 폴백 추가(Finnhub→FMP→Stooq 종가), (2) 전 provider 실패 시 `DEFAULT_RESPONSE`(가격 0)를 캐시에 덮지 말고 직전 유효값 유지(stale 허용), (3) 일시적 502에 짧은 재시도/백오프, (4) FMP 402 플랜 점검. 분석: [report-generation-scheduler-not-firing-log-audit](report-generation-scheduler-not-firing-log-audit-2026-06-08.md)(추가 분석 섹션).
+- **예방**: 리포트 미생성은 스케줄러뿐 아니라 **데이터 파이프라인 끝단(가격 0)** 에서도 발생한다 — 두 차단 지점은 독립적이며 둘 다 해소해야 한다. "스냅샷 실패 → 가격 0 캐시 → readiness blocked"가 굳지 않도록, 핵심 자산의 현재가는 단일 provider 장애에 폴백/stale-유지로 견디게 한다. 워밍업 직후 1회 provider 장애가 6~12시간 readiness 차단으로 고착될 수 있음을 인지.
+
 ---
 
 ## 교차 교훈 / 예방 체크리스트 (배포·DB 작업 전)
@@ -166,7 +185,9 @@ Date: 2026-06-03
 12. **품질 게이트는 거부만 하지 말고 허용 입력 제공**: 검증자(fact_checker)와 생성자(writer)가 같은 fact 소스 허용 집합을 공유해 첫 초안 통과율을 올린다. 게이트를 약화시키지 않는다. (사례 12)
 13. **로그에 외부 URL/키 남기지 않기**: `httpx`/`sqlalchemy.engine` 로거를 WARNING으로. 노출 키는 손상 간주·로테이션. (사례 13)
 14. **숫자 게이트의 동일성 정의 분리**: 크기(절댓값) 검증과 방향(부호) 검증을 한 정규화에 섞지 말 것. 부호 비대칭은 데이터에 실재하는 값도 오탐시킨다. 결정적 폴백은 재검증 통과분만 저장해 게이트를 약화시키지 않는다. 로그 종료 패턴으로 "코드 예외"와 "프로세스 킬"을 구분. (사례 14)
-15. **새 오류는 이 문서에 추가**: 해결 즉시 "증상→원인→수정→예방" 항목으로 누적.
+15. **in-process scheduler는 상시 가동 전제**: sleep/재시작형 런타임에서는 startup 지연 잡과 장주기 `interval` 잡이 발화 전 죽는다. `interval`의 최초 발화는 +1주기 후. "잡 실행 후 실패"와 "잡 미발화"를 시작 로그 유무로 구분. (사례 15)
+16. **핵심 자산 현재가는 단일 provider 장애에 견디게**: STOCK_US 현재가 폴백 부재 시 Finnhub 502 하나로 가격 0이 캐시되고 readiness blocked로 굳는다. 폴백/stale-유지로 보완. 리포트 미생성은 스케줄러와 데이터 끝단 두 곳에서 독립적으로 발생. (사례 16)
+17. **새 오류는 이 문서에 추가**: 해결 즉시 "증상→원인→수정→예방" 항목으로 누적.
 
 ## References Checked
 
