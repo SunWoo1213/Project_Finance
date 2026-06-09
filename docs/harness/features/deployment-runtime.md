@@ -46,7 +46,7 @@ Runtime logging avoids leaking secrets in two layers. (1) Root logging stays at 
 5. Hosted releases should run `python -m alembic upgrade head` before app startup.
 6. With `ENABLE_DB_SCHEMA_BOOTSTRAP=false`, backend startup checks for required tables and AI report metadata columns without creating or altering schema.
 7. Scheduler and market warm-up remain controlled by `ENABLE_SCHEDULER`, `ENABLE_MARKET_WARMUP`, `ENABLE_AI_REPORT_GENERATION`, and report scheduler environment variables.
-8. Favorite notification scheduler is controlled separately by `ENABLE_NOTIFICATION_SCHEDULER`, which defaults to false. Provider secrets for Telegram/Gmail email delivery are backend-only environment variables.
+8. Favorite notification scheduler is controlled separately by `ENABLE_NOTIFICATION_SCHEDULER`, which defaults to false. Provider secrets for Telegram/Gmail email delivery are backend-only environment variables. Backend-generated report notification links use `FRONTEND_BASE_URL` as the frontend origin.
 9. AI report generation is separated from scheduler startup through `ENABLE_AI_REPORT_GENERATION`. Hosted smoke can run `ENABLE_SCHEDULER=true`, `ENABLE_AI_REPORT_GENERATION=false` to verify price/news jobs while skipping LLM-backed report generation.
 10. On Render Standard, a successful deploy with scheduler enabled can still fail the first startup report if provider cache fill loses the target ticker. The one-time startup report job is delayed by `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS` (default 180 seconds) so market warm-up and provider queues can begin first. US stock snapshots also preserve successful Finnhub quote data when optional Finnhub profile or Stooq history calls fail, reducing `No cached market data found for ticker: NVDA` during startup generation.
 11. Stooq daily CSV timeout is controlled by `STOOQ_FETCH_TIMEOUT_SECONDS` (default 12 seconds). If Render logs repeated `ConnectTimeout('')` for `^GSPC`, `^NDX`, `XAU`, `XAG`, or `KRW=X`, raise it to 20-30 seconds and redeploy. Stooq-backed data reuses stale cache after provider failure when a prior successful fetch exists; USD/KRW keeps open.er-api.com current rate even when Stooq change/history fails.
@@ -70,6 +70,7 @@ Local Docker flow:
   - `BACKEND_CORS_ORIGINS`: comma-separated exact origins such as a Vercel production domain and staging domain.
   - `BACKEND_CORS_ORIGIN_REGEX`: optional regex for approved preview-origin policy.
   - `LOCAL_CORS_ORIGINS`: comma-separated local dev origins, defaults to Vite localhost origins.
+  - `FRONTEND_BASE_URL`: frontend origin used by backend-generated email/Telegram links such as `/detail/{ticker}`. It is not a secret, but it belongs in backend env because the backend formats outgoing messages.
   - `ENABLE_DB_SCHEMA_BOOTSTRAP`: keep true for local convenience; set false for migration-managed hosted runtime.
   - `SQLALCHEMY_ECHO`: default false so production does not log SQL statements.
   - `DB_POOL_PRE_PING`: default true for connection health checks.
@@ -126,6 +127,7 @@ Local Docker flow:
 - `docs/harness/docker-database-compatibility-implementation-2026-06-02.md`
 - `docs/harness/gmail-only-email-notification-implementation-2026-06-02.md`
 - `docs/harness/gmail-telegram-notification-delivery-remediation-implementation-2026-06-08.md`
+- `docs/harness/favorite-asset-report-link-notification-implementation-2026-06-09.md`
 - `docs/harness/report-generation-env-switch-plan-2026-06-03.md`
 - `docs/harness/report-generation-env-switch-implementation-2026-06-03.md`
 - `docs/harness/report-404-and-secret-log-leak-remediation-plan-2026-06-04.md`

@@ -87,6 +87,7 @@ Date: 2026-06-09
 - `docs/harness/features/favorite-asset-notifications.md`
 - `docs/harness/features/authentication.md`
 - `docs/harness/features/asset-detail-ai-community.md`
+- `docs/harness/features/deployment-runtime.md`
 
 ## AI Report Generation Rule
 
