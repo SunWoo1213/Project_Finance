@@ -68,6 +68,11 @@ STOOQ_SYMBOLS = {
     "KRW=X": "usdkrw",
 }
 
+# FMP free/stable 플랜이 정상 반환하지 못하는 지수는 Stooq를 1차 소스로 쓴다.
+# 이 집합의 ticker는 전역 opt-in(ENABLE_STOOQ_FALLBACK)이 꺼져 있어도 STOOQ_API_KEY만
+# 있으면 Stooq에서 가져온다. 다른 Stooq 폴백 경로(STOCK_US 종가, KRW=X 등)에는 영향이 없다.
+STOOQ_PRIMARY_SYMBOLS = {"^NDX"}
+
 FMP_SYMBOL_CANDIDATES = {
     "^GSPC": ["^GSPC"],
     "^NDX": ["^NDX"],
@@ -808,7 +813,9 @@ async def fetch_stooq_history(ticker: str, period: str = "1y") -> dict[str, Any]
         cached_at, cached_payload = cached_entry
         if monotonic() - cached_at < HISTORY_CACHE_TTL_SECONDS:
             return cached_payload
-    if not stooq_symbol or not key or not settings.ENABLE_STOOQ_FALLBACK:
+    # ^NDX 등 STOOQ_PRIMARY_SYMBOLS는 전역 opt-in이 꺼져 있어도 Stooq를 사용한다.
+    force_stooq = ticker.upper() in STOOQ_PRIMARY_SYMBOLS
+    if not stooq_symbol or not key or (not settings.ENABLE_STOOQ_FALLBACK and not force_stooq):
         return _history_payload(ticker.upper(), [])
 
     try:
@@ -1094,6 +1101,16 @@ async def fetch_market_snapshot(ticker: str, category: str | None = None) -> dic
             payload = await _fetch_data_go_snapshot(normalized)
         elif category == "INDEX" and normalized in KR_INDEX_NAMES:
             payload = await _fetch_data_go_snapshot(normalized)
+        elif category == "INDEX" and normalized in STOOQ_PRIMARY_SYMBOLS:
+            payload = await _fetch_stooq_snapshot(normalized)
+            if payload.get("currentPrice"):
+                payload["provider_meta"] = {
+                    "provider": "stooq",
+                    "symbol": STOOQ_SYMBOLS.get(normalized),
+                    "freshness": "daily_csv_primary",
+                    "license_scope": "primary_for_index",
+                    "change_source": "stooq_history",
+                }
         elif category == "INDEX":
             payload = await _fetch_fmp_snapshot(normalized)
         elif category == "COMMODITY" or _is_commodity(normalized):
@@ -1130,7 +1147,10 @@ async def fetch_market_history(ticker: str, period: str = "1y") -> dict[str, Any
         return cached
 
     try:
-        if normalized in US_STOCK_SYMBOLS or normalized in {"^GSPC", "^NDX"} or _is_commodity(normalized):
+        if normalized in STOOQ_PRIMARY_SYMBOLS:
+            # ^NDX는 FMP가 지수를 못 주므로 Stooq를 1차로 사용한다(전역 opt-in 불필요).
+            payload = await fetch_stooq_history(normalized, period)
+        elif normalized in US_STOCK_SYMBOLS or normalized in {"^GSPC", "^NDX"} or _is_commodity(normalized):
             payload = await fetch_fmp_history(normalized, period)
             if not payload.get("points") and settings.ENABLE_STOOQ_FALLBACK:
                 payload = await fetch_stooq_history(normalized, period)

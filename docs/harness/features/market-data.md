@@ -41,6 +41,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
    - US bonds use `fetch_us_bond_history` so FRED observation dates are preserved.
    - US stocks fetch the primary quote from Finnhub and use FMP EOD history/profile as optional support. Finnhub profile, FMP profile, FMP history, or opt-in Stooq fallback failures do not discard a successful Finnhub quote; market cap degrades to `0.0` and history falls back to the current price.
    - US indices and commodities use FMP quote/EOD history first. FMP responses are cached with a 12-hour TTL and guarded by a process-local daily call budget so the 5-minute scheduler does not burn through the free plan. If FMP is missing, over budget, or unavailable, they degrade to empty data unless `ENABLE_STOOQ_FALLBACK=true` provides a Stooq fallback.
+   - Exception: `^NDX` (Nasdaq 100) uses Stooq (`^ndx`) as its **primary** source because FMP free/stable does not serve the index. Tickers in `STOOQ_PRIMARY_SYMBOLS` use Stooq even when `ENABLE_STOOQ_FALLBACK=false`, as long as `STOOQ_API_KEY` is set. FMP is not called for `^NDX`, so its daily budget/cooldown is not spent on a symbol FMP cannot return. `^GSPC` keeps the FMP-first + opt-in Stooq fallback behavior. This is scoped to `^NDX` only and does not change other Stooq paths (STOCK_US current-price fallback, `KRW=X` change, etc.). See `docs/harness/nasdaq-index-stooq-primary-implementation-2026-06-09.md`.
    - Crypto uses CoinGecko Demo API.
    - Korean stocks and Korean indices use 공공데이터포털 금융위원회 stock/index price APIs. The index API matches `idxNm` by the Korean index name (`코스피`/`코스닥`); the English forms return empty results.
    - USD/KRW (`KRW=X`) uses open.er-api.com daily reference rate by default. Because the free public path does not provide a reliable previous close, snapshot `changePercent=0`, history falls back to a single provider-dated point, and `provider_meta.change_source=none`. Only `ENABLE_STOOQ_FALLBACK=true` allows Stooq daily `usdkrw` closes as opt-in fallback for change/history.
@@ -65,7 +66,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - Per-asset fetch timeout controls (seconds, report-independent): `MARKET_PRICE_FETCH_TIMEOUT_SECONDS=55`, `MARKET_NEWS_FETCH_TIMEOUT_SECONDS=20`. Values are clamped to a minimum of 5 and loaded at process start. These bound each asset/news collection so a serialized provider queue can drain within one run. The price timeout default must stay above `2 * DATA_GO_KR_FETCH_TIMEOUT_SECONDS` because the KR stock snapshot makes two data.go.kr calls.
 - data.go.kr (KR stock/index) provider tuning (report-independent): `DATA_GO_KR_FETCH_TIMEOUT_SECONDS=25` (per-call httpx timeout; data.go.kr can spike to ~20s), `DATA_GO_KR_MAX_CONCURRENCY=2` (provider semaphore size; default conservative because data.go.kr rate-limits with a `허용되지 않는 요청` gateway block under load — raise to 3 via env only if the deployment tolerates it). Both clamped (timeout min 5, concurrency min 1) and loaded at process start.
 - FMP provider tuning (report-independent): `FMP_FETCH_TIMEOUT_SECONDS=10` (minimum 5), `FMP_DAILY_CALL_BUDGET=180` (minimum 0). FMP targets use 12-hour internal cache, 30-minute failed-call cooldown, `Semaphore(1)`, and `provider_meta.freshness=eod_or_delayed`.
-- Stooq provider tuning (report-independent): `ENABLE_STOOQ_FALLBACK=false`, `STOOQ_FETCH_TIMEOUT_SECONDS=12` (minimum 5). Stooq is compatibility fallback only; do not enable it broadly on deployments where Stooq `ConnectTimeout('')` repeats.
+- Stooq provider tuning (report-independent): `ENABLE_STOOQ_FALLBACK=false`, `STOOQ_FETCH_TIMEOUT_SECONDS=12` (minimum 5). Stooq is compatibility fallback only; do not enable it broadly on deployments where Stooq `ConnectTimeout('')` repeats. Exception: tickers in `STOOQ_PRIMARY_SYMBOLS` (currently `^NDX`) use Stooq as primary regardless of `ENABLE_STOOQ_FALLBACK`, requiring only `STOOQ_API_KEY`.
 - Market provider keys: `FMP_API_KEY` for US index/commodity/US stock EOD history/profile support, `FINNHUB_API_KEY` for US stock quote/news/events, `COINGECKO_DEMO_API_KEY` for crypto price/history, `DATA_GO_KR_API_KEY` for Korean stock/index price APIs, and optional `STOOQ_API_KEY` for explicit fallback only.
 - USD/KRW uses open.er-api.com open access data as daily reference FX. It is not treated as realtime trading-grade FX, and ordinary user-facing requests do not trigger fresh report generation.
 - Hosted deployment startup should keep `ENABLE_MARKET_WARMUP=false` and `ENABLE_SCHEDULER=false` for the first smoke release, then enable runtime jobs after API/DB checks and cost review.
@@ -145,6 +146,8 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/demo-nvda-report-live-market-policy-2026-06-09.md`
 - `docs/harness/demo-nvda-report-live-market-remediation-plan-2026-06-09.md`
 - `docs/harness/report-not-writing-root-cause-remediation-plan-2026-06-09.md`
+- `docs/harness/nasdaq-index-stooq-provider-plan-2026-06-09.md`
+- `docs/harness/nasdaq-index-stooq-primary-implementation-2026-06-09.md`
 
 ## Open Risks
 

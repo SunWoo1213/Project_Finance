@@ -242,6 +242,75 @@ async def test_fmp_history_success_normalization(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_ndx_history_uses_stooq_without_global_optin(monkeypatch):
+    # ^NDX는 FMP가 지수를 못 주므로 ENABLE_STOOQ_FALLBACK이 꺼져 있어도 Stooq를 1차로 쓴다.
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "STOOQ_FETCH_TIMEOUT_SECONDS", 12)
+    captured = {}
+
+    async def fail_fmp(*args, **kwargs):
+        raise AssertionError("FMP should not be called for ^NDX primary path")
+
+    async def fake_get_text(provider, url, *, params=None, headers=None, timeout=10.0):
+        captured["provider"] = provider
+        captured["params"] = params
+        return "Date,Open,High,Low,Close,Volume\n2026-06-01,1,2,1,19000,100\n2026-06-02,1,2,1,19500,100\n"
+
+    monkeypatch.setattr(price_providers, "fetch_fmp_history", fail_fmp)
+    monkeypatch.setattr(price_providers, "_get_text", fake_get_text)
+
+    payload = await price_providers.fetch_market_history("^NDX", "1mo")
+
+    assert captured["provider"] == "stooq"
+    assert captured["params"]["s"] == "^ndx"
+    assert captured["params"]["apikey"] == "test-key"
+    assert payload["points"] == [
+        {"date": "2026-06-01", "value": 19000.0},
+        {"date": "2026-06-02", "value": 19500.0},
+    ]
+    assert payload["provider_meta"]["provider"] == "stooq"
+
+
+@pytest.mark.asyncio
+async def test_ndx_snapshot_uses_stooq_without_global_optin(monkeypatch):
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "STOOQ_FETCH_TIMEOUT_SECONDS", 12)
+
+    async def fail_fmp_snapshot(*args, **kwargs):
+        raise AssertionError("FMP snapshot should not be called for ^NDX primary path")
+
+    async def fake_get_text(provider, url, *, params=None, headers=None, timeout=10.0):
+        return "Date,Open,High,Low,Close,Volume\n2026-06-01,1,2,1,19000,100\n2026-06-02,1,2,1,19500,100\n"
+
+    monkeypatch.setattr(price_providers, "_fetch_fmp_snapshot", fail_fmp_snapshot)
+    monkeypatch.setattr(price_providers, "_get_text", fake_get_text)
+
+    payload = await price_providers.fetch_market_snapshot("^NDX", "INDEX")
+
+    assert payload["currentPrice"] == 19500.0
+    assert payload["provider_meta"]["provider"] == "stooq"
+    assert payload["provider_meta"]["symbol"] == "^ndx"
+
+
+@pytest.mark.asyncio
+async def test_ndx_stooq_requires_key(monkeypatch):
+    # 키가 없으면 ^NDX도 Stooq를 호출하지 않고 빈 history로 degrade한다.
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", None)
+
+    async def fail_get_text(*args, **kwargs):
+        raise AssertionError("Stooq should not be called without a key")
+
+    monkeypatch.setattr(price_providers, "_get_text", fail_get_text)
+
+    payload = await price_providers.fetch_stooq_history("^NDX", "1mo")
+
+    assert payload["points"] == []
+
+
+@pytest.mark.asyncio
 async def test_fmp_daily_budget_exceeded_skips_provider_call(monkeypatch):
     monkeypatch.setattr(price_providers.settings, "FMP_API_KEY", "test-key")
     monkeypatch.setattr(price_providers.settings, "FMP_DAILY_CALL_BUDGET", 0)
