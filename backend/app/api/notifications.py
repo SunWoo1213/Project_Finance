@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,12 +26,14 @@ from ..services.notification_service import (
     list_channels,
     list_history,
     send_email_verification_code,
+    send_welcome_notification_for_channel,
     update_preferences,
     verify_channel,
 )
 from .deps import get_current_user
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
+logger = logging.getLogger(__name__)
 
 
 def _preference_response(preference) -> NotificationPreferenceResponse:
@@ -116,6 +120,16 @@ async def verify_telegram(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    try:
+        await send_welcome_notification_for_channel(
+            db,
+            user_id=current_user.id,
+            channel="telegram",
+            destination=connection.destination,
+        )
+    except Exception as exc:  # pragma: no cover - defensive guard for provider/db failures
+        await db.rollback()
+        logger.warning("Telegram welcome notification failed after channel verification: %s", exc)
     return connection
 
 
@@ -171,6 +185,16 @@ async def confirm_email(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    try:
+        await send_welcome_notification_for_channel(
+            db,
+            user_id=current_user.id,
+            channel="email",
+            destination=connection.destination,
+        )
+    except Exception as exc:  # pragma: no cover - defensive guard for provider/db failures
+        await db.rollback()
+        logger.warning("Email welcome notification failed after channel verification: %s", exc)
     return connection
 
 

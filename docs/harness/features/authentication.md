@@ -8,6 +8,8 @@ Authentication is currently Google-only. The frontend renders Google Identity Se
 
 Local email/password registration and login are not part of the current UI flow. Older project specs may still describe local credentials, but the current code and change record supersede that behavior.
 
+When Google login creates a brand-new `User` row, the backend attempts a one-time Gmail welcome message to the account email. Delivery failure is recorded through notification history and must not block login success.
+
 ## Ownership Map
 
 - Frontend route: `frontend/src/App.jsx`
@@ -29,11 +31,12 @@ Local email/password registration and login are not part of the current UI flow.
 3. `Login.jsx` posts the credential to `POST /api/auth/google`.
 4. The backend validates the token audience against the configured Google client ID.
 5. The backend creates or updates the user record and returns the app JWT plus user metadata, including the numeric user id needed for owner-only community controls.
-6. `authStore.js` keeps token and user data in Zustand and localStorage.
-7. Protected API calls send `Authorization: Bearer <token>`.
-8. JWTs with missing or non-numeric `sub` claims are rejected with HTTP 401 before any user lookup.
-9. The chatbot endpoint now requires authenticated Pro entitlement. Missing or invalid chat tokens return 401, and authenticated users without Pro return 403.
-10. Logged-in users can sync browser-local favorites to the backend and use their Google login email as the default notification email destination.
+6. If the user row was newly created, auth calls notification service to send a welcome email through Gmail using `NotificationEvent` dedupe key `welcome:{user_id}:email`.
+7. `authStore.js` keeps token and user data in Zustand and localStorage.
+8. Protected API calls send `Authorization: Bearer <token>`.
+9. JWTs with missing or non-numeric `sub` claims are rejected with HTTP 401 before any user lookup.
+10. The chatbot endpoint now requires authenticated Pro entitlement. Missing or invalid chat tokens return 401, and authenticated users without Pro return 403.
+11. Logged-in users can sync browser-local favorites to the backend and use their Google login email as the default notification email destination.
 
 ## Contracts
 
@@ -87,6 +90,7 @@ Document variable names only. Do not write actual client IDs, JWT secrets, token
 - `docs/harness/mypage-profile-implementation-2026-06-02.md`
 - `docs/harness/project-gap-remediation-plan-2026-06-02.md`
 - `docs/harness/project-gap-remediation-phase0-1-implementation-2026-06-02.md`
+- `docs/harness/favorite-asset-report-link-notification-implementation-2026-06-09.md`
 
 ## Open Risks
 

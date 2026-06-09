@@ -74,8 +74,15 @@ async def test_email_channel_verify_confirm_and_test_history(monkeypatch):
     async def fake_send_email(destination, event):
         return DeliveryResult(success=True)
 
+    welcome_calls = []
+
+    async def fake_send_welcome(db, *, user_id, channel, destination):
+        welcome_calls.append((user_id, channel, destination))
+        return None
+
     monkeypatch.setattr(notifications, "send_email_verification_code", fake_send_verification_code)
     monkeypatch.setattr(notification_service, "_send_email", fake_send_email)
+    monkeypatch.setattr(notifications, "send_welcome_notification_for_channel", fake_send_welcome)
 
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -103,6 +110,7 @@ async def test_email_channel_verify_confirm_and_test_history(monkeypatch):
             )
             assert confirm_response.status_code == 200
             assert confirm_response.json()["verified"] is True
+            assert welcome_calls == [(1, "email", "notify@example.com")]
 
             await client.put("/api/notifications/preferences", json={"email_enabled": True})
             test_response = await client.post(

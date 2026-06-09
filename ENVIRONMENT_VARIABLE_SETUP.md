@@ -29,6 +29,7 @@ Last updated: 2026-06-03
 | --- | --- | --- | --- | --- |
 | 앱 기본값 | `PROJECT_NAME`, `API_V1_STR`, `ENVIRONMENT` | 직접 정함 | 루트 `.env`, 배포 backend env | 아님 |
 | frontend 공개값 | `VITE_API_BASE_URL`, `VITE_GOOGLE_CLIENT_ID` | backend URL, Google OAuth client ID | `frontend/.env`, 배포 frontend env | 아님. 단, 브라우저에 노출됨 |
+| backend 링크 공개값 | `FRONTEND_BASE_URL` | frontend URL | 루트 `.env`, 배포 backend env | 아님. 알림 링크 생성용 |
 | DB 접속값 | `POSTGRES_*`, `DATABASE_URL` | 직접 만들거나 DB provider dashboard에서 확인 | 루트 `.env`, 배포 backend env | password와 URL은 비밀값 |
 | 인증 secret | `SECRET_KEY` | 로컬에서 랜덤 생성 | 루트 `.env`, 배포 backend env | 비밀값 |
 | 외부 provider key | `OPENAI_API_KEY`, `FRED_API_KEY`, `FINNHUB_API_KEY` | 각 provider dashboard에서 발급 | 루트 `.env`, 배포 backend env | 비밀값 |
@@ -39,7 +40,7 @@ Last updated: 2026-06-03
 - `PROJECT_NAME`, `API_V1_STR`, `ENVIRONMENT`
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`, `DATABASE_URL`
 - `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`
-- `VITE_API_BASE_URL`, `LOCAL_CORS_ORIGINS`
+- `VITE_API_BASE_URL`, `FRONTEND_BASE_URL`, `LOCAL_CORS_ORIGINS`
 - 비용 방지용으로 `ENABLE_MARKET_WARMUP=false`, `ENABLE_SCHEDULER=false`, `ENABLE_AI_REPORT_GENERATION=false`, `ENABLE_LLM_REPORT_CRITICS=false`, `ENABLE_NOTIFICATION_SCHEDULER=false`
 
 기능별로 나중에 추가할 값은 아래 기준으로 보면 된다.
@@ -138,10 +139,11 @@ AI 리포트 scheduler나 알림 scheduler를 켜면 외부 API와 LLM 비용이
 로컬 개발에서는 주소가 보통 고정되어 있다.
 
 1. backend를 로컬에서 `8000` 포트로 실행할 예정이면 `VITE_API_BASE_URL=http://localhost:8000`을 사용한다.
-2. frontend를 Vite 기본 포트로 실행할 예정이면 `LOCAL_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`을 유지한다.
+2. frontend를 Vite 기본 포트로 실행할 예정이면 `FRONTEND_BASE_URL=http://localhost:5173`과 `LOCAL_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`을 유지한다.
 3. 배포 환경에서는 먼저 실제 frontend URL과 backend URL을 확보한다.
 4. frontend URL의 origin을 `BACKEND_CORS_ORIGINS`에 넣는다. origin은 `https://example.com`처럼 scheme과 host만 포함하고 path는 넣지 않는다.
 5. backend URL을 `VITE_API_BASE_URL`에 넣는다.
+6. backend가 메일/Telegram에 넣을 앱 링크용으로 frontend URL origin을 `FRONTEND_BASE_URL`에 넣는다.
 
 Vercel preview처럼 frontend URL이 매번 바뀌는 경우에만 `BACKEND_CORS_ORIGIN_REGEX`를 사용한다. 운영에서는 가능한 한 정확한 origin 목록을 쓰는 편이 안전하다.
 
@@ -150,6 +152,7 @@ Vercel preview처럼 frontend URL이 매번 바뀌는 경우에만 `BACKEND_CORS
 | 값 | 좋은 예 | 피해야 할 예 |
 | --- | --- | --- |
 | `VITE_API_BASE_URL` | `http://localhost:8000` | `http://localhost:8000/api` |
+| `FRONTEND_BASE_URL` | `https://project-finance.example.com` | `https://project-finance.example.com/detail/NVDA` |
 | `BACKEND_CORS_ORIGINS` | `https://project-finance.example.com` | `https://project-finance.example.com/login` |
 
 ### 2.4 3단계: 로컬 Docker DB 값 만들기
@@ -396,6 +399,8 @@ Gmail API:
 
 이 값은 public 값이다. API key나 secret을 넣으면 안 된다.
 
+`FRONTEND_BASE_URL`은 backend가 이메일/Telegram 본문에 `/detail/{ticker}` 링크를 만들 때 쓰는 frontend origin이다. 이 값도 secret은 아니지만 backend 설정이므로 루트 `.env` 또는 backend 배포 환경변수에 둔다. 로컬 기본값은 `http://localhost:5173`이다.
+
 ## 5. Database
 
 `DATABASE_URL`에는 async SQLAlchemy가 사용할 PostgreSQL URL을 넣는다.
@@ -554,6 +559,8 @@ Email을 사용할 때는 실제 구현에서 지원하는 provider를 기준으
 
 provider token과 Gmail refresh token은 backend-only 값이다.
 
+Report 알림은 리포트 본문을 메일/Telegram에 직접 싣지 않고 `FRONTEND_BASE_URL/detail/{ticker}` 링크와 현재 가격을 보낸다. 사용자는 링크로 앱에 들어와 권한/로그인 흐름을 거친 뒤 저장된 scheduled report를 읽는다. Google 최초 가입 welcome email과 채널 최초 검증 welcome message도 같은 Gmail/Telegram 발송 경계를 사용하며, 중복 방지는 `NotificationEvent` dedupe key로 처리한다.
+
 ## 14. 배포 환경변수 등록
 
 배포에서는 `.env` 파일을 서버에 직접 복사하기보다 플랫폼의 환경변수 저장소를 사용한다.
@@ -568,6 +575,7 @@ Backend 배포:
 - `DATABASE_URL`
 - `SECRET_KEY`
 - `GOOGLE_CLIENT_ID`
+- `FRONTEND_BASE_URL`
 - 필요한 provider API key
 - scheduler, CORS, payment, notification 관련 backend-only 변수
 

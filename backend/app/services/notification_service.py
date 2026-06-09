@@ -36,6 +36,13 @@ GMAIL_REQUIRED_SETTINGS = (
     "GMAIL_CLIENT_SECRET",
     "GMAIL_REFRESH_TOKEN",
 )
+REPORT_NOTIFICATION_TITLE = "즐겨찾기한 자산에 대한 보고서 발신입니다."
+WELCOME_NOTIFICATION_TITLE = "Project Finance를 이용해주셔서 감사합니다."
+WELCOME_NOTIFICATION_BODY = (
+    "Project Finance를 이용해주셔서 감사합니다.\n"
+    "관심 자산을 즐겨찾기하면 주요 리포트와 알림을 이 채널로 받아보실 수 있습니다.\n"
+    "오늘도 좋은 하루 보내세요."
+)
 
 
 @dataclass
@@ -112,6 +119,69 @@ def _find_price_payload(ticker: str) -> dict[str, Any] | None:
             if item.get("symbol") == ticker:
                 return item
     return None
+
+
+def _build_asset_detail_url(ticker: str) -> str:
+    safe_ticker = urllib.parse.quote(ticker, safe="")
+    return f"{settings.FRONTEND_BASE_URL}/detail/{safe_ticker}"
+
+
+def _extract_current_price(payload: dict[str, Any] | None) -> float | None:
+    if not payload:
+        return None
+    raw_price = payload.get("currentPrice", payload.get("price"))
+    if raw_price in (None, ""):
+        return None
+    try:
+        return float(raw_price)
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_notification_price(
+    ticker: str,
+    favorite: UserFavoriteAsset,
+    payload: dict[str, Any] | None,
+) -> tuple[float | None, str, str | None]:
+    price = _extract_current_price(payload)
+    price_source = None
+    if payload:
+        price_source = str(
+            payload.get("source")
+            or payload.get("provider")
+            or payload.get("priceSource")
+            or "market_cache"
+        )
+    if price is None:
+        return None, "확인 중", price_source
+
+    category = (favorite.category_key or "").lower()
+    upper_ticker = ticker.upper()
+    if "bond" in category or upper_ticker.startswith("DGS"):
+        return price, f"{price:,.2f}%", price_source
+    if "kr" in category or upper_ticker.endswith(".KS") or upper_ticker.endswith(".KQ"):
+        return price, f"₩{price:,.0f}", price_source
+    if "crypto" in category or upper_ticker.endswith("-USD"):
+        decimals = 2 if abs(price) >= 1 else 6
+        return price, f"${price:,.{decimals}f}", price_source
+    if "commodity" in category or "stock_us" in category or "index" in category:
+        return price, f"${price:,.2f}", price_source
+    return price, f"{price:,.2f}", price_source
+
+
+def _build_report_notification_body(
+    *,
+    asset_name: str,
+    ticker: str,
+    detail_url: str,
+    current_price_text: str,
+) -> str:
+    return (
+        "오늘 하루도 좋은 흐름으로 보내시길 바랍니다.\n\n"
+        f"즐겨찾기하신 {asset_name}({ticker}) 리포트가 준비되었습니다.\n"
+        f"현재 가격: {current_price_text}\n"
+        f"자산 리포트 링크: {detail_url}"
+    )
 
 
 def _find_news_items(ticker: str) -> list[dict[str, Any]]:
@@ -386,6 +456,64 @@ async def create_test_notification(
     return created, sent, failed
 
 
+async def send_welcome_notification_for_channel(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    channel: str,
+    destination: str | None,
+) -> NotificationEvent | None:
+    if channel not in DELIVERY_CHANNELS or not destination:
+        return None
+
+    dedupe_key = f"welcome:{user_id}:{channel}"
+    result = await db.execute(
+        select(NotificationEvent).where(
+            NotificationEvent.user_id == user_id,
+            NotificationEvent.dedupe_key == dedupe_key,
+            NotificationEvent.channel == channel,
+        )
+    )
+    existing = result.scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    event = NotificationEvent(
+        user_id=user_id,
+        ticker="SYSTEM",
+        event_type="welcome",
+        severity="info",
+        title=WELCOME_NOTIFICATION_TITLE,
+        body=WELCOME_NOTIFICATION_BODY,
+        payload_json={"channel": channel},
+        dedupe_key=dedupe_key,
+        channel=channel,
+        status="pending",
+    )
+    db.add(event)
+    await db.flush()
+
+    if channel == "email":
+        delivery = await _send_gmail_message(destination, event.title, event.body)
+    elif channel == "telegram":
+        delivery = await _send_telegram(destination, event)
+    else:
+        delivery = DeliveryResult(success=False, error_message="Unsupported channel.")
+
+    event.attempts = 1
+    if delivery.success:
+        event.status = "sent"
+        event.sent_at = _now()
+        event.error_message = None
+    else:
+        event.status = "failed"
+        event.error_message = delivery.error_message
+
+    await db.commit()
+    await db.refresh(event)
+    return event
+
+
 async def evaluate_notifications(db: AsyncSession) -> int:
     result = await db.execute(select(UserFavoriteAsset).order_by(UserFavoriteAsset.user_id.asc()))
     favorites = list(result.scalars().all())
@@ -531,14 +659,34 @@ async def _evaluate_report(
         return 0
 
     snapshot.last_report_id = report.id
+    price_payload = _find_price_payload(favorite.ticker)
+    current_price, current_price_text, price_source = _format_notification_price(
+        favorite.ticker,
+        favorite,
+        price_payload,
+    )
+    detail_url = _build_asset_detail_url(asset.ticker)
+    created_at = report.created_at.isoformat()
     return await create_notification_events(
         db,
         user_id=favorite.user_id,
         ticker=favorite.ticker,
         event_type="report",
-        title=f"{asset.name} AI 리포트 갱신",
-        body=f"{asset.ticker}에 대한 저장된 AI 리포트가 새로 갱신되었습니다.",
-        payload={"report_id": report.id, "created_at": report.created_at.isoformat()},
+        title=REPORT_NOTIFICATION_TITLE,
+        body=_build_report_notification_body(
+            asset_name=asset.name,
+            ticker=asset.ticker,
+            detail_url=detail_url,
+            current_price_text=current_price_text,
+        ),
+        payload={
+            "report_id": report.id,
+            "created_at": created_at,
+            "detail_url": detail_url,
+            "current_price": current_price,
+            "current_price_text": current_price_text,
+            "price_source": price_source,
+        },
         dedupe_key=f"report:{asset.ticker}:{report.id}",
         channels=channels,
     )

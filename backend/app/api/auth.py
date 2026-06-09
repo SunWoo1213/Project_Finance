@@ -1,3 +1,4 @@
+import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -16,8 +17,10 @@ from ..core.security import create_access_token
 from ..db.session import get_db
 from ..models import User
 from ..schemas import AuthTokenResponse, GoogleLoginRequest
+from ..services.notification_service import send_welcome_notification_for_channel
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+logger = logging.getLogger(__name__)
 
 
 def _normalize_nickname(value: str | None, email: str) -> str:
@@ -94,6 +97,7 @@ async def login_with_google(payload: GoogleLoginRequest, db: AsyncSession = Depe
 
     result = await db.execute(select(User).where(User.google_sub == google_sub))
     user = result.scalar_one_or_none()
+    created_user = False
 
     if user is None:
         result = await db.execute(select(User).where(User.email == email))
@@ -110,11 +114,24 @@ async def login_with_google(payload: GoogleLoginRequest, db: AsyncSession = Depe
                 nickname=nickname,
             )
             db.add(user)
+            created_user = True
         else:
             user.google_sub = google_sub
 
         await db.commit()
         await db.refresh(user)
+
+    if created_user:
+        try:
+            await send_welcome_notification_for_channel(
+                db,
+                user_id=user.id,
+                channel="email",
+                destination=user.email,
+            )
+        except Exception as exc:  # pragma: no cover - defensive guard for provider/db failures
+            await db.rollback()
+            logger.warning("Welcome email failed after Google signup: %s", exc)
 
     access_token = create_access_token(data={"sub": str(user.id)})
 

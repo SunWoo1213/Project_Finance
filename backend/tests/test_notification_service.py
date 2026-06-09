@@ -1,13 +1,14 @@
 import os
 
 import pytest
+from sqlalchemy import select
 
 os.environ.setdefault("PROJECT_NAME", "test")
 os.environ.setdefault("API_V1_STR", "/api")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 
 from app.core.cache import market_cache
-from app.models import NotificationChannelConnection, NotificationEvent, User
+from app.models import AIReport, Asset, AssetCategory, NotificationChannelConnection, NotificationEvent, User
 from app.services.favorite_service import upsert_user_favorite
 from app.services import notification_service
 from app.services.notification_service import (
@@ -16,6 +17,7 @@ from app.services.notification_service import (
     evaluate_notifications,
     get_delivery_configuration_status,
     list_history,
+    send_welcome_notification_for_channel,
     send_pending_notifications,
 )
 from billing_test_utils import create_test_sessionmaker
@@ -63,6 +65,191 @@ async def test_evaluate_notifications_uses_market_cache_and_dedupes_price_events
         assert history[0].status == "sent"
     finally:
         market_cache["prices"] = original_prices
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_report_notification_uses_detail_link_price_and_omits_report_body(monkeypatch):
+    engine, Session = await create_test_sessionmaker()
+    original_prices = market_cache.get("prices")
+    monkeypatch.setattr(notification_service.settings, "FRONTEND_BASE_URL", "https://finance.example.com")
+    market_cache["prices"] = {
+        "us_top10": {
+            "NVIDIA": {
+                "symbol": "NVDA",
+                "currentPrice": 1024.5,
+                "source": "test-cache",
+            }
+        }
+    }
+
+    try:
+        async with Session() as db:
+            user = User(email="service@example.com", nickname="service")
+            asset = Asset(ticker="NVDA", name="NVIDIA", category=AssetCategory.STOCK_US)
+            db.add_all([user, asset])
+            await db.flush()
+            await upsert_user_favorite(
+                db,
+                user_id=user.id,
+                ticker="NVDA",
+                display_name="NVIDIA",
+                category_key="us_top10",
+            )
+            db.add(AIReport(asset_id=asset.id, final_content="old stored report"))
+            await db.commit()
+
+        async with Session() as db:
+            assert await evaluate_notifications(db) == 0
+
+        async with Session() as db:
+            asset = (await db.execute(select(Asset).where(Asset.ticker == "NVDA"))).scalar_one()
+            db.add(AIReport(asset_id=asset.id, final_content="new report body should stay private"))
+            await db.commit()
+
+        async with Session() as db:
+            created = await evaluate_notifications(db)
+            history = await list_history(db, user_id=1)
+
+        assert created == 1
+        event = history[0]
+        assert event.event_type == "report"
+        assert event.title == "즐겨찾기한 자산에 대한 보고서 발신입니다."
+        assert "https://finance.example.com/detail/NVDA" in event.body
+        assert "현재 가격: $1,024.50" in event.body
+        assert "new report body should stay private" not in event.body
+        assert event.payload_json["detail_url"] == "https://finance.example.com/detail/NVDA"
+        assert event.payload_json["current_price"] == 1024.5
+        assert event.payload_json["current_price_text"] == "$1,024.50"
+        assert event.payload_json["price_source"] == "test-cache"
+    finally:
+        market_cache["prices"] = original_prices
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_report_notification_uses_price_fallback_when_cache_is_missing(monkeypatch):
+    engine, Session = await create_test_sessionmaker()
+    original_prices = market_cache.get("prices")
+    monkeypatch.setattr(notification_service.settings, "FRONTEND_BASE_URL", "http://localhost:5173")
+    market_cache["prices"] = {}
+
+    try:
+        async with Session() as db:
+            user = User(email="service@example.com", nickname="service")
+            asset = Asset(ticker="BTC-USD", name="Bitcoin", category=AssetCategory.CRYPTO)
+            db.add_all([user, asset])
+            await db.flush()
+            await upsert_user_favorite(
+                db,
+                user_id=user.id,
+                ticker="BTC-USD",
+                display_name="Bitcoin",
+                category_key="crypto",
+            )
+            db.add(AIReport(asset_id=asset.id, final_content="old stored report"))
+            await db.commit()
+
+        async with Session() as db:
+            assert await evaluate_notifications(db) == 0
+
+        async with Session() as db:
+            asset = (await db.execute(select(Asset).where(Asset.ticker == "BTC-USD"))).scalar_one()
+            db.add(AIReport(asset_id=asset.id, final_content="new stored report"))
+            await db.commit()
+
+        async with Session() as db:
+            created = await evaluate_notifications(db)
+            history = await list_history(db, user_id=1)
+
+        assert created == 1
+        assert "현재 가격: 확인 중" in history[0].body
+        assert "http://localhost:5173/detail/BTC-USD" in history[0].body
+        assert history[0].payload_json["current_price"] is None
+        assert history[0].payload_json["current_price_text"] == "확인 중"
+    finally:
+        market_cache["prices"] = original_prices
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_welcome_notification_sends_once_per_channel(monkeypatch):
+    engine, Session = await create_test_sessionmaker()
+    sent_messages = []
+
+    async def fake_send_gmail(destination, subject, body):
+        sent_messages.append((destination, subject, body))
+        return DeliveryResult(success=True)
+
+    monkeypatch.setattr(notification_service, "_send_gmail_message", fake_send_gmail)
+
+    try:
+        async with Session() as db:
+            user = User(email="service@example.com", nickname="service")
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+
+            first = await send_welcome_notification_for_channel(
+                db,
+                user_id=user.id,
+                channel="email",
+                destination=user.email,
+            )
+            second = await send_welcome_notification_for_channel(
+                db,
+                user_id=user.id,
+                channel="email",
+                destination=user.email,
+            )
+
+        async with Session() as db:
+            result = await db.execute(select(NotificationEvent))
+            events = list(result.scalars().all())
+
+        assert first is not None
+        assert second is not None
+        assert first.id == second.id
+        assert len(events) == 1
+        assert events[0].event_type == "welcome"
+        assert events[0].status == "sent"
+        assert events[0].dedupe_key == "welcome:1:email"
+        assert sent_messages == [
+            (
+                "service@example.com",
+                "Project Finance를 이용해주셔서 감사합니다.",
+                notification_service.WELCOME_NOTIFICATION_BODY,
+            )
+        ]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_welcome_notification_skips_missing_destination():
+    engine, Session = await create_test_sessionmaker()
+
+    try:
+        async with Session() as db:
+            user = User(email="service@example.com", nickname="service")
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+
+            event = await send_welcome_notification_for_channel(
+                db,
+                user_id=user.id,
+                channel="telegram",
+                destination=None,
+            )
+
+        async with Session() as db:
+            result = await db.execute(select(NotificationEvent))
+            events = list(result.scalars().all())
+
+        assert event is None
+        assert events == []
+    finally:
         await engine.dispose()
 
 

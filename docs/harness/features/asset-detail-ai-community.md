@@ -12,6 +12,8 @@ If an authenticated user requests a report and the latest report is missing, the
 
 AI report generation is now additionally controlled by backend-only `ENABLE_AI_REPORT_GENERATION`. When it is `false`, scheduled report jobs are not registered and service-level report generation returns before opening a DB session or invoking providers/LLM workflow. Stored report reads remain available.
 
+Favorite report notifications link users to `/detail/:ticker` instead of embedding report content in Gmail/Telegram. The detail page remains the only user-facing place that renders the stored scheduled report and applies the existing entitlement/paywall behavior.
+
 ## Ownership Map
 
 - Detail page workflow: `frontend/src/pages/AssetDetail.jsx`
@@ -59,10 +61,12 @@ AI report generation is now additionally controlled by backend-only `ENABLE_AI_R
 29. The frontend asks the user to pick a short report reason before sending the report. The selected reason is a UI confirmation only and is not stored by the current backend contract.
 30. Comment reports are stored separately from likes and can auto-delete the comment at the 100-report threshold.
 31. The chatbot can guide users to detail, report, and community areas. For authenticated users it can summarize an already stored report, but it does not call the report-generation endpoint.
+32. External favorite report notifications construct links as `FRONTEND_BASE_URL/detail/{ticker}` and do not include `AIReport.final_content` in the external message.
 
 ## Contracts
 
 - Detail route: `/detail/:ticker`
+- External notification link target: `FRONTEND_BASE_URL/detail/{ticker}`
 - Report fetch: `GET /api/reports/{ticker}` requires active Plus or Pro entitlement.
 - Report generation: `POST /api/ai/generate/{ticker}` requires auth but is disabled for ordinary users with HTTP 403; LLM-backed generation is scheduled-only.
 - Report fetch responses include persisted `metadata` when available.
@@ -168,6 +172,7 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/asset-display-graph-removal-implementation-2026-06-08.md`
 - `docs/harness/report-backend-generation-failure-analysis-2026-06-08.md`
 - `docs/harness/report-backend-generation-remediation-plan-2026-06-08.md`
+- `docs/harness/favorite-asset-report-link-notification-implementation-2026-06-09.md`
 
 ## Open Risks
 

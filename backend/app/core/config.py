@@ -170,6 +170,7 @@ class Settings(BaseSettings):
     NOTIFICATION_DELIVERY_INTERVAL_MINUTES: int = 1
     NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT: float = 3
     NOTIFICATION_DEFAULT_COOLDOWN_MINUTES: int = 180
+    FRONTEND_BASE_URL: str = "http://localhost:5173"
     TELEGRAM_BOT_TOKEN: str | None = None
     TELEGRAM_WEBHOOK_SECRET: str | None = None
     EMAIL_PROVIDER: str | None = None
@@ -288,6 +289,11 @@ class Settings(BaseSettings):
     def enforce_minimum_concurrency(cls, value: int) -> int:
         # At least one in-flight call; 0/negative would deadlock the provider.
         return max(1, int(value))
+
+    @field_validator("FRONTEND_BASE_URL")
+    @classmethod
+    def normalize_frontend_base_url(cls, value: str) -> str:
+        return (value or "http://localhost:5173").strip().rstrip("/")
 
     def cors_origins(self) -> list[str]:
         origins: list[str] = []
