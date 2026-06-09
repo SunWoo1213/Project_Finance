@@ -1,7 +1,8 @@
 import pytest
 
 from app.core.cache import market_cache
-from app.services import market_service, price_providers
+from app.core.config import Settings
+from app.services import demo_market_data, market_service, price_providers
 
 
 def setup_function():
@@ -23,6 +24,21 @@ def test_parse_stooq_csv_preserves_provider_dates():
         {"date": "2026-05-31", "value": 10.0},
         {"date": "2026-06-02", "value": 12.0},
     ]
+
+
+def test_demo_default_live_tickers_include_dashboard_only_not_all(monkeypatch):
+    configured_default = Settings.model_fields["MARKET_LIVE_TICKERS"].default
+
+    assert configured_default == demo_market_data.DEFAULT_LIVE_TICKERS
+
+    monkeypatch.setattr(demo_market_data.settings, "MARKET_LIVE_TICKERS", configured_default)
+
+    for ticker in ("^GSPC", "^NDX", "KRW=X", "^KS11"):
+        assert demo_market_data.is_live_market_ticker(ticker)
+
+    assert demo_market_data.is_live_market_ticker("NVDA")
+    assert not demo_market_data.is_live_market_ticker("AAPL")
+    assert not demo_market_data.is_live_market_ticker("^KQ11")
 
 
 def test_parse_stooq_csv_degrades_when_key_required():

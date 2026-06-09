@@ -31,8 +31,9 @@ Date: 2026-06-02
 3. 사용자는 `/settings/notifications`에서 알림 설정, Telegram/email 채널 검증, 최근 알림 이력을 확인한다.
 4. 알림 평가는 즐겨찾기별로 가격 변동, 새 뉴스 fingerprint, 저장된 최신 `AIReport.id`를 이전 snapshot과 비교한다.
 5. 감지된 알림은 `notification_events`에 `in_app` 이력으로 남고, 검증된 Telegram/email 채널이 활성화되어 있으면 채널별 pending event도 생성된다.
-6. Email 발송 adapter는 Gmail API만 지원한다. Gmail 설정이 없거나 provider가 `gmail`이 아니면 failed 이력으로 남긴다.
-7. Email 채널 인증 코드는 API 응답으로 노출하지 않고 Gmail로 발송한다. Gmail 발송 실패 시 인증 요청은 `503`으로 실패하며 channel 상태는 재요청 가능한 pending/delivery failure 상태로 남는다.
+6. Telegram 발송 adapter는 저장된 숫자 `chat_id`로 Telegram Bot API `sendMessage`를 호출한다. 현재 연결 방식은 webhook 자동 수신이 아니라 수동 `chat_id` 입력이다.
+7. Email 발송 adapter는 Gmail API만 지원한다. Gmail 설정이 없거나 provider가 `gmail`이 아니면 failed 이력으로 남긴다.
+8. Email 채널 인증 코드는 API 응답으로 노출하지 않고 Gmail로 발송한다. Gmail 발송 실패 시 인증 요청은 `503`으로 실패하며 channel 상태는 재요청 가능한 pending/delivery failure 상태로 남는다.
 
 ## Contracts
 
@@ -69,6 +70,7 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 - Backend API/service tests: `python -m pytest tests/test_favorites_api.py tests/test_notifications_api.py tests/test_notification_service.py`
 - Migration check: `python -m alembic upgrade head`
 - Frontend checks: `npm run lint`, `npm run build`
+- Telegram 발송 하네스 검증 절차: `docs/harness/telegram-message-delivery-verification-2026-06-09.md`
 
 ## Change Records
 
@@ -83,6 +85,7 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 - `docs/harness/gmail-telegram-notification-delivery-remediation-implementation-2026-06-08.md`
 - `docs/harness/notification-delivery-not-sending-diagnosis-2026-06-08.md`
 - `docs/harness/gmail-oauth-refresh-token-setup-documentation-2026-06-08.md`
+- `docs/harness/telegram-message-delivery-verification-2026-06-09.md`
 
 ## Open Risks
 
