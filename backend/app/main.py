@@ -19,7 +19,12 @@ from .services.ai_service import (
 )
 from .services.market_service import fetch_latest_asset_context, update_news_task, update_prices_task
 from .services.demo_market_data import is_live_market_ticker, mock_history_payload
-from .services.notification_service import evaluate_notifications, send_pending_notifications
+from .services.notification_service import (
+    create_scheduled_digest_notifications,
+    notification_digest_schedule_times,
+    notification_scheduler_timezone,
+    send_pending_notifications,
+)
 from .services.price_providers import fetch_market_history
 try:
     from app.services.macro_service import (
@@ -233,20 +238,26 @@ async def lifespan(app: FastAPI):
             logger.info("AI report generation scheduler skipped because ENABLE_AI_REPORT_GENERATION=false")
             report_scheduler_status = "reports: disabled by ENABLE_AI_REPORT_GENERATION"
         if settings.ENABLE_NOTIFICATION_SCHEDULER:
-            async def run_notification_evaluation_job() -> None:
-                logger.info("Notification evaluation started")
+            notification_tz = notification_scheduler_timezone()
+            digest_labels: list[str] = []
+
+            async def run_notification_digest_job(schedule_label: str) -> None:
+                logger.info("Notification digest started (schedule_label=%s)", schedule_label)
                 async for db in get_db():
                     try:
-                        created = await evaluate_notifications(db)
+                        created = await create_scheduled_digest_notifications(
+                            db,
+                            schedule_label=schedule_label,
+                        )
                         sent, failed = await send_pending_notifications(db)
                         logger.info(
-                            "Notification evaluation completed (created=%s, sent=%s, failed=%s)",
+                            "Notification digest completed (created=%s, sent=%s, failed=%s)",
                             created,
                             sent,
                             failed,
                         )
                     except Exception as exc:
-                        logger.error("Notification evaluation failed: %s", exc, exc_info=True)
+                        logger.error("Notification digest failed: %s", exc, exc_info=True)
                     break
 
             async def run_notification_delivery_job() -> None:
@@ -259,15 +270,21 @@ async def lifespan(app: FastAPI):
                         logger.error("Notification delivery failed: %s", exc, exc_info=True)
                     break
 
-            scheduler.add_job(
-                run_notification_evaluation_job,
-                "interval",
-                minutes=settings.NOTIFICATION_EVALUATION_INTERVAL_MINUTES,
-                id="notification_evaluation",
-                replace_existing=True,
-                coalesce=True,
-                max_instances=1,
-            )
+            for hour, minute in notification_digest_schedule_times():
+                schedule_label = f"{hour:02d}:{minute:02d}"
+                digest_labels.append(schedule_label)
+                scheduler.add_job(
+                    run_notification_digest_job,
+                    "cron",
+                    hour=hour,
+                    minute=minute,
+                    id=f"notification_digest_{hour:02d}{minute:02d}",
+                    args=[schedule_label],
+                    timezone=notification_tz,
+                    replace_existing=True,
+                    coalesce=True,
+                    max_instances=1,
+                )
             scheduler.add_job(
                 run_notification_delivery_job,
                 "interval",
@@ -277,11 +294,18 @@ async def lifespan(app: FastAPI):
                 coalesce=True,
                 max_instances=1,
             )
+            notification_scheduler_status = (
+                "notifications: digest at "
+                f"{','.join(digest_labels)} {settings.NOTIFICATION_TIMEZONE}"
+            )
+        else:
+            notification_scheduler_status = "notifications: disabled by ENABLE_NOTIFICATION_SCHEDULER"
         scheduler.start()
         print(
             "[lifespan] scheduler started "
             f"(prices:{settings.MARKET_PRICES_REFRESH_MINUTES}m, "
-            f"news:{settings.MARKET_NEWS_REFRESH_MINUTES}m, {report_scheduler_status})"
+            f"news:{settings.MARKET_NEWS_REFRESH_MINUTES}m, "
+            f"{report_scheduler_status}, {notification_scheduler_status})"
         )
     else:
         print("[lifespan] scheduler skipped")

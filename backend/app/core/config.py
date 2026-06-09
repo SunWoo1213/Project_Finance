@@ -169,6 +169,9 @@ class Settings(BaseSettings):
     ENABLE_NOTIFICATION_SCHEDULER: bool = False
     NOTIFICATION_EVALUATION_INTERVAL_MINUTES: int = 10
     NOTIFICATION_DELIVERY_INTERVAL_MINUTES: int = 1
+    NOTIFICATION_DIGEST_SEND_TIMES: str = "09:00,13:00,18:00"
+    NOTIFICATION_TIMEZONE: str = "Asia/Seoul"
+    NOTIFICATION_DIGEST_MAX_ASSETS: int = 20
     NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT: float = 3
     NOTIFICATION_DEFAULT_COOLDOWN_MINUTES: int = 180
     FRONTEND_BASE_URL: str = "http://localhost:5173"
@@ -273,6 +276,11 @@ class Settings(BaseSettings):
     @field_validator("BILLING_RENEWAL_INTERVAL_MINUTES", "BILLING_RETRY_BACKOFF_HOURS")
     @classmethod
     def enforce_minimum_billing_interval(cls, value: int) -> int:
+        return max(1, int(value))
+
+    @field_validator("NOTIFICATION_DIGEST_MAX_ASSETS")
+    @classmethod
+    def enforce_minimum_notification_digest_assets(cls, value: int) -> int:
         return max(1, int(value))
 
     @field_validator("BILLING_RETRY_LIMIT")

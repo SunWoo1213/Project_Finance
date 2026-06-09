@@ -323,10 +323,11 @@ ENABLE_NOTIFICATION_SCHEDULER=false
 
 공통 정책값:
 
-1. 가격 변동을 얼마나 자주 평가할지 `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`로 정한다.
-2. 발송 큐를 얼마나 자주 처리할지 `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`로 정한다.
-3. 기본 가격 변동 임계치를 `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`로 정한다.
-4. 같은 알림을 다시 보내기 전 대기 시간을 `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`로 정한다.
+1. 정시 digest 발송 시각을 `NOTIFICATION_DIGEST_SEND_TIMES`로 정한다. 기본값은 `09:00,13:00,18:00`이다.
+2. 정시 digest 기준 시간대를 `NOTIFICATION_TIMEZONE`으로 정한다. 기본값은 `Asia/Seoul`이다.
+3. digest 본문에 한 번에 표시할 최대 자산 수를 `NOTIFICATION_DIGEST_MAX_ASSETS`로 정한다.
+4. 발송 큐를 얼마나 자주 처리할지 `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`로 정한다.
+5. `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`, `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`, `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`는 legacy 변화 감지 경로의 기본값이다.
 
 Telegram:
 
@@ -562,7 +563,9 @@ Email을 사용할 때는 실제 구현에서 지원하는 provider를 기준으
 
 provider token과 Gmail refresh token은 backend-only 값이다.
 
-Report 알림은 리포트 본문을 메일/Telegram에 직접 싣지 않고 `FRONTEND_BASE_URL/detail/{ticker}` 링크와 현재 가격을 보낸다. 사용자는 링크로 앱에 들어와 권한/로그인 흐름을 거친 뒤 저장된 scheduled report를 읽는다. Google 최초 가입 welcome email과 채널 최초 검증 welcome message도 같은 Gmail/Telegram 발송 경계를 사용하며, 중복 방지는 `NotificationEvent` dedupe key로 처리한다.
+정시 즐겨찾기 digest는 `NOTIFICATION_DIGEST_SEND_TIMES`에 지정한 시각마다 변화 여부와 상관없이 검증되고 수신 동의된 Gmail/Telegram 채널에 사용자당 채널별 1건을 보낸다. 기본값은 `Asia/Seoul` 기준 `09:00,13:00,18:00`이다. 본문에는 즐겨찾기 자산명, ticker, market cache 기준 현재 가격, `FRONTEND_BASE_URL/detail/{ticker}` 링크를 담는다.
+
+Report 본문은 메일/Telegram에 직접 싣지 않는다. 사용자는 링크로 앱에 들어와 권한/로그인 흐름을 거친 뒤 저장된 scheduled report를 읽는다. Google 최초 가입 welcome email과 채널 최초 검증 welcome message도 같은 Gmail/Telegram 발송 경계를 사용하며, 중복 방지는 `NotificationEvent` dedupe key로 처리한다.
 
 ## 14. 배포 환경변수 등록
 

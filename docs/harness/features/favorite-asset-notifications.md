@@ -4,9 +4,9 @@ Date: 2026-06-02
 
 ## Current Behavior
 
-로그인 사용자는 즐겨찾기 자산을 계정 기준으로 저장하고, 알림 기본 설정과 채널 연결 상태를 관리할 수 있다. 알림 평가는 기존 `market_cache`, `notification_events`, `asset_notification_snapshots`, 저장된 `AIReport`만 읽는다. 사용자 요청이나 알림 job은 새 AI 리포트 생성을 직접 트리거하지 않는다.
+로그인 사용자는 즐겨찾기 자산을 계정 기준으로 저장하고, 알림 기본 설정과 채널 연결 상태를 관리할 수 있다. 운영 알림 scheduler는 변화 감지형 개별 메시지가 아니라 정시 digest를 생성한다. 기본 발송 시각은 `Asia/Seoul` 기준 `09:00`, `13:00`, `18:00`이며, 변화 여부와 상관없이 검증되고 수신 동의된 Gmail/Telegram 채널에 사용자당 채널별 1건을 보낸다. 알림 job은 기존 `market_cache`, `notification_events`, 저장된 `AIReport`만 읽고 새 AI 리포트 생성을 직접 트리거하지 않는다.
 
-Gmail/Telegram 발송 본문은 한국어를 먼저 제공하고 아래에 `English` 섹션을 둔다. Email subject는 한국어 제목만 사용한다. Report 알림은 Gmail/Telegram에 리포트 본문을 직접 싣지 않는다. 새 저장 리포트가 감지되면 `즐겨찾기한 자산에 대한 보고서 발신입니다.` 제목으로 현재 가격과 `FRONTEND_BASE_URL/detail/{ticker}` 링크를 보내고, 사용자는 자산 상세 페이지에서 권한/로그인 흐름을 거쳐 저장된 scheduled report를 읽는다. 가격 cache가 없으면 알림 생성은 계속하되 `현재 가격: 확인 중` fallback을 표시한다.
+Gmail/Telegram 발송 본문은 한국어를 먼저 제공하고 아래에 `English` 섹션을 둔다. Email subject는 한국어 제목만 사용한다. 정시 digest는 즐겨찾기 자산명, ticker, market cache 기준 현재 가격, `FRONTEND_BASE_URL/detail/{ticker}` 링크를 묶어 보낸다. 가격 cache가 없으면 `현재 가격: 확인 중` fallback을 표시한다. Report 본문은 Gmail/Telegram에 직접 싣지 않고, 사용자는 자산 상세 페이지에서 권한/로그인 흐름을 거쳐 저장된 scheduled report를 읽는다.
 
 News 알림은 외부 뉴스 URL을 발송 본문에 노출하지 않는다. 새 뉴스 fingerprint가 감지되면 뉴스 제목과 `FRONTEND_BASE_URL/detail/{ticker}` 상세 페이지 링크로 안내한다.
 
@@ -35,10 +35,10 @@ Google 최초 가입 시에는 Gmail welcome email을 한 번 시도한다. Emai
 1. 로그인 시 `favoriteStore.syncWithServer(token)`가 브라우저 `favoriteAssets`를 `POST /api/favorites/import-local`로 서버에 병합한다.
 2. 이후 즐겨찾기 토글은 localStorage를 즉시 갱신하고, 토큰이 있으면 `POST /api/favorites` 또는 `DELETE /api/favorites/{ticker}`를 호출한다.
 3. 사용자는 `/settings/notifications`에서 알림 설정, Telegram/email 채널 검증, 최근 알림 이력을 확인한다.
-4. 알림 평가는 즐겨찾기별로 가격 변동, 새 뉴스 fingerprint, 저장된 최신 `AIReport.id`를 이전 snapshot과 비교한다.
-5. Report 알림은 저장된 최신 `AIReport.id`가 바뀐 경우에만 생성되며, 본문에는 상세 페이지 링크와 market cache의 현재 가격 텍스트만 포함한다.
-6. News 알림은 cache item의 외부 `link`를 사용자 본문에 싣지 않고 자산 상세 페이지로 안내한다.
-7. 감지된 알림은 `notification_events`에 `in_app` 이력으로 남고, 검증된 Telegram/email 채널이 활성화되어 있으면 채널별 pending event도 생성된다.
+4. 정시 digest scheduler는 `NOTIFICATION_DIGEST_SEND_TIMES`의 각 시각에 사용자별 즐겨찾기를 모아 `scheduled_digest` 이벤트를 만든다.
+5. Digest 이벤트는 자산별 개별 메시지가 아니라 검증되고 수신 동의된 Telegram/email 채널별 1건이다.
+6. 같은 사용자/채널/날짜/정시 슬롯은 `digest:{user_id}:{YYYYMMDD}:{HHMM}` dedupe key로 한 번만 생성한다.
+7. Digest 본문은 cache item의 외부 뉴스 URL이나 report 본문을 싣지 않고 자산 상세 페이지로 안내한다.
 8. Telegram 발송 adapter는 저장된 숫자 `chat_id`로 Telegram Bot API `sendMessage`를 호출한다. 현재 연결 방식은 webhook 자동 수신이 아니라 수동 `chat_id` 입력이다.
 9. Email 발송 adapter는 Gmail API만 지원한다. Gmail 설정이 없거나 provider가 `gmail`이 아니면 failed 이력으로 남긴다.
 10. Email 채널 인증 코드는 API 응답으로 노출하지 않고 Gmail로 발송한다. Gmail 발송 실패 시 인증 요청은 `503`으로 실패하며 channel 상태는 재요청 가능한 pending/delivery failure 상태로 남는다.
@@ -64,12 +64,13 @@ Google 최초 가입 시에는 Gmail welcome email을 한 번 시도한다. Emai
   - `GET /api/notifications/history`
   - `POST /api/notifications/test`
 
-Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`, `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`, `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`, `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`, `FRONTEND_BASE_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`.
+Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, `NOTIFICATION_DIGEST_SEND_TIMES`, `NOTIFICATION_TIMEZONE`, `NOTIFICATION_DIGEST_MAX_ASSETS`, `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`, `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`, `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`, `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`, `FRONTEND_BASE_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `EMAIL_PROVIDER`, `EMAIL_FROM_ADDRESS`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`.
 
 ## Change Rules
 
 - 알림 기능은 저장된 시장 캐시, 뉴스 캐시, 저장된 AI 리포트만 읽어야 한다.
 - 일반 사용자 요청, 챗봇 요청, 알림 평가/발송은 AI 리포트 생성을 직접 호출하면 안 된다.
+- 운영 scheduler는 기본적으로 정시 digest를 발송한다. 변화 감지형 개별 알림을 다시 scheduler에 연결하면 발송량, provider quota, 사용자 피로도를 별도 검토해야 한다.
 - Report 알림 body에 `AIReport.final_content`를 포함하지 않는다. 상세 페이지 링크로 저장 리포트 조회 흐름을 안내한다.
 - News 알림 body에는 외부 뉴스 링크를 포함하지 않고 자산 상세 페이지 링크를 포함한다.
 - Email/Telegram 발송용 본문은 한국어를 먼저 쓰고 영어를 아래에 둔다. Email subject는 한국어만 유지한다.
@@ -101,6 +102,8 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 - `docs/harness/favorite-asset-report-link-notification-plan-2026-06-09.md`
 - `docs/harness/favorite-asset-report-link-notification-implementation-2026-06-09.md`
 - `docs/harness/notification-bilingual-detail-link-message-implementation-2026-06-09.md`
+- `docs/harness/favorite-asset-scheduled-digest-notification-plan-2026-06-09.md`
+- `docs/harness/favorite-asset-scheduled-digest-notification-implementation-2026-06-09.md`
 
 ## Open Risks
 

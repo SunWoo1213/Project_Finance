@@ -14,6 +14,7 @@ from app.services import notification_service
 from app.services.notification_service import (
     DeliveryResult,
     create_notification_events,
+    create_scheduled_digest_notifications,
     evaluate_notifications,
     get_delivery_configuration_status,
     list_history,
@@ -22,6 +23,96 @@ from app.services.notification_service import (
     send_pending_notifications,
 )
 from billing_test_utils import create_test_sessionmaker
+
+
+@pytest.mark.asyncio
+async def test_scheduled_digest_creates_one_message_per_active_delivery_channel(monkeypatch):
+    engine, Session = await create_test_sessionmaker()
+    original_prices = market_cache.get("prices")
+    monkeypatch.setattr(notification_service.settings, "FRONTEND_BASE_URL", "https://finance.example.com")
+    market_cache["prices"] = {
+        "us_top10": {
+            "NVIDIA": {
+                "symbol": "NVDA",
+                "currentPrice": 1024.5,
+                "source": "test-cache",
+            }
+        },
+        "crypto": {
+            "Bitcoin": {
+                "symbol": "BTC-USD",
+                "currentPrice": 65000.25,
+                "source": "test-cache",
+            }
+        },
+    }
+
+    try:
+        async with Session() as db:
+            user = User(email="service@example.com", nickname="service")
+            db.add(user)
+            await db.flush()
+            await notification_service.update_preferences(
+                db,
+                user.id,
+                {"email_enabled": True, "telegram_enabled": True},
+            )
+            db.add_all([
+                NotificationChannelConnection(
+                    user_id=user.id,
+                    channel="email",
+                    destination="service@example.com",
+                    verified=True,
+                    verification_status="verified",
+                ),
+                NotificationChannelConnection(
+                    user_id=user.id,
+                    channel="telegram",
+                    destination="123456789",
+                    verified=True,
+                    verification_status="verified",
+                ),
+            ])
+            await upsert_user_favorite(
+                db,
+                user_id=user.id,
+                ticker="NVDA",
+                display_name="NVIDIA",
+                category_key="stock_us",
+            )
+            await upsert_user_favorite(
+                db,
+                user_id=user.id,
+                ticker="BTC-USD",
+                display_name="Bitcoin",
+                category_key="crypto",
+            )
+            await db.commit()
+
+        async with Session() as db:
+            created = await create_scheduled_digest_notifications(db, schedule_label="09:00")
+            created_again = await create_scheduled_digest_notifications(db, schedule_label="09:00")
+            result = await db.execute(select(NotificationEvent).order_by(NotificationEvent.channel.asc()))
+            events = list(result.scalars().all())
+
+        assert created == 2
+        assert created_again == 0
+        assert {event.channel for event in events} == {"email", "telegram"}
+        assert {event.status for event in events} == {"pending"}
+        assert {event.event_type for event in events} == {"scheduled_digest"}
+        assert {event.ticker for event in events} == {"DIGEST"}
+        assert all(event.dedupe_key.startswith("digest:1:") for event in events)
+        assert {event.dedupe_key.rsplit(":", 1)[-1] for event in events} == {"0900"}
+        assert "오늘 09:00 기준 즐겨찾기 자산 요약입니다." in events[0].body
+        assert "NVIDIA(NVDA): $1,024.50" in events[0].body
+        assert "Bitcoin(BTC-USD): $65,000.25" in events[0].body
+        assert "https://finance.example.com/detail/NVDA" in events[0].body
+        assert "English" in events[0].body
+        assert events[0].payload_json["asset_count"] == 2
+        assert events[0].payload_json["shown_asset_count"] == 2
+    finally:
+        market_cache["prices"] = original_prices
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

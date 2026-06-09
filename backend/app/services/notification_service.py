@@ -7,10 +7,13 @@ import base64
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.message import EmailMessage
+from types import SimpleNamespace
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +40,7 @@ GMAIL_REQUIRED_SETTINGS = (
     "GMAIL_REFRESH_TOKEN",
 )
 REPORT_NOTIFICATION_TITLE = "즐겨찾기한 자산에 대한 보고서 발신입니다."
+DIGEST_NOTIFICATION_TITLE = "즐겨찾기 자산 정시 요약입니다."
 WELCOME_NOTIFICATION_TITLE = "Project Finance를 이용해주셔서 감사합니다."
 WELCOME_NOTIFICATION_BODY = (
     "관심 자산을 즐겨찾기하면 주요 리포트와 알림을 이 채널로 받아보실 수 있습니다.\n"
@@ -75,6 +79,8 @@ def get_delivery_configuration_status() -> dict[str, Any]:
             "enabled": bool(settings.ENABLE_SCHEDULER and settings.ENABLE_NOTIFICATION_SCHEDULER),
             "enable_scheduler": bool(settings.ENABLE_SCHEDULER),
             "enable_notification_scheduler": bool(settings.ENABLE_NOTIFICATION_SCHEDULER),
+            "digest_send_times": [_schedule_label(hour, minute) for hour, minute in notification_digest_schedule_times()],
+            "timezone": settings.NOTIFICATION_TIMEZONE,
         },
         "email": {
             "provider": provider,
@@ -93,6 +99,35 @@ def get_delivery_configuration_status() -> dict[str, Any]:
             "verification_mode": "manual_chat_id",
         },
     }
+
+
+def notification_scheduler_timezone() -> ZoneInfo:
+    try:
+        return ZoneInfo(settings.NOTIFICATION_TIMEZONE or "Asia/Seoul")
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("Asia/Seoul")
+
+
+def notification_digest_schedule_times(raw: str | None = None) -> list[tuple[int, int]]:
+    source = raw if raw is not None else settings.NOTIFICATION_DIGEST_SEND_TIMES
+    times: list[tuple[int, int]] = []
+    for chunk in (source or "").split(","):
+        value = chunk.strip()
+        if not value:
+            continue
+        try:
+            hour_text, minute_text = value.split(":", 1)
+            hour = int(hour_text)
+            minute = int(minute_text)
+        except ValueError:
+            continue
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            times.append((hour, minute))
+    return times or [(9, 0), (13, 0), (18, 0)]
+
+
+def _schedule_label(hour: int, minute: int) -> str:
+    return f"{hour:02d}:{minute:02d}"
 
 
 def _now() -> datetime:
@@ -231,6 +266,64 @@ def _build_news_notification_body(
         "Please check the asset detail page for more information.\n"
         f"Asset detail page: {detail_url}"
     )
+
+
+def _digest_schedule_context(schedule_label: str | None) -> tuple[str, str]:
+    now_local = datetime.now(notification_scheduler_timezone())
+    label = (schedule_label or now_local.strftime("%H:%M")).strip()
+    return now_local.strftime("%Y%m%d"), label
+
+
+def _digest_asset_payload(favorite: dict[str, Any]) -> dict[str, Any]:
+    ticker = str(favorite["ticker"])
+    price_payload = _find_price_payload(ticker)
+    current_price, current_price_text, price_source = _format_notification_price(
+        ticker,
+        SimpleNamespace(category_key=favorite.get("category_key")),
+        price_payload,
+    )
+    detail_url = _build_asset_detail_url(ticker)
+    return {
+        "ticker": ticker,
+        "name": favorite.get("display_name") or ticker,
+        "detail_url": detail_url,
+        "current_price": current_price,
+        "current_price_text": current_price_text,
+        "price_source": price_source,
+    }
+
+
+def _build_digest_notification_body(
+    *,
+    schedule_label: str,
+    assets: list[dict[str, Any]],
+    total_asset_count: int,
+) -> str:
+    korean_lines = [
+        f"오늘 {schedule_label} 기준 즐겨찾기 자산 요약입니다.",
+        "",
+    ]
+    english_lines = [
+        f"Favorite asset summary as of {schedule_label} today.",
+        "",
+    ]
+
+    for asset in assets:
+        korean_lines.extend([
+            f"- {asset['name']}({asset['ticker']}): {asset['current_price_text']}",
+            f"  상세 페이지: {asset['detail_url']}",
+        ])
+        english_lines.extend([
+            f"- {asset['name']}({asset['ticker']}): {asset['current_price_text']}",
+            f"  Detail page: {asset['detail_url']}",
+        ])
+
+    remaining = total_asset_count - len(assets)
+    if remaining > 0:
+        korean_lines.extend(["", f"외 {remaining}개 즐겨찾기 자산은 앱에서 확인해 주세요."])
+        english_lines.extend(["", f"Please check the app for {remaining} more favorite assets."])
+
+    return "\n".join(korean_lines + ["", "English"] + english_lines)
 
 
 def _find_news_items(ticker: str) -> list[dict[str, Any]]:
@@ -561,6 +654,72 @@ async def send_welcome_notification_for_channel(
     await db.commit()
     await db.refresh(event)
     return event
+
+
+async def create_scheduled_digest_notifications(
+    db: AsyncSession,
+    *,
+    schedule_label: str | None = None,
+) -> int:
+    result = await db.execute(
+        select(UserFavoriteAsset).order_by(
+            UserFavoriteAsset.user_id.asc(),
+            UserFavoriteAsset.created_at.desc(),
+            UserFavoriteAsset.id.desc(),
+        )
+    )
+    favorites_by_user: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for favorite in result.scalars().all():
+        favorites_by_user[favorite.user_id].append(
+            {
+                "user_id": favorite.user_id,
+                "ticker": favorite.ticker,
+                "display_name": favorite.display_name,
+                "category_key": favorite.category_key,
+            }
+        )
+
+    local_date, label = _digest_schedule_context(schedule_label)
+    max_assets = int(settings.NOTIFICATION_DIGEST_MAX_ASSETS or 20)
+    created = 0
+
+    for user_id, favorites in favorites_by_user.items():
+        preference = await get_or_create_preferences(db, user_id)
+        channels = [
+            channel
+            for channel in await _active_channels(db, user_id, preference)
+            if channel in DELIVERY_CHANNELS
+        ]
+        if not channels:
+            continue
+
+        digest_assets = [_digest_asset_payload(favorite) for favorite in favorites[:max_assets]]
+        if not digest_assets:
+            continue
+
+        created += await create_notification_events(
+            db,
+            user_id=user_id,
+            ticker="DIGEST",
+            event_type="scheduled_digest",
+            title=DIGEST_NOTIFICATION_TITLE,
+            body=_build_digest_notification_body(
+                schedule_label=label,
+                assets=digest_assets,
+                total_asset_count=len(favorites),
+            ),
+            payload={
+                "schedule_date": local_date,
+                "schedule_label": label,
+                "asset_count": len(favorites),
+                "shown_asset_count": len(digest_assets),
+                "assets": digest_assets,
+            },
+            dedupe_key=f"digest:{user_id}:{local_date}:{label.replace(':', '')}",
+            channels=channels,
+        )
+
+    return created
 
 
 async def evaluate_notifications(db: AsyncSession) -> int:
