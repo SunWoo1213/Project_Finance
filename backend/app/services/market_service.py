@@ -337,6 +337,17 @@ async def ensure_price_cache_for_ticker(ticker: str) -> dict[str, Any] | None:
     return None
 
 
+def _carry_forward_price_payload(group_name: str, label: str, ticker: str) -> dict[str, Any]:
+    # 수집 실패(timeout/예외) 시에도 라벨을 유지하기 위한 폴백.
+    # 직전 유효 캐시값을 이어 쓰고(가격 stale 유지 철학과 동일), 콜드 스타트로
+    # 직전 값이 없으면 0 placeholder를 둔다. 라벨을 누락하면 프론트가 카드를
+    # 통째로 제거(Home.jsx `if (!data) return null`)하므로, 카드 자체를 지키기 위함이다.
+    existing = (market_cache.get("prices") or {}).get(group_name, {}).get(label)
+    if existing:
+        return existing
+    return {"symbol": ticker, **_to_frontend_shape(_coerce_normalized_payload(None))}
+
+
 async def _collect_prices_group(
     group_name: str, assets: dict[str, dict[str, str]]
 ) -> tuple[str, dict[str, Any]]:
@@ -359,8 +370,10 @@ async def _collect_prices_group(
                 f"[update_prices_task] {label}({ticker}, {category}) failed: "
                 f"timeout after {settings.MARKET_PRICE_FETCH_TIMEOUT_SECONDS}s"
             )
+            results[label] = _carry_forward_price_payload(group_name, label, ticker)
         except Exception as exc:
             print(f"[update_prices_task] {label}({ticker}, {category}) failed: {exc!r}")
+            results[label] = _carry_forward_price_payload(group_name, label, ticker)
 
     await asyncio.gather(*(collect_one(label, payload) for label, payload in assets.items()))
     return group_name, results

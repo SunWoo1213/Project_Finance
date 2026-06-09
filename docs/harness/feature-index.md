@@ -63,6 +63,7 @@ This index tells future harness agents which feature document to read before cha
 - 나스닥 지수(^NDX) Stooq provider 전환 계획: `docs/harness/nasdaq-index-stooq-provider-plan-2026-06-09.md`
 - 나스닥 지수(^NDX) Stooq primary 구현(전역 opt-in 없이 ^NDX만 Stooq): `docs/harness/nasdaq-index-stooq-primary-implementation-2026-06-09.md`
 - Stooq proof-of-work anti-bot 대응 구현(키만으로 안 되던 ^NDX/KRW=X CSV 복구): `docs/harness/stooq-pow-anti-bot-bypass-implementation-2026-06-09.md`
+- 시세 수집 실패 시 카드 사라짐 방지(collect_one 라벨 유지/직전값 carry-forward): `docs/harness/market-card-disappear-on-fetch-failure-fix-2026-06-09.md`
 - USD/KRW 변동성 미표시 해결 계획(STOOQ_API_KEY 게이팅 A안): `docs/harness/krw-fx-change-percent-not-captured-plan-2026-06-09.md`
 - USD/KRW 변동성 미표시 해결 구현(STOOQ_FX_SYMBOLS key-only + 자기비교 제거): `docs/harness/krw-fx-change-percent-not-captured-implementation-2026-06-09.md`
 - 데모 환경 무료 티어 데이터 수집 주기 완화 계획: `docs/harness/demo-free-tier-data-cadence-plan-2026-06-08.md`

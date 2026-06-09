@@ -77,9 +77,14 @@ def test_stooq_fallback_is_disabled_by_default():
 
 @pytest.mark.asyncio
 async def test_collect_prices_group_times_out_slow_asset_without_blocking_others(monkeypatch):
-    # A slow asset must not block fast assets in the same group; it should time
-    # out into an absent result instead of failing the whole group.
+    # A slow asset must not block fast assets in the same group. On timeout the
+    # label is kept (carry-forward/placeholder) so its card does not vanish from
+    # the UI, while the fast asset still resolves with live data.
     monkeypatch.setattr(market_service.settings, "MARKET_PRICE_FETCH_TIMEOUT_SECONDS", 1)
+    market_service.market_cache.setdefault("prices", {}).pop("test", None)
+    # Force the live-fetch path so the timeout branch is exercised regardless of
+    # the environment's MARKET_LIVE_TICKERS allowlist.
+    monkeypatch.setattr(market_service, "is_live_market_ticker", lambda ticker: True)
 
     async def fake_fetch(ticker, category):
         if ticker == "SLOW":
@@ -103,12 +108,48 @@ async def test_collect_prices_group_times_out_slow_asset_without_blocking_others
     assert group_name == "test"
     assert "Fast" in results
     assert results["Fast"]["currentPrice"] == 10.0
-    assert "Slow" not in results
+    # No prior cache for SLOW -> kept as a zero placeholder, never dropped.
+    assert "Slow" in results
+    assert results["Slow"]["currentPrice"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_collect_prices_group_carries_forward_last_value_on_failure(monkeypatch):
+    # 실패(예외) 시 직전 유효 캐시값을 이어 써서 라벨(=카드)이 사라지지 않는다.
+    prior = {
+        "symbol": "^NDX",
+        "price": 100.0,
+        "change_pct": 1.0,
+        "history_prices": [100.0],
+        "marketCap": 0.0,
+        "currentPrice": 100.0,
+        "changePercent": 1.0,
+    }
+    market_service.market_cache.setdefault("prices", {})["test"] = {"Nasdaq 100": prior}
+
+    async def failing_fetch(ticker, category):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(market_service, "is_live_market_ticker", lambda ticker: True)
+    monkeypatch.setattr(market_service, "fetch_asset_data", failing_fetch)
+
+    assets = {"Nasdaq 100": {"ticker": "^NDX", "category": "INDEX"}}
+
+    _, results = await market_service._collect_prices_group("test", assets)
+
+    assert "Nasdaq 100" in results
+    assert results["Nasdaq 100"]["price"] == 100.0
+    assert results["Nasdaq 100"]["change_pct"] == 1.0
+
+    market_service.market_cache.get("prices", {}).pop("test", None)
 
 
 @pytest.mark.asyncio
 async def test_collect_news_group_times_out_slow_symbol(monkeypatch):
     monkeypatch.setattr(market_service.settings, "MARKET_NEWS_FETCH_TIMEOUT_SECONDS", 1)
+    # Force the live-fetch path so the timeout branch is exercised regardless of
+    # the environment's MARKET_LIVE_TICKERS allowlist.
+    monkeypatch.setattr(market_service, "is_live_market_ticker", lambda ticker: True)
 
     async def fake_news(symbol):
         if symbol == "SLOW":
