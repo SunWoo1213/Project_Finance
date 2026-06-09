@@ -77,7 +77,7 @@ Favorite report notifications link users to `/detail/:ticker` instead of embeddi
 - Persisted `AIReport` quality columns include `quality_status`, `quality_feedback`, `format_check_pass`, `fact_check_pass`, `qualitative_check_pass`, `revision_count`, `data_as_of`, `source_summary`, `risk_summary`, `analysis_framework`, and `metadata_json`.
 - FastAPI lifespan attempts `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for local bootstrap only when `ENABLE_DB_SCHEMA_BOOTSTRAP=true`. Production-like deployments should set that flag to `false` and rely on Alembic migration coverage for report metadata columns.
 - Optional structured provider environment variable names for report-quality context: `FMP_API_KEY`, `FINNHUB_API_KEY`. They are optional; missing values produce provider limitation metadata rather than blocking report generation.
-- Optional report runtime policy variables: `ENABLE_AI_REPORT_GENERATION`, `ENABLE_LLM_REPORT_CRITICS`, `REPORT_CRITIC_MODE`, `REPORT_MAX_REVISIONS` (writer retry limit, default 7), `REPORT_SCHEDULER_COVERAGE`, `REPORT_SCHEDULER_INTERVAL_HOURS`, `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS`, and `REPORT_SCHEDULER_TARGET_TICKERS`.
+- Optional report runtime policy variables: `ENABLE_AI_REPORT_GENERATION`, `ENABLE_REPORT_EVALUATOR` (final evaluator on/off switch; deterministic gates remain active), `ENABLE_LLM_REPORT_CRITICS`, `REPORT_CRITIC_MODE`, `REPORT_MAX_REVISIONS` (writer retry limit, default 7), `REPORT_SCHEDULER_COVERAGE`, `REPORT_SCHEDULER_INTERVAL_HOURS`, `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS`, and `REPORT_SCHEDULER_TARGET_TICKERS`.
 - Latest context fetch: `GET /api/market/latest-context/{ticker}` is public and TTL-cached.
 - Comment list: `GET /api/community/{asset_id}/comments`
 - Chat guidance: `POST /api/chat/message`
@@ -173,6 +173,8 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/report-backend-generation-failure-analysis-2026-06-08.md`
 - `docs/harness/report-backend-generation-remediation-plan-2026-06-08.md`
 - `docs/harness/favorite-asset-report-link-notification-implementation-2026-06-09.md`
+- `docs/harness/report-evaluator-env-switch-plan-2026-06-09.md`
+- `docs/harness/report-evaluator-env-switch-implementation-2026-06-09.md`
 
 ## Open Risks
 

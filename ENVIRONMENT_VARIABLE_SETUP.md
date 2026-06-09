@@ -33,7 +33,7 @@ Last updated: 2026-06-03
 | DB 접속값 | `POSTGRES_*`, `DATABASE_URL` | 직접 만들거나 DB provider dashboard에서 확인 | 루트 `.env`, 배포 backend env | password와 URL은 비밀값 |
 | 인증 secret | `SECRET_KEY` | 로컬에서 랜덤 생성 | 루트 `.env`, 배포 backend env | 비밀값 |
 | 외부 provider key | `OPENAI_API_KEY`, `FRED_API_KEY`, `FINNHUB_API_KEY` | 각 provider dashboard에서 발급 | 루트 `.env`, 배포 backend env | 비밀값 |
-| 운영 정책값 | `ENABLE_SCHEDULER`, `ENABLE_AI_REPORT_GENERATION`, `REPORT_SCHEDULER_*`, `NOTIFICATION_*` | 팀 운영 정책으로 결정 | 루트 `.env`, 배포 backend env | 보통 비밀값은 아니지만 운영 영향 있음 |
+| 운영 정책값 | `ENABLE_SCHEDULER`, `ENABLE_AI_REPORT_GENERATION`, `ENABLE_REPORT_EVALUATOR`, `REPORT_SCHEDULER_*`, `NOTIFICATION_*` | 팀 운영 정책으로 결정 | 루트 `.env`, 배포 backend env | 보통 비밀값은 아니지만 운영 영향 있음 |
 
 처음 로컬에서 앱이 뜨는지만 확인할 때는 모든 provider key를 한 번에 준비하지 않아도 된다. 우선 아래 묶음만 맞춘다.
 
@@ -284,7 +284,8 @@ ENABLE_LLM_REPORT_CRITICS=false
 4. 한 번에 생성할 최대 리포트 수를 `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN`으로 제한한다.
 5. 같은 자산을 너무 자주 생성하지 않도록 `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS`를 정한다.
 6. `REPORT_SCHEDULER_TARGET_TICKERS`에는 backend가 지원하는 ticker만 쉼표로 넣는다. 예: `DGS10,XAU,BTC-USD,NVDA,005930.KS`
-7. `REPORT_CRITIC_MODE=deterministic`을 유지하고, 추가 LLM critic은 비용 승인 후 `ENABLE_LLM_REPORT_CRITICS=true`로 켠다.
+7. `ENABLE_REPORT_EVALUATOR=true`를 기본으로 유지한다. 무료 provider 데이터 부족 때문에 최종 LLM evaluator만 우회해야 할 때는 `false`로 바꿀 수 있지만, format/numeric/qualitative deterministic gate는 계속 유지된다.
+8. `REPORT_CRITIC_MODE=deterministic`을 유지하고, 추가 LLM critic은 비용 승인 후 `ENABLE_LLM_REPORT_CRITICS=true`로 켠다.
 
 사용자 화면과 챗봇 요청은 저장된 scheduled report를 읽는 것이 목표 규칙이다. 일반 사용자 요청이 fresh report 생성을 직접 트리거하지 않도록 유지한다.
 
@@ -502,6 +503,7 @@ background 작업은 비용과 부하를 만들 수 있으므로 단계적으로
 - `ENABLE_MARKET_WARMUP`: backend 시작 시 시장 데이터 cache warm-up 실행 여부.
 - `ENABLE_SCHEDULER`: APScheduler 기반 가격, 뉴스, 알림, 리포트 작업 실행 여부.
 - `ENABLE_AI_REPORT_GENERATION`: 전체 scheduler가 켜져 있어도 AI 리포트 생성 job과 서비스 진입부를 허용할지 여부. 저장된 리포트 조회에는 영향을 주지 않는다.
+- `ENABLE_REPORT_EVALUATOR`: 최종 LLM evaluator gate 실행 여부. 기본값은 `true`다. `false`이면 format validator, numeric fact checker, qualitative claim checker가 모두 통과한 뒤 최종 evaluator만 생략하고 저장을 허용한다. 무료 API 데이터 한계로 evaluator가 반복 기각하는 환경의 임시 운영 스위치이며, 리포트 문체와 균형감 품질 보장은 약해질 수 있다.
 - `MARKET_PRICES_REFRESH_MINUTES`: 사용자 화면에 노출되는 시세 cache를 scheduler가 갱신하는 간격(분). 기본값 `5`. AI 리포트와 무관한 일반 데이터 주기.
 - `MARKET_NEWS_REFRESH_MINUTES`: 뉴스 cache 갱신 간격(분). 기본값 `60`(=1시간).
 - `MARKET_LATEST_CONTEXT_TTL_MINUTES`: 종목 상세 `latest-context` cache 유효시간(분). 기본값 `10`. 만료 전에는 cache를 재사용하고 만료 후 첫 요청에서 다시 가져온다.
@@ -517,6 +519,7 @@ background 작업은 비용과 부하를 만들 수 있으므로 단계적으로
 ENABLE_MARKET_WARMUP=false
 ENABLE_SCHEDULER=false
 ENABLE_AI_REPORT_GENERATION=false
+ENABLE_REPORT_EVALUATOR=true
 ENABLE_LLM_REPORT_CRITICS=false
 ```
 

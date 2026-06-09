@@ -18,6 +18,7 @@ from app.services.graph.nodes import (
     _normalize_numeric_token,
     bear_agent_node,
     bull_agent_node,
+    evaluator_bypass_node,
     fact_checker_node,
     qualitative_claim_checker_node,
     report_format_validator_node,
@@ -29,6 +30,7 @@ from app.services.graph.nodes import (
 @pytest.fixture(autouse=True)
 def enable_ai_report_generation(monkeypatch):
     monkeypatch.setattr(ai_service.settings, "ENABLE_AI_REPORT_GENERATION", True)
+    monkeypatch.setattr(settings, "ENABLE_REPORT_EVALUATOR", True)
 
 
 class ScalarResult:
@@ -172,6 +174,8 @@ async def test_generate_report_saves_only_when_evaluator_passes(monkeypatch, cac
     assert result["generation_metadata"]["format_check_pass"] is True
     assert result["generation_metadata"]["fact_check_pass"] is True
     assert result["generation_metadata"]["qualitative_check_pass"] is True
+    assert result["generation_metadata"]["report_evaluator_enabled"] is True
+    assert result["generation_metadata"]["evaluator_skipped"] is False
     assert db.added[0].metadata_json["quality_status"] == "pass"
     assert result["generation_metadata"]["analysis_framework"]["label"] == "US stock equity framework"
     assert "공급망 리스크" in result["generation_metadata"]["risk_summary"]
@@ -184,6 +188,41 @@ async def test_generate_report_saves_only_when_evaluator_passes(monkeypatch, cac
     assert graph.received_state["bull_thesis"] == {}
     assert graph.received_state["format_check_pass"] is False
     assert graph.received_state["qualitative_check_pass"] is False
+    assert graph.received_state["evaluator_skipped"] is False
+
+
+@pytest.mark.asyncio
+async def test_generate_report_records_evaluator_skipped_metadata(monkeypatch, cached_aapl):
+    monkeypatch.setattr(ai_service.settings, "ENABLE_REPORT_EVALUATOR", False)
+    graph = FakeGraph(
+        {
+            "is_pass": True,
+            "evaluator_skipped": True,
+            "feedback": "Report evaluator skipped by ENABLE_REPORT_EVALUATOR=false after deterministic gates passed.",
+            "format_check_pass": True,
+            "format_check_feedback": "",
+            "fact_check_pass": True,
+            "fact_check_feedback": "",
+            "qualitative_check_pass": True,
+            "qualitative_check_feedback": "",
+            "revision_count": 1,
+            "analysis_result": "draft",
+            "final_report": "# final",
+            "structured_facts": {"data_as_of": "2026-05-30T00:10:00+00:00"},
+        }
+    )
+    monkeypatch.setattr(ai_service, "graph_app", graph)
+    db = FakeDbSession(asset=Asset(id=1, ticker="AAPL", name="AAPL", category=AssetCategory.STOCK_US))
+
+    result = await ai_service.generate_report_for_ticker("AAPL", db)
+
+    assert db.committed is True
+    assert result["generation_metadata"]["is_pass"] is True
+    assert result["generation_metadata"]["quality_status"] == "pass"
+    assert result["generation_metadata"]["report_evaluator_enabled"] is False
+    assert result["generation_metadata"]["evaluator_skipped"] is True
+    assert db.added[0].metadata_json["report_evaluator_enabled"] is False
+    assert db.added[0].metadata_json["evaluator_skipped"] is True
 
 
 @pytest.mark.asyncio
@@ -723,6 +762,41 @@ def test_qualitative_claim_checker_passes_when_evidence_exists():
 
     assert result["qualitative_check_pass"] is True
     assert route_qualitative_check({**state, **result}) == "evaluator_node"
+
+
+def test_qualitative_route_bypasses_evaluator_when_disabled(monkeypatch):
+    monkeypatch.setattr(settings, "ENABLE_REPORT_EVALUATOR", False)
+    state = {
+        "ticker": "BTC-USD",
+        "qualitative_check_pass": True,
+        "revision_count": 0,
+    }
+
+    assert route_qualitative_check(state) == "evaluator_bypass_node"
+
+
+def test_qualitative_route_still_rewrites_failures_when_evaluator_disabled(monkeypatch):
+    monkeypatch.setattr(settings, "ENABLE_REPORT_EVALUATOR", False)
+    state = {
+        "ticker": "BTC-USD",
+        "qualitative_check_pass": False,
+        "revision_count": 0,
+    }
+
+    assert route_qualitative_check(state) == "writer_node"
+
+
+def test_evaluator_bypass_node_marks_report_passed_after_deterministic_gates():
+    result = evaluator_bypass_node(
+        {
+            "ticker": "BTC-USD",
+            "feedback": "deterministic gates passed",
+        }
+    )
+
+    assert result["is_pass"] is True
+    assert result["evaluator_skipped"] is True
+    assert "ENABLE_REPORT_EVALUATOR=false" in result["feedback"]
 
 
 def test_role_nodes_derive_separate_views_without_llm():

@@ -41,3 +41,4 @@ class AgentState(TypedDict):
     final_report: str
     retry_count: int
     is_pass: bool
+    evaluator_skipped: bool

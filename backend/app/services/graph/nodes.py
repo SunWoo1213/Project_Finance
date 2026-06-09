@@ -1040,6 +1040,19 @@ def qualitative_claim_checker_node(state: AgentState) -> dict[str, Any]:
     }
 
 
+def evaluator_bypass_node(state: AgentState) -> dict[str, Any]:
+    ticker = state.get("ticker", "")
+    feedback = "Report evaluator skipped by ENABLE_REPORT_EVALUATOR=false after deterministic gates passed."
+    existing_feedback = state.get("feedback", "")
+    combined_feedback = f"{existing_feedback}\n{feedback}".strip()
+    logger.info("graph_node: evaluator_bypass_node done (ticker=%s)", ticker)
+    return {
+        "is_pass": True,
+        "evaluator_skipped": True,
+        "feedback": combined_feedback,
+    }
+
+
 def evaluator_node(state: AgentState) -> dict[str, Any]:
     ticker = state.get("ticker", "")
     logger.info("graph_node: evaluator_node start (ticker=%s)", ticker)

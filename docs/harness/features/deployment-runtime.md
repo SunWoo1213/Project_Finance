@@ -78,6 +78,7 @@ Local Docker flow:
 - `ENABLE_NOTIFICATION_SCHEDULER`: enables favorite notification evaluation/delivery jobs when true.
 - `ENABLE_SCHEDULER`: must also be true for notification scheduler jobs to register.
   - `ENABLE_AI_REPORT_GENERATION`: backend-only switch for scheduled/background AI report generation. When false, report scheduler jobs are not registered and direct service calls return before DB/provider/LLM generation work; stored report reads still work.
+  - `ENABLE_REPORT_EVALUATOR`: backend-only switch for the final report evaluator gate. Default stays true; false skips only the final LLM evaluator after deterministic gates pass.
   - `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS`: delay for the one-time startup report job after app startup. Default `180`; use 180~300 on Render while provider warm-up stabilizes.
   - `STOOQ_FETCH_TIMEOUT_SECONDS`: Stooq daily CSV single-call timeout in seconds. Default `12`; minimum `5`. Use `20` or `30` when Render-to-Stooq connection timeouts repeat.
   - `NOTIFICATION_EVALUATION_INTERVAL_MINUTES`, `NOTIFICATION_DELIVERY_INTERVAL_MINUTES`, `NOTIFICATION_DEFAULT_PRICE_THRESHOLD_PERCENT`, `NOTIFICATION_DEFAULT_COOLDOWN_MINUTES`: notification scheduler and default rule controls.
@@ -135,6 +136,8 @@ Local Docker flow:
 - `docs/harness/report-generation-deployment-failure-remediation-plan-2026-06-07.md`
 - `docs/harness/render-standard-market-provider-timeout-remediation-2026-06-07.md`
 - `docs/harness/stooq-timeout-fallback-2026-06-07.md`
+- `docs/harness/report-evaluator-env-switch-plan-2026-06-09.md`
+- `docs/harness/report-evaluator-env-switch-implementation-2026-06-09.md`
 - `docs/harness/toss-payments-billing-auth-phase1-implementation-2026-06-08.md`
 - `docs/harness/demo-free-tier-data-cadence-plan-2026-06-08.md`
 - `docs/harness/data-io-pipeline-remediation-plan-2026-06-08.md`

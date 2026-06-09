@@ -5,6 +5,7 @@ from ...core.config import settings
 from .nodes import (
     bear_agent_node,
     bull_agent_node,
+    evaluator_bypass_node,
     evaluator_node,
     fact_checker_node,
     financial_agent,
@@ -34,6 +35,8 @@ def route_qualitative_check(state: AgentState) -> str:
     revision_count = state.get("revision_count", 0)
 
     if state.get("qualitative_check_pass"):
+        if not settings.ENABLE_REPORT_EVALUATOR:
+            return "evaluator_bypass_node"
         return "evaluator_node"
     if revision_count >= settings.REPORT_MAX_REVISIONS:
         return "END"
@@ -72,6 +75,7 @@ workflow.add_node("writer_node", writer_node)
 workflow.add_node("report_format_validator_node", report_format_validator_node)
 workflow.add_node("fact_checker_node", fact_checker_node)
 workflow.add_node("qualitative_claim_checker_node", qualitative_claim_checker_node)
+workflow.add_node("evaluator_bypass_node", evaluator_bypass_node)
 workflow.add_node("evaluator_node", evaluator_node)
 
 # 1) Parallel branches from START
@@ -115,9 +119,11 @@ workflow.add_conditional_edges(
     {
         "END": END,
         "writer_node": "writer_node",
+        "evaluator_bypass_node": "evaluator_bypass_node",
         "evaluator_node": "evaluator_node",
     },
 )
+workflow.add_edge("evaluator_bypass_node", END)
 workflow.add_conditional_edges(
     "evaluator_node",
     route_evaluation,

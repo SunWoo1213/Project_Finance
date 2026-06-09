@@ -699,6 +699,8 @@ def _build_generation_metadata(
         "fact_matrix": report_facts.get("fact_matrix", []),
         "fact_matrix_summary": report_facts.get("fact_matrix_summary", {}),
         "readiness": report_facts.get("readiness", {}),
+        "report_evaluator_enabled": settings.ENABLE_REPORT_EVALUATOR,
+        "evaluator_skipped": bool(result.get("evaluator_skipped")),
         "critic_mode": settings.REPORT_CRITIC_MODE,
         "llm_report_critics_enabled": settings.ENABLE_LLM_REPORT_CRITICS,
         "analysis_framework": report_facts.get("analysis_framework", {}),
@@ -819,6 +821,8 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
             "fact_matrix": report_facts.get("fact_matrix", []),
             "fact_matrix_summary": report_facts.get("fact_matrix_summary", {}),
             "readiness": readiness,
+            "report_evaluator_enabled": settings.ENABLE_REPORT_EVALUATOR,
+            "evaluator_skipped": False,
             "critic_mode": settings.REPORT_CRITIC_MODE,
             "llm_report_critics_enabled": settings.ENABLE_LLM_REPORT_CRITICS,
             "analysis_framework": report_facts.get("analysis_framework", {}),
@@ -867,6 +871,7 @@ async def generate_report_for_ticker(ticker: str, db: AsyncSession) -> dict:
         "revision_count": 0,
         "retry_count": 0,
         "is_pass": False,
+        "evaluator_skipped": False,
     }
 
     config = {"configurable": {"thread_id": ticker}}

@@ -127,6 +127,7 @@ class Settings(BaseSettings):
     REPORT_SCHEDULER_MAX_REPORTS_PER_RUN: int = 5
     REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS: int = 6
     REPORT_SCHEDULER_TARGET_TICKERS: str = "DGS10,XAU,BTC-USD,NVDA,005930.KS"
+    ENABLE_REPORT_EVALUATOR: bool = True
     ENABLE_LLM_REPORT_CRITICS: bool = False
     REPORT_CRITIC_MODE: str = "deterministic"
     # 품질 게이트(포맷/숫자/정성/평가) 실패 시 writer 재작성 최대 횟수.
