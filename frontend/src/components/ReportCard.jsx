@@ -1,53 +1,8 @@
-import { CheckCircle, Clock, SearchX, TrendingDown, TrendingUp } from 'lucide-react';
+import { CheckCircle, Clock, SearchX } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 const asArray = (value) => (Array.isArray(value) ? value.filter(Boolean) : []);
-
-function PacketBlock({ block }) {
-  const items = asArray(block?.items);
-  if (!block || (items.length === 0 && !block.limitation_reason)) return null;
-
-  return (
-    <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
-      <div className="mb-2 text-sm font-semibold text-slate-100">{block.title}</div>
-      {items.length > 0 ? (
-        <ul className="space-y-1 text-sm leading-6 text-slate-300">
-          {items.slice(0, 4).map((item, index) => (
-            <li key={`${item}-${index}`}>- {item}</li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm leading-6 text-slate-400">{block.limitation_reason}</p>
-      )}
-      {asArray(block.evidence_ids).length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {asArray(block.evidence_ids).slice(0, 4).map((id) => (
-            <span key={id} className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
-              {id}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SimpleListBlock({ title, items }) {
-  const cleanItems = asArray(items);
-  if (cleanItems.length === 0) return null;
-
-  return (
-    <div className="rounded-2xl border border-slate-700/70 bg-slate-900/30 p-4">
-      <div className="mb-2 text-sm font-semibold text-slate-100">{title}</div>
-      <ul className="space-y-1 text-sm leading-6 text-slate-300">
-        {cleanItems.slice(0, 5).map((item, index) => (
-          <li key={`${item}-${index}`}>- {item}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 export default function ReportCard({ reportData, isReportLoading }) {
   if (isReportLoading) {
@@ -73,25 +28,11 @@ export default function ReportCard({ reportData, isReportLoading }) {
     );
   }
 
-  const { bull_summary, bear_summary, final_content, metadata = {}, unavailable } = reportData;
+  const { final_content, metadata = {}, unavailable } = reportData;
   const readiness = metadata.readiness || {};
   const qualityStatus = metadata.quality_status || (metadata.is_pass ? 'pass' : '');
-  const missingFacts = Array.isArray(metadata.missing_required_facts) ? metadata.missing_required_facts : [];
-  const sourceStatus = metadata.source_status || {};
-  const dataAsOf = metadata.data_as_of ? new Date(metadata.data_as_of) : null;
-  const formattedDataAsOf =
-    dataAsOf && !Number.isNaN(dataAsOf.getTime())
-      ? dataAsOf.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false })
-      : '';
-  const isLimited = readiness.status === 'limited' || missingFacts.length > 0;
   const isScheduledPending = unavailable && metadata.reason === 'scheduled_report_not_ready';
   const isBlocked = unavailable || readiness.status === 'blocked' || qualityStatus === 'blocked';
-  const packet = metadata.research_packet || {};
-  const sourceTable = asArray(metadata.source_table || packet.source_table);
-  const factSummary = metadata.fact_matrix_summary || readiness.fact_matrix_summary || {};
-  const hasPacket = ['base_case', 'bull_case', 'bear_case', 'risk_review'].some(
-    (key) => asArray(packet[key]?.items).length > 0 || packet[key]?.limitation_reason
-  );
 
   if (isScheduledPending) {
     return (
@@ -131,82 +72,17 @@ export default function ReportCard({ reportData, isReportLoading }) {
   return (
     <div className="flex flex-col gap-6 rounded-3xl border border-slate-700/50 bg-slate-800/80 p-6 shadow-xl backdrop-blur-md">
       <div className="flex items-center justify-between">
-        <h3 className="flex flex-col text-xl font-bold">
+        <h3 className="text-xl font-bold">
           AI Research Report
-          <span className="mt-1 text-sm font-normal text-slate-400">
-            {formattedDataAsOf ? `Data as of ${formattedDataAsOf}` : 'Latest stored scheduled report'}
-          </span>
         </h3>
         <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/20 px-4 py-1.5 text-sm font-bold text-emerald-400 shadow-sm">
           <CheckCircle size={16} /> Complete
         </span>
       </div>
 
-      {(isLimited || metadata.risk_summary || sourceStatus.latest_context) && (
-        <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4 text-sm text-slate-300">
-          <div className="mb-2 font-semibold text-slate-200">Quality and source metadata</div>
-          <div className="flex flex-wrap gap-2 text-xs text-slate-400">
-            {readiness.status && <span>Readiness: {readiness.status}</span>}
-            {sourceStatus.latest_context && <span>Latest context: {sourceStatus.latest_context}</span>}
-            {metadata.format_check_pass !== undefined && <span>Format: {metadata.format_check_pass ? 'pass' : 'fail'}</span>}
-            {metadata.fact_check_pass !== undefined && <span>Numbers: {metadata.fact_check_pass ? 'pass' : 'fail'}</span>}
-            {metadata.qualitative_check_pass !== undefined && (
-              <span>Claims: {metadata.qualitative_check_pass ? 'pass' : 'fail'}</span>
-            )}
-          </div>
-          {missingFacts.length > 0 && (
-            <p className="mt-2 text-xs leading-5 text-amber-200">Missing facts: {missingFacts.join(', ')}</p>
-          )}
-          {metadata.risk_summary && (
-            <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-400">{metadata.risk_summary}</p>
-          )}
-        </div>
-      )}
-
-      {hasPacket && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <h4 className="text-sm font-bold uppercase tracking-wide text-slate-300">Research packet</h4>
-            {sourceTable.length > 0 && <span className="text-xs text-slate-500">{sourceTable.length} sources</span>}
-          </div>
-          {Object.keys(factSummary).length > 0 && (
-            <div className="rounded-2xl border border-slate-700/70 bg-slate-900/30 p-3 text-xs text-slate-400">
-              Fact matrix: present {factSummary.present || 0}, required missing {factSummary.missing_required || 0},
-              optional missing {factSummary.missing_optional_provider || 0}
-            </div>
-          )}
-          <div className="grid gap-3 md:grid-cols-2">
-            <PacketBlock block={packet.base_case} />
-            <PacketBlock block={packet.risk_review} />
-            <PacketBlock block={packet.bull_case} />
-            <PacketBlock block={packet.bear_case} />
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <SimpleListBlock title="Catalysts" items={packet.catalysts} />
-            <SimpleListBlock title="Watchlist" items={packet.watchlist} />
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-900/10 p-4 transition-colors hover:bg-emerald-900/20">
-          <h4 className="mb-2 flex items-center gap-2 font-bold text-emerald-400">
-            <TrendingUp size={18} /> Bull view
-          </h4>
-          <p className="whitespace-pre-line text-sm leading-relaxed text-slate-300">{bull_summary}</p>
-        </div>
-        <div className="rounded-2xl border border-blue-500/20 bg-blue-900/10 p-4 transition-colors hover:bg-blue-900/20">
-          <h4 className="mb-2 flex items-center gap-2 font-bold text-blue-400">
-            <TrendingDown size={18} /> Bear view
-          </h4>
-          <p className="whitespace-pre-line text-sm leading-relaxed text-slate-300">{bear_summary}</p>
-        </div>
-      </div>
-
-      <div className="mt-2 rounded-2xl border border-slate-700/50 bg-slate-900/50 p-6 shadow-inner">
-        <h4 className="mb-4 border-b border-slate-700 pb-2 font-bold text-slate-200">Full narrative</h4>
+      <div className="rounded-2xl border border-slate-700/50 bg-slate-900/50 p-6 shadow-inner">
         <div
-          className="prose prose-invert prose-slate prose-sm max-w-none
+          className="prose prose-invert prose-slate max-w-none
           prose-headings:font-bold prose-headings:text-slate-100
           prose-a:text-emerald-400 prose-strong:text-slate-200 prose-ul:pl-4"
         >

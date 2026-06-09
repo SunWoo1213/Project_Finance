@@ -4,7 +4,7 @@ Date: 2026-05-30
 
 ## Current Behavior
 
-The asset detail screen combines market summary, favorite toggling, latest news/calendar context, AI report access, and the per-asset discussion area. It no longer renders a price history chart or calls the market history endpoint from the detail page. AI reports are visible only to users with report entitlement and render through `ReportCard.jsx`, including bull/bear summaries plus the final Markdown report. Comments can be read by anyone, but creating, editing, deleting, liking, and reporting comments require an app JWT.
+The asset detail screen combines market summary, favorite toggling, latest news/calendar context, AI report access, and the per-asset discussion area. It no longer renders a price history chart or calls the market history endpoint from the detail page. AI reports are visible only to users with report entitlement and render through `ReportCard.jsx`. The user-facing report card now displays only the final Markdown report body; internal quality/source metadata, research packets, and bull/bear diagnostic summaries stay out of the visible UI. Comments can be read by anyone, but creating, editing, deleting, liking, and reporting comments require an app JWT.
 
 Comment reports are one-per-user per comment. When a comment reaches 100 accumulated reports, the backend automatically deletes that comment.
 
@@ -54,7 +54,7 @@ Favorite report notifications link users to `/detail/:ticker` instead of embeddi
 22. Scheduled report generation seeds and covers only the configured target list. The repository default remains the conservative representative list: `DGS10`, `XAU`, `BTC-USD`, `NVDA`, and `005930.KS`. The current demo policy may narrow this to `REPORT_SCHEDULER_TARGET_TICKERS=NVDA` with `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=1`; this does not change `MARKET_LIVE_TICKERS`, which can still allow live market data for DGS10, XAU, BTC-USD, NVDA, 005930.KS, and the four main dashboard indicators while all other assets use `demo_mock`.
 23. The startup scheduled report job is delayed by `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS` so market warm-up and provider queues can begin before the first report attempt. If a scheduled report still starts before market warm-up has populated the target ticker, `generate_report_for_ticker()` asks `market_service.ensure_price_cache_for_ticker()` to fill that ticker's price cache once, then rechecks the cache before building report facts. For US stock targets such as `NVDA`, successful Finnhub quote data can still populate the cache even when optional profile or Stooq history calls fail. This is a scheduler/background safeguard only; user-facing report pages and chatbot requests still do not trigger report generation.
 24. Stooq-backed market facts (US index, commodity, US stock history, USD/KRW history/change) degrade through stale cache when available. USD/KRW keeps the open.er-api.com current rate even if Stooq history times out. This improves report fact availability but does not create a user-facing report generation trigger.
-25. Passing reports persist quality/source metadata, fact matrix summaries, source-table entries, and research packet metadata on `AIReport`, and existing report fetches return the stored metadata to `ReportCard.jsx`.
+25. Passing reports persist quality/source metadata, fact matrix summaries, source-table entries, and research packet metadata on `AIReport`, but the user-facing report fetch response hides internal metadata and `ReportCard.jsx` renders only `final_content`.
 26. The page fetches comments using the ticker or asset key.
 27. Community writes send the JWT and the backend resolves the asset, creating an asset row from the warm market cache when a comment is posted before a report has created one.
 28. Edit/delete ownership checks happen on the backend.
@@ -69,7 +69,7 @@ Favorite report notifications link users to `/detail/:ticker` instead of embeddi
 - External notification link target: `FRONTEND_BASE_URL/detail/{ticker}`
 - Report fetch: `GET /api/reports/{ticker}` requires active Plus or Pro entitlement.
 - Report generation: `POST /api/ai/generate/{ticker}` requires auth but is disabled for ordinary users with HTTP 403; LLM-backed generation is scheduled-only.
-- Report fetch responses include persisted `metadata` when available.
+- Report fetch responses include `metadata: {}` for user-facing safety. Internal generation metadata remains persisted on `AIReport.metadata_json` but is not rendered by `ReportCard.jsx`.
 - Report generation success response includes `metadata` with `quality_status`, `is_pass`, `feedback`, `format_check_pass`, `format_check_feedback`, `fact_check_pass`, `fact_check_feedback`, `qualitative_check_pass`, `qualitative_check_feedback`, `revision_count`, `generated_at`, `data_as_of`, `source_status`, `missing_required_facts`, `fact_matrix`, `fact_matrix_summary`, `readiness`, `critic_mode`, `llm_report_critics_enabled`, `research_packet`, `source_table`, and `risk_summary`.
 - Report generation metadata also includes `role_outputs` with `bull_thesis`, `bear_thesis`, and `risk_review` for newly generated reports.
 - Report generation metadata also includes `analysis_framework`, which identifies the asset-category framework used by the writer.
@@ -179,6 +179,7 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/demo-nvda-report-live-market-remediation-plan-2026-06-09.md`
 - `docs/harness/report-not-writing-root-cause-remediation-plan-2026-06-09.md`
 - `docs/harness/report-data-as-of-naive-datetime-fix-2026-06-09.md`
+- `docs/harness/report-final-narrative-only-display-implementation-2026-06-09.md`
 
 ## Open Risks
 

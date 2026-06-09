@@ -51,6 +51,7 @@ This index tells future harness agents which feature document to read before cha
 - 데모 NVDA 단일 리포트 + 제한 live market 복구 계획: `docs/harness/demo-nvda-report-live-market-remediation-plan-2026-06-09.md`
 - AI 리포트 작성 미발화 원인 분석 및 복구 계획: `docs/harness/report-not-writing-root-cause-remediation-plan-2026-06-09.md`
 - AI 리포트 저장 실패 수정(data_as_of timezone 정규화): `docs/harness/report-data-as-of-naive-datetime-fix-2026-06-09.md`
+- 최종 투자리포트 본문만 사용자에게 표시: `docs/harness/report-final-narrative-only-display-implementation-2026-06-09.md`
 - Render Standard 전환 후 시장 provider timeout 보완: `docs/harness/render-standard-market-provider-timeout-remediation-2026-06-07.md`
 - Stooq timeout stale cache + USD/KRW open-rate fallback: `docs/harness/stooq-timeout-fallback-2026-06-07.md`
 - Data I/O pipeline remediation plan: `docs/harness/data-io-pipeline-remediation-plan-2026-06-08.md`

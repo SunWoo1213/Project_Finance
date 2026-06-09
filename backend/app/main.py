@@ -470,21 +470,11 @@ async def generate_report(
 
 
 def report_metadata_payload(report: AIReport) -> dict:
-    metadata = report.metadata_json or {}
-    if metadata:
-        return metadata
-    return {
-        "quality_status": report.quality_status,
-        "feedback": report.quality_feedback or "",
-        "format_check_pass": report.format_check_pass,
-        "fact_check_pass": report.fact_check_pass,
-        "qualitative_check_pass": report.qualitative_check_pass,
-        "revision_count": report.revision_count,
-        "data_as_of": report.data_as_of.isoformat() if report.data_as_of else None,
-        "source_status": report.source_summary or {},
-        "risk_summary": report.risk_summary or "",
-        "analysis_framework": report.analysis_framework or {},
-    }
+    # User-facing report views render only the final stored narrative. Keep
+    # internal quality/source diagnostics out of the API response because they
+    # can contain provider exception strings and source URLs.
+    _ = report
+    return {}
 
 
 @app.get("/api/reports/{ticker}")
@@ -508,9 +498,9 @@ async def get_latest_report(
     report, asset = row
     return {
         "ticker": asset.ticker,
-        "bull_summary": report.bull_summary,
-        "bear_summary": report.bear_summary,
-        "final_content": report.final_content,
+        "bull_summary": redact_secrets(report.bull_summary or ""),
+        "bear_summary": redact_secrets(report.bear_summary or ""),
+        "final_content": redact_secrets(report.final_content),
         "created_at": report.created_at.isoformat(),
         "metadata": report_metadata_payload(report),
     }

@@ -33,6 +33,20 @@ def build_report_test_app():
     return app
 
 
+def test_report_metadata_payload_hides_internal_diagnostics():
+    report = SimpleNamespace(
+        metadata_json={
+            "readiness": {"status": "limited"},
+            "risk_summary": "provider failed: https://example.com/profile/NVDA?apikey=SECRET",
+        },
+        quality_status="pass",
+        data_as_of=None,
+        source_summary={"price": "cached"},
+    )
+
+    assert main.report_metadata_payload(report) == {}
+
+
 @pytest.mark.asyncio
 async def test_report_route_requires_authentication():
     app = build_report_test_app()
