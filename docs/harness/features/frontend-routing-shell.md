@@ -12,7 +12,7 @@ Current routes:
 
 - `/`: home market summary.
 - `/category/:type`: category list.
-- `/market/:ticker`: main index/FX time-based snapshot with a related dashboard link.
+- `/market/:ticker`: main index/FX snapshot showing current price/change and a related dashboard link (history chart removed).
 - `/detail/:ticker`: asset detail, AI report, and comments.
 - `/login`: Google login.
 - `/pricing`: tier comparison and checkout CTA.
@@ -72,6 +72,7 @@ Current routes:
 - `docs/harness/harness-feature-documentation.md`
 - `docs/harness/google-login-only.md` removed the `/register` route and signup navigation.
 - `docs/harness/main-market-snapshot-and-news.md` added `/market/:ticker` for home index/FX cards.
+- `docs/harness/market-snapshot-history-chart-removal-2026-06-10.md` removed the history chart from `/market/:ticker`, keeping price/change and the dashboard link.
 - `docs/harness/asset-favorites.md` added browser-local favorite asset state and navigation.
 - `docs/harness/chatbot-feature-implementation-2026-05-31.md` added the global chatbot launcher, panel, session state, and route action handling.
 - `docs/harness/subscription-tier-payment-plan-2026-06-01.md` plans pricing/billing routes and tier-based report/chatbot gates.
