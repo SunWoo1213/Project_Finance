@@ -931,6 +931,29 @@ async def fetch_stooq_history(ticker: str, period: str = "1y") -> dict[str, Any]
         )
         return _history_payload(ticker.upper(), [])
     points = _parse_stooq_csv(text, limit=_period_to_days(period))
+    if not points:
+        # 빈 결과를 12h(_history_cache)에 캐시하면 한 번의 일시적 실패(PoW/쿼터/네트워크)가
+        # 종일 0으로 고착된다. 빈 payload는 캐시에 쓰지 않고 300s 쿨다운만 걸어, 직전 유효값이
+        # 있으면 그것을 유지하고 없으면 다음 수집 주기에 live 재시도하도록 둔다.
+        _mark_failed_call(cache_key)
+        stale = _cache_get_stale(_history_cache, cache_key)
+        if stale is not None and stale.get("points"):
+            logger.warning(
+                "Stooq empty parse; reusing last good history (ticker=%s, period=%s)",
+                ticker.upper(),
+                period,
+            )
+            return stale
+        return _history_payload(
+            ticker.upper(),
+            [],
+            provider_meta={
+                "provider": "stooq",
+                "symbol": stooq_symbol,
+                "freshness": "daily_csv_opt_in_fallback",
+                "license_scope": "fallback_only",
+            },
+        )
     payload = _history_payload(
         ticker.upper(),
         points,
@@ -941,8 +964,6 @@ async def fetch_stooq_history(ticker: str, period: str = "1y") -> dict[str, Any]
             "license_scope": "fallback_only",
         },
     )
-    if not points:
-        _mark_failed_call(cache_key)
     return _cache_set(_history_cache, cache_key, payload)
 
 

@@ -154,6 +154,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/krw-fx-change-percent-not-captured-implementation-2026-06-09.md`
 - `docs/harness/stooq-pow-anti-bot-bypass-implementation-2026-06-09.md`
 - `docs/harness/market-card-disappear-on-fetch-failure-fix-2026-06-09.md`
+- `docs/harness/stooq-empty-history-12h-cache-stuck-fix-2026-06-09.md`
 
 ## Open Risks
 

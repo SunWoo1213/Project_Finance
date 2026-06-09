@@ -660,6 +660,48 @@ async def test_stooq_history_disabled_by_default(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_stooq_history_does_not_cache_empty_result(monkeypatch):
+    # 빈 파싱 결과를 12h 캐시에 넣으면 일시적 실패가 종일 0으로 고착된다.
+    # 빈 결과는 캐시하지 않고 다음 호출이 곧바로 live 재시도하도록 둔다.
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", True)
+    cache_key = "stooq:^NDX:1mo"
+
+    async def empty_get_stooq_text(params, *, timeout=10.0):
+        return "Get your apikey: open stooq"
+
+    monkeypatch.setattr(price_providers, "_get_stooq_text", empty_get_stooq_text)
+
+    payload = await price_providers.fetch_stooq_history("^NDX", "1mo")
+
+    assert payload["points"] == []
+    # 핵심: 빈 payload가 12h 히스토리 캐시에 남지 않아야 한다.
+    assert cache_key not in price_providers._history_cache
+
+
+@pytest.mark.asyncio
+async def test_stooq_history_reuses_last_good_when_parse_empties(monkeypatch):
+    # 직전 유효값이 있으면 빈 파싱 시 그 값을 유지한다(0으로 떨어뜨리지 않음).
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", True)
+    cache_key = "stooq:^NDX:1mo"
+    good = price_providers._history_payload("^NDX", [{"date": "2026-06-09", "value": 29500.0}])
+    price_providers._history_cache[cache_key] = (
+        price_providers.monotonic() - price_providers.HISTORY_CACHE_TTL_SECONDS - 1,
+        good,
+    )
+
+    async def empty_get_stooq_text(params, *, timeout=10.0):
+        return "Get your apikey: open stooq"
+
+    monkeypatch.setattr(price_providers, "_get_stooq_text", empty_get_stooq_text)
+
+    payload = await price_providers.fetch_stooq_history("^NDX", "1mo")
+
+    assert payload["points"] == [{"date": "2026-06-09", "value": 29500.0}]
+
+
+@pytest.mark.asyncio
 async def test_finnhub_stock_snapshot_keeps_quote_when_optional_sources_fail(monkeypatch):
     async def fake_get_json(provider, url, **kwargs):
         assert provider == "finnhub"
