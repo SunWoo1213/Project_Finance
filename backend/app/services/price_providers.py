@@ -70,8 +70,13 @@ STOOQ_SYMBOLS = {
 
 # FMP free/stable 플랜이 정상 반환하지 못하는 지수는 Stooq를 1차 소스로 쓴다.
 # 이 집합의 ticker는 전역 opt-in(ENABLE_STOOQ_FALLBACK)이 꺼져 있어도 STOOQ_API_KEY만
-# 있으면 Stooq에서 가져온다. 다른 Stooq 폴백 경로(STOCK_US 종가, KRW=X 등)에는 영향이 없다.
+# 있으면 Stooq에서 가져온다. 다른 Stooq 폴백 경로(STOCK_US 종가 등)에는 영향이 없다.
 STOOQ_PRIMARY_SYMBOLS = {"^NDX"}
+
+# USD/KRW 등락은 stooq 일별 종가로만 계산할 수 있다(open.er-api는 전일 종가를 주지 않음).
+# ^NDX primary와 같은 취지로, STOOQ_API_KEY가 있으면 ENABLE_STOOQ_FALLBACK이 꺼져 있어도
+# 이 집합의 ticker는 stooq에서 일별 종가를 가져온다. 지수 primary 의미와 분리해 둔다.
+STOOQ_FX_SYMBOLS = {"KRW=X"}
 
 FMP_SYMBOL_CANDIDATES = {
     "^GSPC": ["^GSPC"],
@@ -744,25 +749,39 @@ async def _fetch_fx_snapshot(ticker: str) -> dict[str, Any]:
 
     payload = await _get_json("exchange_rate_open", EXCHANGE_RATE_OPEN_URL, timeout=8.0)
     rates = (payload or {}).get("rates", {})
-    current_price = _safe_float(rates.get("KRW"))
+    live_rate = _safe_float(rates.get("KRW"))
 
+    # USD/KRW 등락은 stooq 일별 종가로만 계산할 수 있다(open.er-api는 전일 종가 미제공).
+    # STOOQ_API_KEY가 있으면 ENABLE_STOOQ_FALLBACK과 무관하게 stooq를 호출한다(A안).
     history = _history_payload("KRW=X", [], unit="KRW")
-    if settings.ENABLE_STOOQ_FALLBACK:
+    if settings.ENABLE_STOOQ_FALLBACK or _stooq_key():
         try:
             history = await fetch_stooq_history("KRW=X", "1mo")
         except Exception as exc:
             logger.warning(
-                "Stooq opt-in FX change fallback used (ticker=%s): %s",
+                "Stooq FX change fallback used (ticker=%s): %s",
                 ticker,
                 redact_secrets(repr(exc)),
             )
             history = _history_payload("KRW=X", [], unit="KRW")
     history_prices = [point["value"] for point in history.get("points", [])]
 
+    # 현재가는 open.er-api live rate를 우선하고, 없으면 stooq 최신 종가로 채운다.
+    current_price = live_rate
+    current_from_stooq = False
     if not current_price and history_prices:
         current_price = history_prices[-1]
+        current_from_stooq = True
 
-    prev_close = history_prices[-1] if history_prices else 0.0
+    # 전일 종가:
+    #  - live rate가 있으면 stooq 최신 종가([-1]) 대비(live vs last close).
+    #  - live rate가 없어 현재가를 stooq[-1]로 채웠다면 직전 종가([-2]) 대비로 day-over-day를
+    #    계산해, 같은 값과 비교해 등락이 0으로 고착되는 자기 비교 경로를 막는다.
+    if current_from_stooq:
+        prev_close = history_prices[-2] if len(history_prices) >= 2 else 0.0
+    else:
+        prev_close = history_prices[-1] if history_prices else 0.0
+
     change_percent = (
         ((current_price - prev_close) / prev_close) * 100
         if prev_close and current_price
@@ -813,8 +832,9 @@ async def fetch_stooq_history(ticker: str, period: str = "1y") -> dict[str, Any]
         cached_at, cached_payload = cached_entry
         if monotonic() - cached_at < HISTORY_CACHE_TTL_SECONDS:
             return cached_payload
-    # ^NDX 등 STOOQ_PRIMARY_SYMBOLS는 전역 opt-in이 꺼져 있어도 Stooq를 사용한다.
-    force_stooq = ticker.upper() in STOOQ_PRIMARY_SYMBOLS
+    # ^NDX(STOOQ_PRIMARY_SYMBOLS), KRW=X(STOOQ_FX_SYMBOLS)는 전역 opt-in이 꺼져 있어도
+    # STOOQ_API_KEY만 있으면 Stooq를 사용한다.
+    force_stooq = ticker.upper() in STOOQ_PRIMARY_SYMBOLS or ticker.upper() in STOOQ_FX_SYMBOLS
     if not stooq_symbol or not key or (not settings.ENABLE_STOOQ_FALLBACK and not force_stooq):
         return _history_payload(ticker.upper(), [])
 
@@ -1159,7 +1179,7 @@ async def fetch_market_history(ticker: str, period: str = "1y") -> dict[str, Any
         elif normalized == "KRW=X":
             points: list[dict[str, Any]] = []
             provider_meta: dict[str, Any] | None = None
-            if settings.ENABLE_STOOQ_FALLBACK:
+            if settings.ENABLE_STOOQ_FALLBACK or _stooq_key():
                 stooq_history = await fetch_stooq_history(normalized, period)
                 points = list(stooq_history.get("points", []))
                 provider_meta = stooq_history.get("provider_meta")

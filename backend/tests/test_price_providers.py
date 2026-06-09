@@ -424,12 +424,13 @@ async def test_fx_snapshot_falls_back_when_stooq_empty(monkeypatch):
 @pytest.mark.asyncio
 async def test_fx_snapshot_keeps_open_rate_without_stooq_fallback(monkeypatch):
     monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", None)
 
     async def fake_get_json(provider, url, **kwargs):
         return {"rates": {"KRW": 1386.0}, "provider": "open.er-api.com"}
 
     async def fail_stooq_history(ticker, period):
-        raise AssertionError("Stooq must not be called when fallback is disabled")
+        raise AssertionError("Stooq must not be called without fallback flag or key")
 
     monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
     monkeypatch.setattr(price_providers, "fetch_stooq_history", fail_stooq_history)
@@ -443,8 +444,68 @@ async def test_fx_snapshot_keeps_open_rate_without_stooq_fallback(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_fx_snapshot_uses_stooq_when_key_present_without_global_optin(monkeypatch):
+    # A안: STOOQ_API_KEY만 있으면 ENABLE_STOOQ_FALLBACK이 꺼져 있어도 USD/KRW 등락을 계산한다.
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "STOOQ_FETCH_TIMEOUT_SECONDS", 12)
+
+    async def fake_get_json(provider, url, **kwargs):
+        return {"rates": {"KRW": 1390.0}, "provider": "open.er-api.com"}
+
+    async def fake_get_text(provider, url, *, params=None, headers=None, timeout=10.0):
+        assert provider == "stooq"
+        assert params["s"] == "usdkrw"
+        assert params["apikey"] == "test-key"
+        return "Date,Open,High,Low,Close,Volume\n2026-06-02,1,2,1,1370,100\n2026-06-03,1,2,1,1380,100\n"
+
+    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
+    monkeypatch.setattr(price_providers, "_get_text", fake_get_text)
+
+    snapshot = await price_providers._fetch_fx_snapshot("KRW=X")
+
+    # live rate(1390) vs stooq 최신 종가(1380) → 약 +0.7246%, 0이 아니다.
+    assert snapshot["currentPrice"] == 1390.0
+    assert snapshot["changePercent"] == round(((1390.0 - 1380.0) / 1380.0) * 100, 6)
+    assert snapshot["changePercent"] != 0.0
+    assert snapshot["provider_meta"]["change_source"] == "stooq_fallback"
+
+
+@pytest.mark.asyncio
+async def test_fx_snapshot_avoids_self_comparison_when_open_rate_missing(monkeypatch):
+    # open.er-api가 비면 현재가를 stooq 최신 종가([-1])로 채우되, 전일 종가는 직전 종가([-2])로
+    # 잡아 같은 값과 비교해 등락이 0으로 고착되는 경로를 막는다.
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
+
+    async def fake_get_json(provider, url, **kwargs):
+        return {"rates": {}, "provider": "open.er-api.com"}
+
+    async def fake_stooq_history(ticker, period):
+        return price_providers._history_payload(
+            "KRW=X",
+            [
+                {"date": "2026-06-02", "value": 1370.0},
+                {"date": "2026-06-03", "value": 1380.0},
+            ],
+            unit="KRW",
+        )
+
+    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
+    monkeypatch.setattr(price_providers, "fetch_stooq_history", fake_stooq_history)
+
+    snapshot = await price_providers._fetch_fx_snapshot("KRW=X")
+
+    assert snapshot["currentPrice"] == 1380.0
+    assert snapshot["changePercent"] == round(((1380.0 - 1370.0) / 1370.0) * 100, 6)
+    assert snapshot["changePercent"] != 0.0
+    assert snapshot["provider_meta"]["change_source"] == "stooq_fallback"
+
+
+@pytest.mark.asyncio
 async def test_fx_history_fallback_normalizes_open_er_api_rfc_date(monkeypatch):
     monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", None)
 
     async def fake_fx_snapshot(ticker):
         return {

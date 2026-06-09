@@ -62,6 +62,8 @@ This index tells future harness agents which feature document to read before cha
 - 시장 가격 데이터 일일 API 갱신 계획: `docs/harness/market-data-daily-price-refresh-plan-2026-06-09.md`
 - 나스닥 지수(^NDX) Stooq provider 전환 계획: `docs/harness/nasdaq-index-stooq-provider-plan-2026-06-09.md`
 - 나스닥 지수(^NDX) Stooq primary 구현(전역 opt-in 없이 ^NDX만 Stooq): `docs/harness/nasdaq-index-stooq-primary-implementation-2026-06-09.md`
+- USD/KRW 변동성 미표시 해결 계획(STOOQ_API_KEY 게이팅 A안): `docs/harness/krw-fx-change-percent-not-captured-plan-2026-06-09.md`
+- USD/KRW 변동성 미표시 해결 구현(STOOQ_FX_SYMBOLS key-only + 자기비교 제거): `docs/harness/krw-fx-change-percent-not-captured-implementation-2026-06-09.md`
 - 데모 환경 무료 티어 데이터 수집 주기 완화 계획: `docs/harness/demo-free-tier-data-cadence-plan-2026-06-08.md`
 - 무료 플랜 기반 Stooq primary 대체 계획(FMP Basic + 기존 무료 provider 유지): `docs/harness/market-data-free-plan-stooq-replacement-plan-2026-06-07.md`
 - 무료 플랜 기반 Stooq primary 대체 구현(FMP Basic + opt-in Stooq fallback): `docs/harness/market-data-free-plan-stooq-replacement-implementation-2026-06-07.md`
