@@ -32,7 +32,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 4. Scheduled AI report generation remains cost-controlled by default: it seeds and iterates only the representative report target list (`DGS10`, `XAU`, `BTC-USD`, `NVDA`, `005930.KS`), respects a per-run cap of 5, and runs on a 6-hour interval/cooldown.
 5. `GET /api/market/prices` returns the cached category object.
 6. `GET /api/market/news` returns the cached news object.
-6a. Free-tier demo mode limits live market provider calls through `MARKET_LIVE_TICKERS`, defaulting to `DGS10,XAU,BTC-USD,NVDA,005930.KS,^GSPC,^NDX,KRW=X,^KS11`. This keeps the representative report/demo targets plus the four home dashboard cards on live provider paths while price/news warm-up, latest-context, and history requests for all other tickers return deterministic `demo_mock` payloads instead of calling external providers. Set `MARKET_LIVE_TICKERS=*` only when broad live provider coverage is intentionally allowed.
+6a. Free-tier demo mode limits live market provider calls through `MARKET_LIVE_TICKERS`, defaulting to `DGS10,XAU,BTC-USD,NVDA,005930.KS,^GSPC,^NDX,KRW=X,^KS11`. This keeps the demo live market targets plus the four home dashboard cards on live provider paths while price/news warm-up, latest-context, and history requests for all other tickers return deterministic `demo_mock` payloads instead of calling external providers. `MARKET_LIVE_TICKERS` is separate from `REPORT_SCHEDULER_TARGET_TICKERS`; in the NVDA-only report demo policy, the live market allowlist still includes DGS10, XAU, BTC-USD, NVDA, 005930.KS, ^GSPC, ^NDX, KRW=X, and ^KS11, while scheduled report generation targets only NVDA. Set `MARKET_LIVE_TICKERS=*` only when broad live provider coverage is intentionally allowed.
 7. The home page renders S&P 500, Nasdaq 100, USD/KRW, and KOSPI from the `macro` cache and lists cached global news below the market cards.
 8. Main market cards route to `/market/:ticker`, which shows provider-dated daily history and a link to the related dashboard instead of the AI report/community detail flow.
 9. `GET /api/market/latest-context/{ticker}` fetches ticker-specific news and calendar events with a short per-ticker TTL cache. The TTL is configurable in minutes via `MARKET_LATEST_CONTEXT_TTL_MINUTES` (default 10, minimum 1); `_latest_context_ttl_seconds()` in `market_service.py` reads it at call time. `force_refresh=true` still respects a 5-minute minimum cooldown.
@@ -69,7 +69,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - Market provider keys: `FMP_API_KEY` for US index/commodity/US stock EOD history/profile support, `FINNHUB_API_KEY` for US stock quote/news/events, `COINGECKO_DEMO_API_KEY` for crypto price/history, `DATA_GO_KR_API_KEY` for Korean stock/index price APIs, and optional `STOOQ_API_KEY` for explicit fallback only.
 - USD/KRW uses open.er-api.com open access data as daily reference FX. It is not treated as realtime trading-grade FX, and ordinary user-facing requests do not trigger fresh report generation.
 - Hosted deployment startup should keep `ENABLE_MARKET_WARMUP=false` and `ENABLE_SCHEDULER=false` for the first smoke release, then enable runtime jobs after API/DB checks and cost review.
-- Optional report scheduler policy controls: `REPORT_SCHEDULER_COVERAGE=conservative`, `REPORT_SCHEDULER_INTERVAL_HOURS=6`, `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS=180`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=5`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS=6`, `REPORT_SCHEDULER_TARGET_TICKERS=DGS10,XAU,BTC-USD,NVDA,005930.KS`
+- Optional report scheduler policy controls: `REPORT_SCHEDULER_COVERAGE=conservative`, `REPORT_SCHEDULER_INTERVAL_HOURS=6`, `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS=180`, `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=5`, `REPORT_SCHEDULER_ASSET_COOLDOWN_HOURS=6`, `REPORT_SCHEDULER_TARGET_TICKERS=DGS10,XAU,BTC-USD,NVDA,005930.KS`. For the NVDA-only demo report policy, use `REPORT_SCHEDULER_TARGET_TICKERS=NVDA` and `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=1` while keeping `MARKET_LIVE_TICKERS` on the broader demo live allowlist.
 - Target report schedule rule: report generation is backend-scheduled every 6 hours and user/chatbot paths read stored reports only. The 2026-06-01 implementation limits scheduled coverage to five representative assets for API cost control; see `docs/harness/report-generation-schedule-alignment-implementation-2026-06-01.md`.
 - Supported history periods: `1d`, `1mo`, `1y`, `5y`. Free-provider replacement paths return provider-dated daily points for all periods; `1d` is 7 daily points, `1mo` is 30 daily points, `1y` is 365 daily points, and `5y` is 1825 daily points. `1d` is no longer a 5-minute intraday chart.
 - Main market snapshot route: `/market/:ticker`
@@ -142,6 +142,9 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/dashboard-indices-realtime-api-plan-2026-06-09.md`
 - `docs/harness/dashboard-indices-demo-live-allowlist-implementation-2026-06-09.md`
 - `docs/harness/market-data-daily-price-refresh-plan-2026-06-09.md`
+- `docs/harness/demo-nvda-report-live-market-policy-2026-06-09.md`
+- `docs/harness/demo-nvda-report-live-market-remediation-plan-2026-06-09.md`
+- `docs/harness/report-not-writing-root-cause-remediation-plan-2026-06-09.md`
 
 ## Open Risks
 

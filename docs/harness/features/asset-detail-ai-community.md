@@ -51,7 +51,7 @@ Favorite report notifications link users to `/detail/:ticker` instead of embeddi
 19. The graph evaluates format-, numeric-, and qualitative-check-passing reports. Passing reports are saved with bull and bear summaries derived from role outputs when available.
 20. Failed format checker, fact checker, qualitative checker, or evaluator results raise a quality failure and are not committed to the database. As a single exception, when the revision loop is exhausted and the only failing gate is the numeric fact checker (format already passed), `generate_report_for_ticker` deterministically sanitizes the unsupported numeric tokens (replacing them with a `(수치 미확인)` placeholder, no LLM re-call) and re-runs the format, framework, numeric, and qualitative gates; only if all gates then pass is the sanitized report saved (`metadata_json.fallback_sanitized=true` with `sanitized_numbers`). If sanitization still does not pass, the report is not saved (404 preserved).
 21. Scheduled report generation runs only when both `ENABLE_SCHEDULER=true` and `ENABLE_AI_REPORT_GENERATION=true`.
-22. Scheduled report generation seeds and covers only the configured representative target list by default: `DGS10`, `XAU`, `BTC-USD`, `NVDA`, and `005930.KS`.
+22. Scheduled report generation seeds and covers only the configured target list. The repository default remains the conservative representative list: `DGS10`, `XAU`, `BTC-USD`, `NVDA`, and `005930.KS`. The current demo policy may narrow this to `REPORT_SCHEDULER_TARGET_TICKERS=NVDA` with `REPORT_SCHEDULER_MAX_REPORTS_PER_RUN=1`; this does not change `MARKET_LIVE_TICKERS`, which can still allow live market data for DGS10, XAU, BTC-USD, NVDA, 005930.KS, and the four main dashboard indicators while all other assets use `demo_mock`.
 23. The startup scheduled report job is delayed by `REPORT_SCHEDULER_STARTUP_DELAY_SECONDS` so market warm-up and provider queues can begin before the first report attempt. If a scheduled report still starts before market warm-up has populated the target ticker, `generate_report_for_ticker()` asks `market_service.ensure_price_cache_for_ticker()` to fill that ticker's price cache once, then rechecks the cache before building report facts. For US stock targets such as `NVDA`, successful Finnhub quote data can still populate the cache even when optional profile or Stooq history calls fail. This is a scheduler/background safeguard only; user-facing report pages and chatbot requests still do not trigger report generation.
 24. Stooq-backed market facts (US index, commodity, US stock history, USD/KRW history/change) degrade through stale cache when available. USD/KRW keeps the open.er-api.com current rate even if Stooq history times out. This improves report fact availability but does not create a user-facing report generation trigger.
 25. Passing reports persist quality/source metadata, fact matrix summaries, source-table entries, and research packet metadata on `AIReport`, and existing report fetches return the stored metadata to `ReportCard.jsx`.
@@ -175,6 +175,10 @@ The report reason selector in `AssetDetail.jsx` does not change the API request 
 - `docs/harness/favorite-asset-report-link-notification-implementation-2026-06-09.md`
 - `docs/harness/report-evaluator-env-switch-plan-2026-06-09.md`
 - `docs/harness/report-evaluator-env-switch-implementation-2026-06-09.md`
+- `docs/harness/demo-nvda-report-live-market-policy-2026-06-09.md`
+- `docs/harness/demo-nvda-report-live-market-remediation-plan-2026-06-09.md`
+- `docs/harness/report-not-writing-root-cause-remediation-plan-2026-06-09.md`
+- `docs/harness/report-data-as-of-naive-datetime-fix-2026-06-09.md`
 
 ## Open Risks
 

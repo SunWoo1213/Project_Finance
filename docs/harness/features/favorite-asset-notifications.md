@@ -6,9 +6,11 @@ Date: 2026-06-02
 
 로그인 사용자는 즐겨찾기 자산을 계정 기준으로 저장하고, 알림 기본 설정과 채널 연결 상태를 관리할 수 있다. 알림 평가는 기존 `market_cache`, `notification_events`, `asset_notification_snapshots`, 저장된 `AIReport`만 읽는다. 사용자 요청이나 알림 job은 새 AI 리포트 생성을 직접 트리거하지 않는다.
 
-Report 알림은 Gmail/Telegram에 리포트 본문을 직접 싣지 않는다. 새 저장 리포트가 감지되면 `즐겨찾기한 자산에 대한 보고서 발신입니다.` 제목으로 현재 가격과 `FRONTEND_BASE_URL/detail/{ticker}` 링크를 보내고, 사용자는 자산 상세 페이지에서 권한/로그인 흐름을 거쳐 저장된 scheduled report를 읽는다. 가격 cache가 없으면 알림 생성은 계속하되 `현재 가격: 확인 중` fallback을 표시한다.
+Gmail/Telegram 발송 본문은 한국어를 먼저 제공하고 아래에 `English` 섹션을 둔다. Email subject는 한국어 제목만 사용한다. Report 알림은 Gmail/Telegram에 리포트 본문을 직접 싣지 않는다. 새 저장 리포트가 감지되면 `즐겨찾기한 자산에 대한 보고서 발신입니다.` 제목으로 현재 가격과 `FRONTEND_BASE_URL/detail/{ticker}` 링크를 보내고, 사용자는 자산 상세 페이지에서 권한/로그인 흐름을 거쳐 저장된 scheduled report를 읽는다. 가격 cache가 없으면 알림 생성은 계속하되 `현재 가격: 확인 중` fallback을 표시한다.
 
-Google 최초 가입 시에는 Gmail welcome email을 한 번 시도한다. Email 또는 Telegram 채널이 처음 검증 완료되면 해당 채널로 welcome message를 한 번 시도한다. 중복 방지는 DB schema 변경 없이 `NotificationEvent`의 `welcome:{user_id}:{channel}` dedupe key로 처리한다.
+News 알림은 외부 뉴스 URL을 발송 본문에 노출하지 않는다. 새 뉴스 fingerprint가 감지되면 뉴스 제목과 `FRONTEND_BASE_URL/detail/{ticker}` 상세 페이지 링크로 안내한다.
+
+Google 최초 가입 시에는 Gmail welcome email을 한 번 시도한다. Email 또는 Telegram 채널이 처음 검증 완료되면 해당 채널로 welcome message를 한 번 시도한다. Welcome Telegram message는 제목에 인사가 들어가므로 본문에서 동일 인사를 반복하지 않는다. 중복 방지는 DB schema 변경 없이 `NotificationEvent`의 `welcome:{user_id}:{channel}` dedupe key로 처리한다.
 
 `ENABLE_NOTIFICATION_SCHEDULER` 기본값은 `false`이다. 운영자가 명시적으로 켜기 전까지 알림 평가/발송 scheduler는 자동 실행되지 않는다.
 
@@ -35,11 +37,12 @@ Google 최초 가입 시에는 Gmail welcome email을 한 번 시도한다. Emai
 3. 사용자는 `/settings/notifications`에서 알림 설정, Telegram/email 채널 검증, 최근 알림 이력을 확인한다.
 4. 알림 평가는 즐겨찾기별로 가격 변동, 새 뉴스 fingerprint, 저장된 최신 `AIReport.id`를 이전 snapshot과 비교한다.
 5. Report 알림은 저장된 최신 `AIReport.id`가 바뀐 경우에만 생성되며, 본문에는 상세 페이지 링크와 market cache의 현재 가격 텍스트만 포함한다.
-6. 감지된 알림은 `notification_events`에 `in_app` 이력으로 남고, 검증된 Telegram/email 채널이 활성화되어 있으면 채널별 pending event도 생성된다.
-7. Telegram 발송 adapter는 저장된 숫자 `chat_id`로 Telegram Bot API `sendMessage`를 호출한다. 현재 연결 방식은 webhook 자동 수신이 아니라 수동 `chat_id` 입력이다.
-8. Email 발송 adapter는 Gmail API만 지원한다. Gmail 설정이 없거나 provider가 `gmail`이 아니면 failed 이력으로 남긴다.
-9. Email 채널 인증 코드는 API 응답으로 노출하지 않고 Gmail로 발송한다. Gmail 발송 실패 시 인증 요청은 `503`으로 실패하며 channel 상태는 재요청 가능한 pending/delivery failure 상태로 남는다.
-10. Welcome message는 Google 최초 가입의 email 채널 또는 각 알림 채널의 최초 검증 완료 시점에 즉시 발송을 시도하며, 실패가 가입/채널 검증 성공 응답을 막지 않는다.
+6. News 알림은 cache item의 외부 `link`를 사용자 본문에 싣지 않고 자산 상세 페이지로 안내한다.
+7. 감지된 알림은 `notification_events`에 `in_app` 이력으로 남고, 검증된 Telegram/email 채널이 활성화되어 있으면 채널별 pending event도 생성된다.
+8. Telegram 발송 adapter는 저장된 숫자 `chat_id`로 Telegram Bot API `sendMessage`를 호출한다. 현재 연결 방식은 webhook 자동 수신이 아니라 수동 `chat_id` 입력이다.
+9. Email 발송 adapter는 Gmail API만 지원한다. Gmail 설정이 없거나 provider가 `gmail`이 아니면 failed 이력으로 남긴다.
+10. Email 채널 인증 코드는 API 응답으로 노출하지 않고 Gmail로 발송한다. Gmail 발송 실패 시 인증 요청은 `503`으로 실패하며 channel 상태는 재요청 가능한 pending/delivery failure 상태로 남는다.
+11. Welcome message는 Google 최초 가입의 email 채널 또는 각 알림 채널의 최초 검증 완료 시점에 즉시 발송을 시도하며, 실패가 가입/채널 검증 성공 응답을 막지 않는다.
 
 ## Contracts
 
@@ -68,6 +71,8 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 - 알림 기능은 저장된 시장 캐시, 뉴스 캐시, 저장된 AI 리포트만 읽어야 한다.
 - 일반 사용자 요청, 챗봇 요청, 알림 평가/발송은 AI 리포트 생성을 직접 호출하면 안 된다.
 - Report 알림 body에 `AIReport.final_content`를 포함하지 않는다. 상세 페이지 링크로 저장 리포트 조회 흐름을 안내한다.
+- News 알림 body에는 외부 뉴스 링크를 포함하지 않고 자산 상세 페이지 링크를 포함한다.
+- Email/Telegram 발송용 본문은 한국어를 먼저 쓰고 영어를 아래에 둔다. Email subject는 한국어만 유지한다.
 - Telegram `chat_id`, email address, provider token은 개인정보/secret으로 취급한다.
 - 실제 외부 발송 provider를 추가할 때는 실패 재시도, rate limit, unsubscribe 동작을 함께 검토한다.
 - scheduler 주기나 coverage를 늘리면 API quota와 비용에 영향을 줄 수 있으므로 변경 기록에 명시한다.
@@ -95,6 +100,7 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 - `docs/harness/telegram-message-delivery-verification-2026-06-09.md`
 - `docs/harness/favorite-asset-report-link-notification-plan-2026-06-09.md`
 - `docs/harness/favorite-asset-report-link-notification-implementation-2026-06-09.md`
+- `docs/harness/notification-bilingual-detail-link-message-implementation-2026-06-09.md`
 
 ## Open Risks
 

@@ -39,9 +39,11 @@ GMAIL_REQUIRED_SETTINGS = (
 REPORT_NOTIFICATION_TITLE = "즐겨찾기한 자산에 대한 보고서 발신입니다."
 WELCOME_NOTIFICATION_TITLE = "Project Finance를 이용해주셔서 감사합니다."
 WELCOME_NOTIFICATION_BODY = (
-    "Project Finance를 이용해주셔서 감사합니다.\n"
     "관심 자산을 즐겨찾기하면 주요 리포트와 알림을 이 채널로 받아보실 수 있습니다.\n"
-    "오늘도 좋은 하루 보내세요."
+    "오늘도 좋은 하루 보내세요.\n\n"
+    "English\n"
+    "Add assets to your favorites to receive key reports and notifications in this channel.\n"
+    "Have a great day."
 )
 
 
@@ -180,7 +182,54 @@ def _build_report_notification_body(
         "오늘 하루도 좋은 흐름으로 보내시길 바랍니다.\n\n"
         f"즐겨찾기하신 {asset_name}({ticker}) 리포트가 준비되었습니다.\n"
         f"현재 가격: {current_price_text}\n"
-        f"자산 리포트 링크: {detail_url}"
+        f"자산 상세 페이지: {detail_url}\n\n"
+        "English\n"
+        "We hope your day is going well.\n\n"
+        f"The report for your favorited asset {asset_name}({ticker}) is ready.\n"
+        f"Current price: {current_price_text}\n"
+        f"Asset detail page: {detail_url}"
+    )
+
+
+def _build_test_notification_body(message: str | None) -> str:
+    if message:
+        return message
+    return (
+        "알림 채널이 정상적으로 연결되어 있는지 확인하는 테스트입니다.\n\n"
+        "English\n"
+        "This is a test to confirm your notification channel is connected correctly."
+    )
+
+
+def _build_price_change_notification_body(
+    *,
+    ticker: str,
+    change_percent: float,
+    threshold: float,
+) -> str:
+    return (
+        f"{ticker} 변동률이 {change_percent:.2f}%로 설정 기준 {threshold:.2f}%를 넘었습니다.\n\n"
+        "English\n"
+        f"{ticker}'s price change is {change_percent:.2f}%, exceeding your {threshold:.2f}% threshold."
+    )
+
+
+def _build_news_notification_body(
+    *,
+    asset_name: str,
+    ticker: str,
+    news_title: str,
+    detail_url: str,
+) -> str:
+    return (
+        f"{news_title}\n\n"
+        f"{asset_name}({ticker})의 새 뉴스가 감지되었습니다.\n"
+        "자세한 내용은 자산 상세 페이지에서 확인해 주세요.\n"
+        f"자산 상세 페이지: {detail_url}\n\n"
+        "English\n"
+        f"New news was detected for {asset_name}({ticker}).\n"
+        "Please check the asset detail page for more information.\n"
+        f"Asset detail page: {detail_url}"
     )
 
 
@@ -447,7 +496,7 @@ async def create_test_notification(
         ticker=target_ticker,
         event_type="test",
         title=f"{target_ticker} 테스트 알림",
-        body=message or "알림 채널이 정상적으로 연결되어 있는지 확인하는 테스트입니다.",
+        body=_build_test_notification_body(message),
         payload={"manual": True},
         dedupe_key=f"test:{user_id}:{target_ticker}:{int(_now().timestamp())}",
         channels=channels,
@@ -577,7 +626,11 @@ async def _evaluate_price_change(
         ticker=favorite.ticker,
         event_type="price_change",
         title=f"{favorite.display_name} {direction} 알림",
-        body=f"{favorite.ticker} 변동률이 {change_percent:.2f}%로 설정 기준 {threshold:.2f}%를 넘었습니다.",
+        body=_build_price_change_notification_body(
+            ticker=favorite.ticker,
+            change_percent=change_percent,
+            threshold=threshold,
+        ),
         payload={"price": price, "change_percent": change_percent, "threshold": threshold},
         dedupe_key=f"price:{favorite.ticker}:{day_key}:{bucket}",
         channels=channels,
@@ -618,15 +671,20 @@ async def _evaluate_news(
     first = new_items[0]
     fingerprint = _news_fingerprint(first)
     title = str(first.get("title") or f"{favorite.display_name} 새 뉴스")
-    link = str(first.get("link") or "")
+    detail_url = _build_asset_detail_url(favorite.ticker)
     return await create_notification_events(
         db,
         user_id=favorite.user_id,
         ticker=favorite.ticker,
         event_type="news",
         title=f"{favorite.display_name} 새 뉴스",
-        body=f"{title}{f' ({link})' if link else ''}",
-        payload={"item": first},
+        body=_build_news_notification_body(
+            asset_name=favorite.display_name,
+            ticker=favorite.ticker,
+            news_title=title,
+            detail_url=detail_url,
+        ),
+        payload={"item": first, "detail_url": detail_url},
         dedupe_key=f"news:{favorite.ticker}:{fingerprint}",
         channels=channels,
     )
@@ -783,7 +841,11 @@ async def send_email_verification_code(
     body = (
         "Project Finance 알림 이메일 확인 코드입니다.\n\n"
         f"확인 코드: {connection.verification_code}\n\n"
-        "이 코드는 30분 동안 유효합니다. 본인이 요청하지 않았다면 이 메일을 무시하세요."
+        "이 코드는 30분 동안 유효합니다. 본인이 요청하지 않았다면 이 메일을 무시하세요.\n\n"
+        "English\n"
+        "This is your Project Finance notification email verification code.\n\n"
+        f"Verification code: {connection.verification_code}\n\n"
+        "This code is valid for 30 minutes. If you did not request it, please ignore this email."
     )
     delivery = await _send_gmail_message(
         connection.destination,

@@ -17,6 +17,7 @@ from app.services.notification_service import (
     evaluate_notifications,
     get_delivery_configuration_status,
     list_history,
+    send_email_verification_code,
     send_welcome_notification_for_channel,
     send_pending_notifications,
 )
@@ -63,6 +64,7 @@ async def test_evaluate_notifications_uses_market_cache_and_dedupes_price_events
         assert history[0].event_type == "price_change"
         assert history[0].channel == "in_app"
         assert history[0].status == "sent"
+        assert "English" in history[0].body
     finally:
         market_cache["prices"] = original_prices
         await engine.dispose()
@@ -94,7 +96,7 @@ async def test_report_notification_uses_detail_link_price_and_omits_report_body(
                 user_id=user.id,
                 ticker="NVDA",
                 display_name="NVIDIA",
-                category_key="us_top10",
+                category_key="stock_us",
             )
             db.add(AIReport(asset_id=asset.id, final_content="old stored report"))
             await db.commit()
@@ -117,6 +119,8 @@ async def test_report_notification_uses_detail_link_price_and_omits_report_body(
         assert event.title == "즐겨찾기한 자산에 대한 보고서 발신입니다."
         assert "https://finance.example.com/detail/NVDA" in event.body
         assert "현재 가격: $1,024.50" in event.body
+        assert "English" in event.body
+        assert "Asset detail page: https://finance.example.com/detail/NVDA" in event.body
         assert "new report body should stay private" not in event.body
         assert event.payload_json["detail_url"] == "https://finance.example.com/detail/NVDA"
         assert event.payload_json["current_price"] == 1024.5
@@ -165,6 +169,7 @@ async def test_report_notification_uses_price_fallback_when_cache_is_missing(mon
         assert created == 1
         assert "현재 가격: 확인 중" in history[0].body
         assert "http://localhost:5173/detail/BTC-USD" in history[0].body
+        assert "Current price: 확인 중" in history[0].body
         assert history[0].payload_json["current_price"] is None
         assert history[0].payload_json["current_price_text"] == "확인 중"
     finally:
@@ -214,6 +219,8 @@ async def test_welcome_notification_sends_once_per_channel(monkeypatch):
         assert events[0].event_type == "welcome"
         assert events[0].status == "sent"
         assert events[0].dedupe_key == "welcome:1:email"
+        assert not events[0].body.startswith(events[0].title)
+        assert "English" in events[0].body
         assert sent_messages == [
             (
                 "service@example.com",
@@ -222,6 +229,73 @@ async def test_welcome_notification_sends_once_per_channel(monkeypatch):
             )
         ]
     finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_news_notification_uses_detail_link_instead_of_external_news_link(monkeypatch):
+    engine, Session = await create_test_sessionmaker()
+    original_latest_context = market_cache.get("latest_context")
+    original_prices = market_cache.get("prices")
+    monkeypatch.setattr(notification_service.settings, "FRONTEND_BASE_URL", "https://finance.example.com")
+
+    try:
+        market_cache["prices"] = {}
+        market_cache["latest_context"] = {
+            "NVDA": {
+                "news": [
+                    {
+                        "title": "Old headline",
+                        "source": "Example News",
+                        "link": "https://external.example/old",
+                    }
+                ]
+            }
+        }
+
+        async with Session() as db:
+            user = User(email="service@example.com", nickname="service")
+            db.add(user)
+            await db.flush()
+            await upsert_user_favorite(
+                db,
+                user_id=user.id,
+                ticker="NVDA",
+                display_name="NVIDIA",
+                category_key="us_top10",
+            )
+            await db.commit()
+
+        async with Session() as db:
+            assert await evaluate_notifications(db) == 0
+
+        market_cache["latest_context"] = {
+            "NVDA": {
+                "news": [
+                    {
+                        "title": "Fresh headline",
+                        "source": "Example News",
+                        "link": "https://external.example/fresh",
+                    }
+                ]
+            }
+        }
+
+        async with Session() as db:
+            created = await evaluate_notifications(db)
+            history = await list_history(db, user_id=1)
+
+        assert created == 1
+        event = history[0]
+        assert event.event_type == "news"
+        assert "Fresh headline" in event.body
+        assert "https://finance.example.com/detail/NVDA" in event.body
+        assert "https://external.example/fresh" not in event.body
+        assert "English" in event.body
+        assert event.payload_json["detail_url"] == "https://finance.example.com/detail/NVDA"
+    finally:
+        market_cache["latest_context"] = original_latest_context
+        market_cache["prices"] = original_prices
         await engine.dispose()
 
 
@@ -371,6 +445,46 @@ def test_delivery_configuration_status_reports_missing_settings_without_values(m
     ]
     assert "client-id" not in str(status)
     assert status["telegram"]["missing_keys"] == ["TELEGRAM_BOT_TOKEN"]
+
+
+@pytest.mark.asyncio
+async def test_email_verification_code_body_is_bilingual_and_subject_is_korean(monkeypatch):
+    engine, Session = await create_test_sessionmaker()
+    sent_messages = []
+
+    async def fake_send_gmail(destination, subject, body):
+        sent_messages.append((destination, subject, body))
+        return DeliveryResult(success=True)
+
+    monkeypatch.setattr(notification_service, "_send_gmail_message", fake_send_gmail)
+
+    try:
+        async with Session() as db:
+            user = User(email="service@example.com", nickname="service")
+            db.add(user)
+            await db.flush()
+            connection = NotificationChannelConnection(
+                user_id=user.id,
+                channel="email",
+                destination="service@example.com",
+                verified=False,
+                verification_status="pending",
+                verification_code="ABC123",
+            )
+            db.add(connection)
+            await db.commit()
+
+            delivery = await send_email_verification_code(db, connection)
+
+        assert delivery.success is True
+        assert len(sent_messages) == 1
+        assert sent_messages[0][0] == "service@example.com"
+        assert sent_messages[0][1] == "Project Finance 이메일 확인 코드"
+        assert "확인 코드: ABC123" in sent_messages[0][2]
+        assert "English" in sent_messages[0][2]
+        assert "Verification code: ABC123" in sent_messages[0][2]
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

@@ -146,6 +146,8 @@ Local Docker flow:
 - `docs/harness/report-scheduler-startup-firing-fix-implementation-2026-06-08.md`
 - `docs/harness/report-backend-generation-failure-analysis-2026-06-08.md`
 - `docs/harness/report-backend-generation-remediation-plan-2026-06-08.md`
+- `docs/harness/report-not-writing-root-cause-remediation-plan-2026-06-09.md`
+- `docs/harness/report-data-as-of-naive-datetime-fix-2026-06-09.md`
 
 ## Open Risks
 

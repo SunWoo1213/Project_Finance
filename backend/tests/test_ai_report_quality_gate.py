@@ -177,6 +177,8 @@ async def test_generate_report_saves_only_when_evaluator_passes(monkeypatch, cac
     assert result["generation_metadata"]["report_evaluator_enabled"] is True
     assert result["generation_metadata"]["evaluator_skipped"] is False
     assert db.added[0].metadata_json["quality_status"] == "pass"
+    assert db.added[0].data_as_of.isoformat() == "2026-05-30T00:10:00"
+    assert db.added[0].data_as_of.tzinfo is None
     assert result["generation_metadata"]["analysis_framework"]["label"] == "US stock equity framework"
     assert "공급망 리스크" in result["generation_metadata"]["risk_summary"]
     assert result["generation_metadata"]["role_outputs"]["bull_thesis"]["thesis"] == ["서비스 매출 성장"]
