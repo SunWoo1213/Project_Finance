@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 from email.utils import parsedate_to_datetime
+import hashlib
 import html
 import io
 import logging
@@ -22,6 +23,10 @@ FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
 FMP_BASE_URL = "https://financialmodelingprep.com/stable"
 STOOQ_DAILY_CSV_URL = "https://stooq.com/q/d/l/"
+# stooq.com은 일반 HTTP 클라이언트에 JS proof-of-work(PoW) anti-bot 챌린지를 먼저 준다.
+# 챌린지를 풀어 이 엔드포인트로 검증하면 세션 쿠키가 발급되고, 같은 클라이언트로
+# apikey 요청을 재시도해야 CSV가 내려온다. apikey만으로는 PoW를 우회하지 못한다.
+STOOQ_VERIFY_URL = "https://stooq.com/__verify"
 EXCHANGE_RATE_OPEN_URL = "https://open.er-api.com/v6/latest/USD"
 DATA_GO_STOCK_URL = "https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo"
 DATA_GO_INDEX_URL = "https://apis.data.go.kr/1160100/service/GetMarketIndexInfoService/getStockMarketIndex"
@@ -115,6 +120,9 @@ _profile_cache: dict[str, tuple[float, float]] = {}
 _history_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _fmp_daily_call_date: str | None = None
 _fmp_daily_call_count: int = 0
+# /__verify 통과로 받은 세션 쿠키를 재사용해 매 호출마다 PoW를 다시 풀지 않는다.
+# stooq provider semaphore가 직렬화(Semaphore(1))하므로 이 dict 접근에 race는 없다.
+_stooq_verify_cookies: dict[str, str] = {}
 
 
 def _provider_concurrency(provider: str) -> int:
@@ -808,6 +816,68 @@ async def _fetch_fx_snapshot(ticker: str) -> dict[str, Any]:
     return _cache_set(_snapshot_cache, f"fx:{ticker}", result)
 
 
+def _parse_stooq_challenge(text: str) -> tuple[str, int] | None:
+    # PoW 챌린지 HTML이면 (challenge 문자열, difficulty)를 돌려준다. CSV면 None.
+    if "__verify" not in text:
+        return None
+    challenge = re.search(r'c="([^"]+)"', text)
+    difficulty = re.search(r",\s*d=(\d+)", text)
+    if not challenge or not difficulty:
+        return None
+    return challenge.group(1), int(difficulty.group(1))
+
+
+def _solve_stooq_challenge(challenge: str, difficulty: int, *, max_iterations: int = 8_000_000) -> int:
+    # SHA-256(challenge + nonce)의 hex가 0 difficulty개로 시작하는 최소 nonce를 찾는다.
+    # difficulty=4 기준 평균 약 65k회. 챌린지 포맷이 바뀌어 difficulty가 비정상적으로
+    # 커질 경우를 대비해 상한을 둔다.
+    prefix = "0" * difficulty
+    for nonce in range(max_iterations):
+        if hashlib.sha256(f"{challenge}{nonce}".encode()).hexdigest().startswith(prefix):
+            return nonce
+    raise RuntimeError("stooq proof-of-work unsolved")
+
+
+async def _get_stooq_text(params: dict[str, Any], *, timeout: float = 10.0) -> str:
+    # stooq 전용 fetch: PoW 챌린지를 만나면 풀어서 /__verify로 검증한 뒤 같은
+    # 클라이언트(쿠키 유지)로 재요청한다. apikey만으로는 PoW를 통과하지 못한다.
+    import asyncio
+
+    request_key = f"stooq:{params.get('s')}"
+    if _should_skip_failed_call(request_key, _failed_call_ttl("stooq")):
+        raise RuntimeError("stooq cooldown active")
+
+    headers = {"User-Agent": "Mozilla/5.0"}
+    async with _provider_semaphore("stooq"):
+        try:
+            async with httpx.AsyncClient(
+                timeout=timeout,
+                follow_redirects=True,
+                headers=headers,
+                cookies=dict(_stooq_verify_cookies),
+            ) as client:
+                response = await client.get(STOOQ_DAILY_CSV_URL, params=params)
+                response.raise_for_status()
+                text = response.text
+
+                challenge = _parse_stooq_challenge(text)
+                if challenge is not None:
+                    nonce = await asyncio.to_thread(_solve_stooq_challenge, *challenge)
+                    await client.post(
+                        STOOQ_VERIFY_URL,
+                        data={"c": challenge[0], "n": nonce},
+                    )
+                    _stooq_verify_cookies.clear()
+                    _stooq_verify_cookies.update(dict(client.cookies))
+                    response = await client.get(STOOQ_DAILY_CSV_URL, params=params)
+                    response.raise_for_status()
+                    text = response.text
+                return text
+        except Exception:
+            _mark_failed_call(request_key)
+            raise
+
+
 def _parse_stooq_csv(text: str, limit: int | None = None) -> list[dict[str, Any]]:
     if not text or "Get your apikey" in text:
         return []
@@ -839,10 +909,8 @@ async def fetch_stooq_history(ticker: str, period: str = "1y") -> dict[str, Any]
         return _history_payload(ticker.upper(), [])
 
     try:
-        text = await _get_text(
-            "stooq",
-            STOOQ_DAILY_CSV_URL,
-            params={"s": stooq_symbol, "i": "d", "apikey": key},
+        text = await _get_stooq_text(
+            {"s": stooq_symbol, "i": "d", "apikey": key},
             timeout=float(settings.STOOQ_FETCH_TIMEOUT_SECONDS),
         )
     except Exception as exc:

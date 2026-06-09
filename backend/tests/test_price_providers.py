@@ -45,6 +45,81 @@ def test_parse_stooq_csv_degrades_when_key_required():
     assert price_providers._parse_stooq_csv("Get your apikey: open stooq") == []
 
 
+def test_parse_stooq_challenge_detects_pow_html():
+    html = (
+        '<script>(async()=>{const c="SEED123",d=4,t="0".repeat(d);'
+        'await fetch("/__verify",{method:"POST"})})()</script>'
+    )
+
+    assert price_providers._parse_stooq_challenge(html) == ("SEED123", 4)
+
+
+def test_parse_stooq_challenge_returns_none_for_csv():
+    csv_text = "Date,Open,High,Low,Close,Volume\n2026-06-01,1,2,1,19000,100\n"
+
+    assert price_providers._parse_stooq_challenge(csv_text) is None
+
+
+def test_solve_stooq_challenge_finds_valid_nonce():
+    import hashlib
+
+    nonce = price_providers._solve_stooq_challenge("seed", 2)
+
+    assert hashlib.sha256(f"seed{nonce}".encode()).hexdigest().startswith("00")
+
+
+@pytest.mark.asyncio
+async def test_get_stooq_text_solves_pow_then_returns_csv(monkeypatch):
+    # 첫 GET은 PoW 챌린지 HTML, /__verify POST 후 두 번째 GET에서 CSV가 내려오는
+    # 실제 stooq 흐름을 가짜 httpx 클라이언트로 재현한다.
+    price_providers._failed_call_cache.clear()
+    price_providers._stooq_verify_cookies.clear()
+
+    challenge_html = (
+        '<script>(async()=>{const c="seed",d=2,t="0".repeat(d);'
+        'await fetch("/__verify",{method:"POST"})})()</script>'
+    )
+    csv_text = "Date,Open,High,Low,Close,Volume\n2026-06-01,1,2,1,19000,100\n"
+    calls = {"get": 0, "post": 0}
+
+    class FakeResponse:
+        def __init__(self, text):
+            self.text = text
+
+        def raise_for_status(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.cookies = {"verify": "ok"}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, params=None):
+            calls["get"] += 1
+            if calls["get"] == 1:
+                return FakeResponse(challenge_html)
+            return FakeResponse(csv_text)
+
+        async def post(self, url, data=None):
+            calls["post"] += 1
+            assert data["c"] == "seed"
+            assert isinstance(data["n"], int)
+            return FakeResponse("ok")
+
+    monkeypatch.setattr(price_providers.httpx, "AsyncClient", FakeClient)
+
+    text = await price_providers._get_stooq_text({"s": "^ndx", "i": "d", "apikey": "k"}, timeout=5)
+
+    assert text == csv_text
+    assert calls == {"get": 2, "post": 1}
+    assert price_providers._stooq_verify_cookies == {"verify": "ok"}
+
+
 def test_parse_fmp_history_preserves_provider_dates():
     payload = {
         "historical": [
@@ -252,17 +327,15 @@ async def test_ndx_history_uses_stooq_without_global_optin(monkeypatch):
     async def fail_fmp(*args, **kwargs):
         raise AssertionError("FMP should not be called for ^NDX primary path")
 
-    async def fake_get_text(provider, url, *, params=None, headers=None, timeout=10.0):
-        captured["provider"] = provider
+    async def fake_get_stooq_text(params, *, timeout=10.0):
         captured["params"] = params
         return "Date,Open,High,Low,Close,Volume\n2026-06-01,1,2,1,19000,100\n2026-06-02,1,2,1,19500,100\n"
 
     monkeypatch.setattr(price_providers, "fetch_fmp_history", fail_fmp)
-    monkeypatch.setattr(price_providers, "_get_text", fake_get_text)
+    monkeypatch.setattr(price_providers, "_get_stooq_text", fake_get_stooq_text)
 
     payload = await price_providers.fetch_market_history("^NDX", "1mo")
 
-    assert captured["provider"] == "stooq"
     assert captured["params"]["s"] == "^ndx"
     assert captured["params"]["apikey"] == "test-key"
     assert payload["points"] == [
@@ -281,11 +354,11 @@ async def test_ndx_snapshot_uses_stooq_without_global_optin(monkeypatch):
     async def fail_fmp_snapshot(*args, **kwargs):
         raise AssertionError("FMP snapshot should not be called for ^NDX primary path")
 
-    async def fake_get_text(provider, url, *, params=None, headers=None, timeout=10.0):
+    async def fake_get_stooq_text(params, *, timeout=10.0):
         return "Date,Open,High,Low,Close,Volume\n2026-06-01,1,2,1,19000,100\n2026-06-02,1,2,1,19500,100\n"
 
     monkeypatch.setattr(price_providers, "_fetch_fmp_snapshot", fail_fmp_snapshot)
-    monkeypatch.setattr(price_providers, "_get_text", fake_get_text)
+    monkeypatch.setattr(price_providers, "_get_stooq_text", fake_get_stooq_text)
 
     payload = await price_providers.fetch_market_snapshot("^NDX", "INDEX")
 
@@ -300,10 +373,10 @@ async def test_ndx_stooq_requires_key(monkeypatch):
     monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
     monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", None)
 
-    async def fail_get_text(*args, **kwargs):
+    async def fail_get_stooq_text(*args, **kwargs):
         raise AssertionError("Stooq should not be called without a key")
 
-    monkeypatch.setattr(price_providers, "_get_text", fail_get_text)
+    monkeypatch.setattr(price_providers, "_get_stooq_text", fail_get_stooq_text)
 
     payload = await price_providers.fetch_stooq_history("^NDX", "1mo")
 
@@ -453,14 +526,13 @@ async def test_fx_snapshot_uses_stooq_when_key_present_without_global_optin(monk
     async def fake_get_json(provider, url, **kwargs):
         return {"rates": {"KRW": 1390.0}, "provider": "open.er-api.com"}
 
-    async def fake_get_text(provider, url, *, params=None, headers=None, timeout=10.0):
-        assert provider == "stooq"
+    async def fake_get_stooq_text(params, *, timeout=10.0):
         assert params["s"] == "usdkrw"
         assert params["apikey"] == "test-key"
         return "Date,Open,High,Low,Close,Volume\n2026-06-02,1,2,1,1370,100\n2026-06-03,1,2,1,1380,100\n"
 
     monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
-    monkeypatch.setattr(price_providers, "_get_text", fake_get_text)
+    monkeypatch.setattr(price_providers, "_get_stooq_text", fake_get_stooq_text)
 
     snapshot = await price_providers._fetch_fx_snapshot("KRW=X")
 
@@ -533,16 +605,16 @@ async def test_stooq_history_uses_configured_timeout(monkeypatch):
     monkeypatch.setattr(price_providers.settings, "STOOQ_FETCH_TIMEOUT_SECONDS", 20)
     captured = {}
 
-    async def fake_get_text(provider, url, *, params=None, headers=None, timeout=10.0):
-        captured["provider"] = provider
+    async def fake_get_stooq_text(params, *, timeout=10.0):
+        captured["params"] = params
         captured["timeout"] = timeout
         return "Date,Open,High,Low,Close,Volume\n2026-06-02,1,2,1,12,100\n"
 
-    monkeypatch.setattr(price_providers, "_get_text", fake_get_text)
+    monkeypatch.setattr(price_providers, "_get_stooq_text", fake_get_stooq_text)
 
     payload = await price_providers.fetch_stooq_history("^GSPC", "1mo")
 
-    assert captured["provider"] == "stooq"
+    assert captured["params"]["s"] == "^spx"
     assert captured["timeout"] == 20.0
     assert payload["points"] == [{"date": "2026-06-02", "value": 12.0}]
 
@@ -561,10 +633,10 @@ async def test_stooq_history_returns_stale_cache_when_refresh_fails(monkeypatch)
         stale_payload,
     )
 
-    async def failing_get_text(*args, **kwargs):
+    async def failing_get_stooq_text(*args, **kwargs):
         raise TimeoutError("stooq timeout")
 
-    monkeypatch.setattr(price_providers, "_get_text", failing_get_text)
+    monkeypatch.setattr(price_providers, "_get_stooq_text", failing_get_stooq_text)
 
     payload = await price_providers.fetch_stooq_history("^GSPC", "1mo")
 
@@ -576,10 +648,10 @@ async def test_stooq_history_disabled_by_default(monkeypatch):
     monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
     monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
 
-    async def fail_get_text(*args, **kwargs):
+    async def fail_get_stooq_text(*args, **kwargs):
         raise AssertionError("Stooq provider should not be called by default")
 
-    monkeypatch.setattr(price_providers, "_get_text", fail_get_text)
+    monkeypatch.setattr(price_providers, "_get_stooq_text", fail_get_stooq_text)
 
     payload = await price_providers.fetch_stooq_history("^GSPC", "1mo")
 

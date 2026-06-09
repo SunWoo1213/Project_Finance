@@ -46,6 +46,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
    - Korean stocks and Korean indices use 공공데이터포털 금융위원회 stock/index price APIs. The index API matches `idxNm` by the Korean index name (`코스피`/`코스닥`); the English forms return empty results.
    - USD/KRW (`KRW=X`) uses open.er-api.com daily reference rate for the current price. open.er-api does not provide a previous close, so change is computed from Stooq daily `usdkrw` closes. `KRW=X` is in `STOOQ_FX_SYMBOLS`, so Stooq is used whenever `STOOQ_API_KEY` is set, regardless of `ENABLE_STOOQ_FALLBACK` (mirrors the `^NDX` key-only primary pattern). Change semantics: when the live er-api rate is present it is compared to the latest Stooq close (live vs last close); when the live rate is missing, the current price falls back to the latest Stooq close and change is computed against the prior close (`[-2]`), avoiding a self-comparison that would force change to 0. `provider_meta.change_source` is `stooq_fallback` when a Stooq close anchored the change, else `none`. Without `STOOQ_API_KEY` (and without `ENABLE_STOOQ_FALLBACK`), snapshot `changePercent=0`, history falls back to a single provider-dated point, and `change_source=none`. See `docs/harness/krw-fx-change-percent-not-captured-implementation-2026-06-09.md`.
    - Stooq history calls are disabled by default. When `ENABLE_STOOQ_FALLBACK=true`, they use `STOOQ_FETCH_TIMEOUT_SECONDS` (default 12 seconds) and stale Stooq cache can be reused after refresh failure.
+   - stooq.com now serves a JavaScript proof-of-work (PoW) anti-bot challenge to plain HTTP clients, and an `apikey` alone does **not** bypass it. `_get_stooq_text` solves the PoW (`SHA-256(c+nonce)` with `d` leading hex zeros), POSTs `c`/`n` to `https://stooq.com/__verify`, persists the verification cookie (`_stooq_verify_cookies`, reused across calls), then retries the apikey request to get the CSV. Without this step every Stooq fetch returned the challenge HTML and degraded to empty. See `docs/harness/stooq-pow-anti-bot-bypass-implementation-2026-06-09.md` and root `STOOQ_APIKEY_GUIDE.md`.
 11. Frontend pages select the relevant group and normalize fallback fields such as `points`, `legacy`, `value`, `currentPrice`, and `changePercent`.
 12. `CategoryView.jsx` and `AssetDetail.jsx` both use `getUiCategory` from `frontend/src/utils/assetCategories.js`, so Korean stocks, crypto, bonds, commodities, FX, and macro index tickers share the same display category rules.
 13. Category lists render text-first asset cards without mini graphs, let users favorite individual assets from the rightmost star button, and open favorited assets through the right-side favorites panel.
@@ -150,6 +151,7 @@ Supported groups include major indices, US/Korean stocks, bonds, commodities, an
 - `docs/harness/nasdaq-index-stooq-primary-implementation-2026-06-09.md`
 - `docs/harness/krw-fx-change-percent-not-captured-plan-2026-06-09.md`
 - `docs/harness/krw-fx-change-percent-not-captured-implementation-2026-06-09.md`
+- `docs/harness/stooq-pow-anti-bot-bypass-implementation-2026-06-09.md`
 
 ## Open Risks
 

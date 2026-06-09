@@ -393,18 +393,31 @@ class TossPaymentsProvider(PaymentProvider):
         return response_payload
 
 
-def get_payment_provider() -> PaymentProvider:
+def resolve_payment_provider_name() -> str:
+    """설정된 결제 provider 이름을 'toss' 또는 'mock'으로 정규화한다.
+
+    `PAYMENT_PROVIDER=toss`로 명시된 경우에만 Toss로 동작하고, 그 외(mock 명시
+    또는 미설정 포함)는 모두 mock으로 본다. 결제 연동이 준비되지 않은 데모/미설정
+    환경에서도 "구독 시작"이 503으로 끊기지 않고 mock 즉시 구독 활성화 경로로
+    진입하도록 하기 위함이다.
+
+    주의: 이 폴백 때문에 운영에서 `PAYMENT_PROVIDER`를 비워 두면 누구나 무료로
+    유료 권한을 얻는다. 운영 배포에서는 반드시 `PAYMENT_PROVIDER=toss`를 설정한다.
+    """
     provider = (settings.PAYMENT_PROVIDER or "").strip().lower()
-    if provider == "mock":
-        return MockPaymentProvider()
-    if provider == "toss":
+    return "toss" if provider == "toss" else "mock"
+
+
+def get_payment_provider() -> PaymentProvider:
+    if resolve_payment_provider_name() == "toss":
         return TossPaymentsProvider()
-    raise PaymentProviderUnavailable("Payment provider is not configured.")
+    return MockPaymentProvider()
 
 
 def get_plan_id(tier: SubscriptionTier) -> str | None:
-    is_mock = (settings.PAYMENT_PROVIDER or "").strip().lower() == "mock"
-    is_toss = (settings.PAYMENT_PROVIDER or "").strip().lower() == "toss"
+    provider = resolve_payment_provider_name()
+    is_mock = provider == "mock"
+    is_toss = provider == "toss"
     if tier == SubscriptionTier.PLUS:
         return settings.PAYMENT_PLUS_PLAN_ID or ("mock_plus_monthly" if is_mock else "plus_monthly" if is_toss else None)
     if tier == SubscriptionTier.PRO:
@@ -413,7 +426,7 @@ def get_plan_id(tier: SubscriptionTier) -> str | None:
 
 
 def tier_from_plan_id(provider_plan_id: str) -> SubscriptionTier | None:
-    is_mock = (settings.PAYMENT_PROVIDER or "").strip().lower() == "mock"
+    is_mock = resolve_payment_provider_name() == "mock"
     plus_plan = settings.PAYMENT_PLUS_PLAN_ID or ("mock_plus_monthly" if is_mock else None)
     pro_plan = settings.PAYMENT_PRO_PLAN_ID or ("mock_pro_monthly" if is_mock else None)
     if provider_plan_id == plus_plan:
