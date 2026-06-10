@@ -623,3 +623,38 @@ async def test_send_pending_telegram_event_marks_failed_after_retry_limit(monkey
             assert event.error_message == "Telegram bot token is not configured."
     finally:
         await engine.dispose()
+
+
+def test_normalize_app_links_rewrites_localhost_app_links(monkeypatch):
+    monkeypatch.setattr(notification_service.settings, "FRONTEND_BASE_URL", "https://finance.example.com")
+    body = (
+        "NVIDIA(NVDA)\n"
+        "  상세 페이지: http://localhost:5173/detail/NVDA\n"
+        "  Detail page: http://127.0.0.1:5173/detail/NVDA"
+    )
+    normalized = notification_service._normalize_app_links(body)
+    assert "https://finance.example.com/detail/NVDA" in normalized
+    assert "localhost:5173" not in normalized
+    assert "127.0.0.1:5173" not in normalized
+
+
+def test_normalize_app_links_keeps_external_news_links(monkeypatch):
+    monkeypatch.setattr(notification_service.settings, "FRONTEND_BASE_URL", "https://finance.example.com")
+    body = "관련 뉴스: https://news.example.org/article/123"
+    assert notification_service._normalize_app_links(body) == body
+
+
+def test_normalize_app_links_noop_in_localhost_environment(monkeypatch):
+    monkeypatch.setattr(notification_service.settings, "FRONTEND_BASE_URL", "http://localhost:5173")
+    body = "  상세 페이지: http://localhost:5173/detail/NVDA"
+    # 개발 환경에서는 localhost를 그대로 유지한다.
+    assert notification_service._normalize_app_links(body) == body
+
+
+def test_build_asset_detail_url_warns_on_localhost_in_production(monkeypatch, caplog):
+    monkeypatch.setattr(notification_service.settings, "FRONTEND_BASE_URL", "http://localhost:5173")
+    monkeypatch.setattr(notification_service.settings, "ENVIRONMENT", "production")
+    with caplog.at_level("WARNING"):
+        url = notification_service._build_asset_detail_url("NVDA")
+    assert url == "http://localhost:5173/detail/NVDA"
+    assert any("FRONTEND_BASE_URL" in record.message for record in caplog.records)

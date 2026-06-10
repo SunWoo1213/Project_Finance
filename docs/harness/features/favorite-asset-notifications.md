@@ -10,6 +10,8 @@ Gmail/Telegram 발송 본문은 한국어를 먼저 제공하고 아래에 `Engl
 
 News 알림은 외부 뉴스 URL을 발송 본문에 노출하지 않는다. 새 뉴스 fingerprint가 감지되면 뉴스 제목과 `FRONTEND_BASE_URL/detail/{ticker}` 상세 페이지 링크로 안내한다.
 
+모든 알림(정기요약 포함) 상세 링크는 `FRONTEND_BASE_URL` 한 곳에서 만들어진다. 운영 환경(`ENVIRONMENT != development`)에서 `FRONTEND_BASE_URL`이 여전히 localhost면 경고 로그를 남긴다. Gmail/Telegram 발송 직전에는 본문에 남은 앱 내부 `http://localhost:5173`·`http://127.0.0.1:5173` 링크를 `FRONTEND_BASE_URL`로 보정한다(단 `FRONTEND_BASE_URL`이 localhost가 아닐 때만, 외부 뉴스/일반 링크는 미변경). DB에 저장된 `NotificationEvent.body`는 그대로 두고 발송 메시지에만 보정을 적용한다. 따라서 운영 backend에 `FRONTEND_BASE_URL`을 공개 frontend origin으로 설정하는 것이 선행 조건이다.
+
 Google 최초 가입 시에는 Gmail welcome email을 한 번 시도한다. Email 또는 Telegram 채널이 처음 검증 완료되면 해당 채널로 welcome message를 한 번 시도한다. Welcome Telegram message는 제목에 인사가 들어가므로 본문에서 동일 인사를 반복하지 않는다. 중복 방지는 DB schema 변경 없이 `NotificationEvent`의 `welcome:{user_id}:{channel}` dedupe key로 처리한다.
 
 `ENABLE_NOTIFICATION_SCHEDULER` 기본값은 `false`이다. 운영자가 명시적으로 켜기 전까지 알림 평가/발송 scheduler는 자동 실행되지 않는다.
@@ -104,6 +106,8 @@ Runtime variables are documented by name only: `ENABLE_NOTIFICATION_SCHEDULER`, 
 - `docs/harness/notification-bilingual-detail-link-message-implementation-2026-06-09.md`
 - `docs/harness/favorite-asset-scheduled-digest-notification-plan-2026-06-09.md`
 - `docs/harness/favorite-asset-scheduled-digest-notification-implementation-2026-06-09.md`
+- `docs/harness/scheduled-digest-localhost-link-fix-plan-2026-06-10.md`
+- `docs/harness/scheduled-digest-localhost-link-fix-implementation-2026-06-10.md`
 
 ## Open Risks
 

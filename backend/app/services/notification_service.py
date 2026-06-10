@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import secrets
 import base64
 import urllib.error
@@ -31,8 +32,12 @@ from ..models import (
 )
 
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_CHANNELS = ("in_app",)
 DELIVERY_CHANNELS = ("telegram", "email")
+# 알림 본문에 들어갈 수 있는 앱 내부 로컬 개발 origin. 발송 직전 보정 대상.
+LOCALHOST_APP_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 GMAIL_REQUIRED_SETTINGS = (
     "EMAIL_FROM_ADDRESS",
     "GMAIL_CLIENT_ID",
@@ -158,9 +163,37 @@ def _find_price_payload(ticker: str) -> dict[str, Any] | None:
     return None
 
 
+def _is_localhost_base_url(base_url: str) -> bool:
+    return base_url.startswith("http://localhost") or base_url.startswith("http://127.0.0.1")
+
+
 def _build_asset_detail_url(ticker: str) -> str:
     safe_ticker = urllib.parse.quote(ticker, safe="")
-    return f"{settings.FRONTEND_BASE_URL}/detail/{safe_ticker}"
+    base_url = settings.FRONTEND_BASE_URL
+    if settings.ENVIRONMENT != "development" and _is_localhost_base_url(base_url):
+        logger.warning(
+            "FRONTEND_BASE_URL이 비개발 환경에서 여전히 localhost 주소입니다(%s). "
+            "알림 링크가 외부에서 접속 불가하므로 FRONTEND_BASE_URL을 공개 프론트엔드 origin으로 설정하세요.",
+            base_url,
+        )
+    return f"{base_url}/detail/{safe_ticker}"
+
+
+def _normalize_app_links(body: str) -> str:
+    """발송 직전, 본문에 남은 앱 내부 localhost 링크를 공개 origin으로 보정한다.
+
+    - `FRONTEND_BASE_URL`이 localhost가 아닐 때만 치환한다(개발 환경은 그대로 둔다).
+    - 앱 내부 origin(`LOCALHOST_APP_ORIGINS`)만 대상으로 하며 외부 뉴스/일반 링크는 건드리지 않는다.
+    """
+    if not body:
+        return body
+    base_url = settings.FRONTEND_BASE_URL
+    if _is_localhost_base_url(base_url):
+        return body
+    normalized = body
+    for origin in LOCALHOST_APP_ORIGINS:
+        normalized = normalized.replace(origin, base_url)
+    return normalized
 
 
 def _extract_current_price(payload: dict[str, Any] | None) -> float | None:
@@ -972,7 +1005,7 @@ async def _send_telegram(chat_id: str, event: NotificationEvent) -> DeliveryResu
     if not token:
         return DeliveryResult(success=False, error_message="Telegram bot token is not configured.")
 
-    text = f"{event.title}\n\n{event.body}"
+    text = f"{event.title}\n\n{_normalize_app_links(event.body)}"
     request = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
         data=json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8"),
@@ -1018,7 +1051,7 @@ async def send_email_verification_code(
 
 
 async def _send_email(destination: str, event: NotificationEvent) -> DeliveryResult:
-    return await _send_gmail_message(destination, event.title, event.body)
+    return await _send_gmail_message(destination, event.title, _normalize_app_links(event.body))
 
 
 async def _send_gmail_message(destination: str, subject: str, body: str) -> DeliveryResult:

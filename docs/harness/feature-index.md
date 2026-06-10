@@ -90,6 +90,8 @@ This index tells future harness agents which feature document to read before cha
 - 메일/Telegram 한영 본문 + 뉴스 상세페이지 링크 알림 구현: `docs/harness/notification-bilingual-detail-link-message-implementation-2026-06-09.md`
 - 즐겨찾기 자산 정시 요약 알림 계획: `docs/harness/favorite-asset-scheduled-digest-notification-plan-2026-06-09.md`
 - 즐겨찾기 자산 정시 요약 알림 구현: `docs/harness/favorite-asset-scheduled-digest-notification-implementation-2026-06-09.md`
+- 정기요약 알림 링크 localhost → 실제 주소 전환 계획: `docs/harness/scheduled-digest-localhost-link-fix-plan-2026-06-10.md`
+- 정기요약 알림 링크 localhost → 실제 주소 전환 구현: `docs/harness/scheduled-digest-localhost-link-fix-implementation-2026-06-10.md`
 - Gmail OAuth refresh token setup documentation: `docs/harness/gmail-oauth-refresh-token-setup-documentation-2026-06-08.md`, root guide `GMAIL_OAUTH_REFRESH_TOKEN_SETUP.md`
 - Docker database compatibility remediation plan: `docs/harness/docker-database-compatibility-remediation-plan-2026-06-02.md`
 - Docker database compatibility implementation: `docs/harness/docker-database-compatibility-implementation-2026-06-02.md`
