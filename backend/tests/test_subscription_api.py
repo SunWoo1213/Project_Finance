@@ -70,6 +70,7 @@ async def test_billing_me_returns_free_entitlements_without_subscription():
         assert payload["entitlements"] == {
             "can_view_reports": False,
             "can_use_chatbot": False,
+            "can_use_notifications": False,
         }
     finally:
         await engine.dispose()
@@ -120,6 +121,7 @@ async def test_billing_me_returns_db_backed_pro_entitlements():
         assert payload["entitlements"] == {
             "can_view_reports": True,
             "can_use_chatbot": True,
+            "can_use_notifications": True,
         }
     finally:
         await engine.dispose()

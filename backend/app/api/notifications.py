@@ -30,7 +30,8 @@ from ..services.notification_service import (
     update_preferences,
     verify_channel,
 )
-from .deps import get_current_user
+from ..services.subscription_service import get_user_entitlements
+from .deps import get_current_user, require_notification_access
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 logger = logging.getLogger(__name__)
@@ -67,10 +68,21 @@ async def put_preferences(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    updates = payload.model_dump(exclude_unset=True)
+    # 외부 발송 채널(telegram/email)을 켜는 변경만 PLUS 이상으로 제한한다.
+    # 끄기/in_app 알림 타입 토글은 모든 등급에서 허용한다.
+    enabling_external = updates.get("telegram_enabled") is True or updates.get("email_enabled") is True
+    if enabling_external:
+        entitlements = await get_user_entitlements(current_user, db)
+        if not entitlements.can_use_notifications:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Email/Telegram notifications require an active Plus or Pro subscription.",
+            )
     preference = await update_preferences(
         db,
         current_user.id,
-        payload.model_dump(exclude_unset=True),
+        updates,
     )
     return _preference_response(preference)
 
@@ -85,7 +97,7 @@ async def get_channels(
 
 @router.post("/channels/telegram/connect", response_model=ChannelConnectResponse)
 async def connect_telegram(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_notification_access),
     db: AsyncSession = Depends(get_db),
 ):
     connection = await create_channel_verification(
@@ -107,7 +119,7 @@ async def connect_telegram(
 @router.post("/channels/telegram/verify", response_model=NotificationChannelResponse)
 async def verify_telegram(
     payload: TelegramVerifyRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_notification_access),
     db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -144,7 +156,7 @@ async def disconnect_telegram(
 @router.post("/channels/email/verify", response_model=ChannelConnectResponse)
 async def request_email_verification(
     payload: EmailVerifyRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_notification_access),
     db: AsyncSession = Depends(get_db),
 ):
     destination = str(payload.email or current_user.email).lower()
@@ -171,7 +183,7 @@ async def request_email_verification(
 @router.post("/channels/email/confirm", response_model=NotificationChannelResponse)
 async def confirm_email(
     payload: EmailConfirmRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_notification_access),
     db: AsyncSession = Depends(get_db),
 ):
     destination = str(payload.email or current_user.email).lower()
@@ -218,7 +230,7 @@ async def get_history(
 @router.post("/test", response_model=NotificationTestResponse)
 async def send_test_notification(
     payload: NotificationTestRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_notification_access),
     db: AsyncSession = Depends(get_db),
 ):
     created, sent, failed = await create_test_notification(

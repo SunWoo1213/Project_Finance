@@ -5,6 +5,7 @@ import { apiClient, authHeader } from "../utils/apiClient";
 const defaultEntitlements = {
   can_view_reports: false,
   can_use_chatbot: false,
+  can_use_notifications: false,
 };
 
 const initialState = {

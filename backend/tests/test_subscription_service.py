@@ -34,6 +34,7 @@ def test_missing_subscription_is_free_without_paid_entitlements():
     assert entitlements.status == SubscriptionStatus.NONE
     assert entitlements.can_view_reports is False
     assert entitlements.can_use_chatbot is False
+    assert entitlements.can_use_notifications is False
 
 
 def test_active_plus_can_view_reports_but_not_chatbot():
@@ -50,6 +51,7 @@ def test_active_plus_can_view_reports_but_not_chatbot():
     assert entitlements.tier == SubscriptionTier.PLUS
     assert entitlements.can_view_reports is True
     assert entitlements.can_use_chatbot is False
+    assert entitlements.can_use_notifications is True
 
 
 def test_active_pro_can_view_reports_and_chatbot():
@@ -63,6 +65,7 @@ def test_active_pro_can_view_reports_and_chatbot():
     assert entitlements.tier == SubscriptionTier.PRO
     assert entitlements.can_view_reports is True
     assert entitlements.can_use_chatbot is True
+    assert entitlements.can_use_notifications is True
 
 
 def test_canceled_at_period_end_keeps_paid_access_before_period_end():
@@ -81,6 +84,7 @@ def test_canceled_at_period_end_keeps_paid_access_before_period_end():
     assert entitlements.status == SubscriptionStatus.CANCELED
     assert entitlements.can_view_reports is True
     assert entitlements.can_use_chatbot is True
+    assert entitlements.can_use_notifications is True
 
 
 def test_inactive_paid_subscription_falls_back_to_free_entitlements():
@@ -95,6 +99,7 @@ def test_inactive_paid_subscription_falls_back_to_free_entitlements():
     assert entitlements.status == SubscriptionStatus.EXPIRED
     assert entitlements.can_view_reports is False
     assert entitlements.can_use_chatbot is False
+    assert entitlements.can_use_notifications is False
 
 
 def test_period_ended_subscription_is_normalized_to_expired():
@@ -113,6 +118,7 @@ def test_period_ended_subscription_is_normalized_to_expired():
     assert entitlements.status == SubscriptionStatus.EXPIRED
     assert entitlements.can_view_reports is False
     assert entitlements.can_use_chatbot is False
+    assert entitlements.can_use_notifications is False
 
 
 @pytest.mark.asyncio

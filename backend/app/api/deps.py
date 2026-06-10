@@ -95,3 +95,16 @@ async def require_chatbot_access(
             detail="Chatbot access requires an active Pro subscription.",
         )
     return current_user
+
+
+async def require_notification_access(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    entitlements = await get_user_entitlements(current_user, db)
+    if not entitlements.can_use_notifications:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email/Telegram notifications require an active Plus or Pro subscription.",
+        )
+    return current_user

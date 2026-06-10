@@ -4,6 +4,7 @@ import { Bell, CheckCircle2, Mail, Search, Smartphone, Star, UserRound } from "l
 
 import useAuthStore from "../store/authStore";
 import useFavoriteStore from "../store/favoriteStore";
+import useSubscriptionStore from "../store/subscriptionStore";
 import { apiClient, authHeader } from "../utils/apiClient";
 import { ASSET_NAMES, resolveAssetName } from "../utils/constants";
 import { formatTicker } from "../utils/formatters";
@@ -67,6 +68,9 @@ export default function MyPage() {
   const nextPath = searchParams.get("next");
   const { token, user, updateUser } = useAuthStore();
   const { favorites, addFavorite, removeFavorite, syncWithServer, isSyncing, syncError } = useFavoriteStore();
+  const canUseNotifications = useSubscriptionStore(
+    (state) => state.entitlements.can_use_notifications
+  );
 
   const headers = useMemo(() => authHeader(token), [token]);
   const [profile, setProfile] = useState(null);
@@ -395,6 +399,19 @@ export default function MyPage() {
           <p className="mb-4 text-sm leading-6 text-slate-400">
             체크를 해제하면 해당 채널의 알림 수신만 중지됩니다. 연결된 이메일이나 Telegram 정보는 유지됩니다.
           </p>
+          {!canUseNotifications && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+              <span className="text-amber-200">
+                이메일·Telegram 외부 발송 알림은 <span className="font-semibold">PLUS 이상</span>에서 사용할 수 있습니다. 앱 내 알림은 모든 등급에서 제공됩니다.
+              </span>
+              <Link
+                to="/pricing"
+                className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-amber-400"
+              >
+                플랜 업그레이드
+              </Link>
+            </div>
+          )}
           <div className="space-y-4">
             <div className="rounded-lg bg-slate-900/40 p-4">
               <label className="flex items-center justify-between text-sm text-slate-200">
@@ -406,11 +423,16 @@ export default function MyPage() {
                   type="checkbox"
                   checked={Boolean(preferences.telegram_enabled)}
                   onChange={(event) => updatePreference("telegram_enabled", event.target.checked)}
-                  className="h-5 w-5 accent-emerald-500"
+                  disabled={!canUseNotifications}
+                  className="h-5 w-5 accent-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
                 />
               </label>
 
-              {getChannel("telegram")?.verified ? (
+              {!canUseNotifications ? (
+                <p className="mt-3 text-xs leading-5 text-slate-500">
+                  PLUS 이상 구독 시 Telegram 채널을 연결하고 외부 알림을 받을 수 있습니다.
+                </p>
+              ) : getChannel("telegram")?.verified ? (
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-slate-950/60 px-3 py-2 text-xs">
                   <span className="inline-flex items-center gap-1 text-emerald-300">
                     <CheckCircle2 size={14} />
@@ -473,11 +495,16 @@ export default function MyPage() {
                   type="checkbox"
                   checked={Boolean(preferences.email_enabled)}
                   onChange={(event) => updatePreference("email_enabled", event.target.checked)}
-                  className="h-5 w-5 accent-emerald-500"
+                  disabled={!canUseNotifications}
+                  className="h-5 w-5 accent-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
                 />
               </label>
 
-              {getChannel("email")?.verified ? (
+              {!canUseNotifications ? (
+                <p className="mt-3 text-xs leading-5 text-slate-500">
+                  PLUS 이상 구독 시 Google Mail 채널을 연결하고 외부 알림을 받을 수 있습니다.
+                </p>
+              ) : getChannel("email")?.verified ? (
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-slate-950/60 px-3 py-2 text-xs">
                   <span className="inline-flex items-center gap-1 text-emerald-300">
                     <CheckCircle2 size={14} />

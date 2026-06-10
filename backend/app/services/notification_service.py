@@ -30,6 +30,7 @@ from ..models import (
     NotificationPreference,
     UserFavoriteAsset,
 )
+from .subscription_service import build_entitlements, get_user_subscription
 
 
 logger = logging.getLogger(__name__)
@@ -524,6 +525,14 @@ async def _active_channels(
     preference: NotificationPreference,
 ) -> list[str]:
     channels = list(DEFAULT_CHANNELS)
+
+    # 외부 발송(telegram/email)은 PLUS 이상 구독자에게만 허용한다.
+    # in_app 채널은 모든 등급에서 유지된다. 구독 만료/다운그레이드 시에도
+    # 채널 연결 레코드는 보존하되, 발송 시점 권한 체크로 외부 발송만 중단한다.
+    subscription = await get_user_subscription(user_id, db)
+    if not build_entitlements(subscription).can_use_notifications:
+        return channels
+
     result = await db.execute(
         select(NotificationChannelConnection).where(
             NotificationChannelConnection.user_id == user_id,

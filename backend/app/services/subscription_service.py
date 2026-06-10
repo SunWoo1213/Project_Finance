@@ -29,6 +29,7 @@ class SubscriptionEntitlements:
     status: SubscriptionStatus
     can_view_reports: bool
     can_use_chatbot: bool
+    can_use_notifications: bool
     current_period_start: datetime | None = None
     current_period_end: datetime | None = None
     cancel_at_period_end: bool = False
@@ -151,6 +152,7 @@ def build_entitlements(subscription: SubscriptionSnapshot | None) -> Subscriptio
             status=subscription.status if subscription else SubscriptionStatus.NONE,
             can_view_reports=False,
             can_use_chatbot=False,
+            can_use_notifications=False,
             current_period_start=subscription.current_period_start if subscription else None,
             current_period_end=subscription.current_period_end if subscription else None,
             cancel_at_period_end=subscription.cancel_at_period_end if subscription else False,
@@ -162,6 +164,7 @@ def build_entitlements(subscription: SubscriptionSnapshot | None) -> Subscriptio
         status=subscription.status,
         can_view_reports=tier in {SubscriptionTier.PLUS, SubscriptionTier.PRO},
         can_use_chatbot=tier == SubscriptionTier.PRO,
+        can_use_notifications=tier in {SubscriptionTier.PLUS, SubscriptionTier.PRO},
         current_period_start=subscription.current_period_start,
         current_period_end=subscription.current_period_end,
         cancel_at_period_end=subscription.cancel_at_period_end,

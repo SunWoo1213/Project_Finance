@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -8,7 +9,16 @@ os.environ.setdefault("API_V1_STR", "/api")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 
 from app.core.cache import market_cache
-from app.models import AIReport, Asset, AssetCategory, NotificationChannelConnection, NotificationEvent, User
+from app.models import (
+    AIReport,
+    Asset,
+    AssetCategory,
+    NotificationChannelConnection,
+    NotificationEvent,
+    Subscription,
+    User,
+)
+from app.schemas import SubscriptionStatus, SubscriptionTier
 from app.services.favorite_service import upsert_user_favorite
 from app.services import notification_service
 from app.services.notification_service import (
@@ -23,6 +33,20 @@ from app.services.notification_service import (
     send_pending_notifications,
 )
 from billing_test_utils import create_test_sessionmaker
+
+
+def _build_paid_subscription(user_id, *, tier=SubscriptionTier.PLUS):
+    """외부 발송 게이트(_active_channels)를 통과할 수 있는 활성 유료 구독 객체를 만든다."""
+    now = datetime.utcnow()
+    return Subscription(
+        user_id=user_id,
+        tier=tier.value,
+        status=SubscriptionStatus.ACTIVE.value,
+        provider="mock",
+        provider_subscription_id=f"sub_{tier.value.lower()}",
+        current_period_start=now,
+        current_period_end=now + timedelta(days=30),
+    )
 
 
 @pytest.mark.asyncio
@@ -52,6 +76,7 @@ async def test_scheduled_digest_creates_one_message_per_active_delivery_channel(
             user = User(email="service@example.com", nickname="service")
             db.add(user)
             await db.flush()
+            db.add(_build_paid_subscription(user.id))
             await notification_service.update_preferences(
                 db,
                 user.id,
@@ -621,6 +646,87 @@ async def test_send_pending_telegram_event_marks_failed_after_retry_limit(monkey
             assert event.status == "failed"
             assert event.attempts == 3
             assert event.error_message == "Telegram bot token is not configured."
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_active_channels_excludes_external_for_free_user():
+    """구독이 없는 Free 사용자는 검증된 telegram/email이 있어도 in_app만 발송 대상이 된다."""
+    engine, Session = await create_test_sessionmaker()
+    try:
+        async with Session() as db:
+            user = User(email="free@example.com", nickname="free")
+            db.add(user)
+            await db.flush()
+            db.add_all([
+                NotificationChannelConnection(
+                    user_id=user.id,
+                    channel="email",
+                    destination="free@example.com",
+                    verified=True,
+                    verification_status="verified",
+                ),
+                NotificationChannelConnection(
+                    user_id=user.id,
+                    channel="telegram",
+                    destination="123456789",
+                    verified=True,
+                    verification_status="verified",
+                ),
+            ])
+            preference = await notification_service.update_preferences(
+                db,
+                user.id,
+                {"email_enabled": True, "telegram_enabled": True},
+            )
+            await db.commit()
+
+        async with Session() as db:
+            channels = await notification_service._active_channels(db, 1, preference)
+
+        assert channels == ["in_app"]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_active_channels_includes_external_for_paid_user():
+    """PLUS 이상 구독자는 검증·동의된 telegram/email이 발송 대상에 포함된다."""
+    engine, Session = await create_test_sessionmaker()
+    try:
+        async with Session() as db:
+            user = User(email="plus@example.com", nickname="plus")
+            db.add(user)
+            await db.flush()
+            db.add(_build_paid_subscription(user.id))
+            db.add_all([
+                NotificationChannelConnection(
+                    user_id=user.id,
+                    channel="email",
+                    destination="plus@example.com",
+                    verified=True,
+                    verification_status="verified",
+                ),
+                NotificationChannelConnection(
+                    user_id=user.id,
+                    channel="telegram",
+                    destination="123456789",
+                    verified=True,
+                    verification_status="verified",
+                ),
+            ])
+            preference = await notification_service.update_preferences(
+                db,
+                user.id,
+                {"email_enabled": True, "telegram_enabled": True},
+            )
+            await db.commit()
+
+        async with Session() as db:
+            channels = await notification_service._active_channels(db, 1, preference)
+
+        assert set(channels) == {"in_app", "email", "telegram"}
     finally:
         await engine.dispose()
 

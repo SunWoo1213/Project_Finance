@@ -54,6 +54,7 @@ async def get_my_billing_state(
         entitlements=SubscriptionEntitlementsResponse(
             can_view_reports=entitlements.can_view_reports,
             can_use_chatbot=entitlements.can_use_chatbot,
+            can_use_notifications=entitlements.can_use_notifications,
         ),
     )
 

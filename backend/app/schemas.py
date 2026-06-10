@@ -97,6 +97,7 @@ class BillingPlanResponse(BaseModel):
 class SubscriptionEntitlementsResponse(BaseModel):
     can_view_reports: bool
     can_use_chatbot: bool
+    can_use_notifications: bool = False
 
 
 class BillingMeResponse(BaseModel):

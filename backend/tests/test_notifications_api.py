@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -11,7 +12,8 @@ os.environ.setdefault("API_V1_STR", "/api")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 
 from app.api import notifications
-from app.models import NotificationChannelConnection, User
+from app.models import NotificationChannelConnection, Subscription, User
+from app.schemas import SubscriptionStatus, SubscriptionTier
 from app.services import notification_service
 from app.services.notification_service import DeliveryResult
 from billing_test_utils import create_test_sessionmaker
@@ -19,6 +21,24 @@ from billing_test_utils import create_test_sessionmaker
 
 async def override_current_user():
     return SimpleNamespace(id=1, email="notify@example.com", nickname="notify")
+
+
+async def seed_paid_subscription(Session, *, user_id=1, tier=SubscriptionTier.PLUS):
+    """외부 발송 알림 게이트를 통과할 수 있는 활성 유료 구독을 시드한다."""
+    now = datetime.utcnow()
+    async with Session() as db:
+        db.add(
+            Subscription(
+                user_id=user_id,
+                tier=tier.value,
+                status=SubscriptionStatus.ACTIVE.value,
+                provider="mock",
+                provider_subscription_id=f"sub_{tier.value.lower()}",
+                current_period_start=now,
+                current_period_end=now + timedelta(days=30),
+            )
+        )
+        await db.commit()
 
 
 def build_notifications_app(Session):
@@ -39,6 +59,8 @@ async def test_notification_preferences_default_and_update():
     async with Session() as db:
         db.add(User(email="notify@example.com", nickname="notify"))
         await db.commit()
+
+    await seed_paid_subscription(Session)
 
     app = build_notifications_app(Session)
 
@@ -65,6 +87,8 @@ async def test_email_channel_verify_confirm_and_test_history(monkeypatch):
     async with Session() as db:
         db.add(User(email="notify@example.com", nickname="notify"))
         await db.commit()
+
+    await seed_paid_subscription(Session)
 
     app = build_notifications_app(Session)
 
@@ -140,6 +164,8 @@ async def test_email_verify_does_not_expose_code_when_gmail_delivery_fails(monke
         db.add(User(email="notify@example.com", nickname="notify"))
         await db.commit()
 
+    await seed_paid_subscription(Session)
+
     app = build_notifications_app(Session)
 
     async def fake_send_verification_code(db, connection):
@@ -166,6 +192,8 @@ async def test_telegram_connect_contract_uses_manual_chat_id_flow():
         db.add(User(email="notify@example.com", nickname="notify"))
         await db.commit()
 
+    await seed_paid_subscription(Session)
+
     app = build_notifications_app(Session)
 
     try:
@@ -187,6 +215,8 @@ async def test_telegram_verify_rejects_non_numeric_chat_id():
         db.add(User(email="notify@example.com", nickname="notify"))
         await db.commit()
 
+    await seed_paid_subscription(Session)
+
     app = build_notifications_app(Session)
 
     try:
@@ -199,5 +229,93 @@ async def test_telegram_verify_rejects_non_numeric_chat_id():
                 json={"code": code, "chat_id": "not-a-chat-id"},
             )
             assert response.status_code == 422
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_free_user_blocked_from_external_notification_endpoints():
+    """구독이 없는 Free 사용자는 외부 발송 엔드포인트에서 403을 받는다."""
+    engine, Session = await create_test_sessionmaker()
+    async with Session() as db:
+        db.add(User(email="notify@example.com", nickname="notify"))
+        await db.commit()
+
+    # 구독 시드 없음 → Free → can_use_notifications False
+
+    app = build_notifications_app(Session)
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            connect = await client.post("/api/notifications/channels/telegram/connect", json={})
+            assert connect.status_code == 403
+
+            tg_verify = await client.post(
+                "/api/notifications/channels/telegram/verify",
+                json={"code": "ABC123", "chat_id": "12345"},
+            )
+            assert tg_verify.status_code == 403
+
+            email_verify = await client.post(
+                "/api/notifications/channels/email/verify",
+                json={"email": "notify@example.com"},
+            )
+            assert email_verify.status_code == 403
+
+            email_confirm = await client.post(
+                "/api/notifications/channels/email/confirm",
+                json={"email": "notify@example.com", "code": "123456"},
+            )
+            assert email_confirm.status_code == 403
+
+            test_send = await client.post(
+                "/api/notifications/test",
+                json={"ticker": "NVDA", "message": "test"},
+            )
+            assert test_send.status_code == 403
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_free_user_preferences_gate_blocks_only_external_enable():
+    """Free 사용자는 telegram/email ON은 403이지만, in_app 토글과 끄기는 허용된다."""
+    engine, Session = await create_test_sessionmaker()
+    async with Session() as db:
+        db.add(User(email="notify@example.com", nickname="notify"))
+        await db.commit()
+
+    app = build_notifications_app(Session)
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            # in_app 알림 타입 토글은 모든 등급에서 허용
+            in_app = await client.put(
+                "/api/notifications/preferences",
+                json={"price_change_enabled": False, "daily_digest_enabled": True},
+            )
+            assert in_app.status_code == 200
+            assert in_app.json()["price_change_enabled"] is False
+            assert in_app.json()["daily_digest_enabled"] is True
+
+            # 외부 발송 채널 끄기(False)는 허용
+            disable_email = await client.put(
+                "/api/notifications/preferences",
+                json={"email_enabled": False},
+            )
+            assert disable_email.status_code == 200
+
+            # telegram/email 켜기(True)는 PLUS 이상 필요 → 403
+            enable_email = await client.put(
+                "/api/notifications/preferences",
+                json={"email_enabled": True},
+            )
+            assert enable_email.status_code == 403
+
+            enable_telegram = await client.put(
+                "/api/notifications/preferences",
+                json={"telegram_enabled": True},
+            )
+            assert enable_telegram.status_code == 403
     finally:
         await engine.dispose()
