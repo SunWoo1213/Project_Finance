@@ -67,6 +67,7 @@ This index tells future harness agents which feature document to read before cha
 - Stooq 빈 history 12시간 캐시 고착 수정(지수 0 고착 해소): `docs/harness/stooq-empty-history-12h-cache-stuck-fix-2026-06-09.md`
 - USD/KRW 변동성 미표시 해결 계획(STOOQ_API_KEY 게이팅 A안): `docs/harness/krw-fx-change-percent-not-captured-plan-2026-06-09.md`
 - USD/KRW 변동성 미표시 해결 구현(STOOQ_FX_SYMBOLS key-only + 자기비교 제거): `docs/harness/krw-fx-change-percent-not-captured-implementation-2026-06-09.md`
+- 나스닥(^NDX) 미표시·USD/KRW 등락 미표시 원인 분석 및 stooq 키 운영 보완 계획(키 소진 감지+상태 엔드포인트, provider 유지): `docs/harness/nasdaq-fx-stooq-key-resilience-plan-2026-06-10.md`
 - 데모 환경 무료 티어 데이터 수집 주기 완화 계획: `docs/harness/demo-free-tier-data-cadence-plan-2026-06-08.md`
 - 무료 플랜 기반 Stooq primary 대체 계획(FMP Basic + 기존 무료 provider 유지): `docs/harness/market-data-free-plan-stooq-replacement-plan-2026-06-07.md`
 - 무료 플랜 기반 Stooq primary 대체 구현(FMP Basic + opt-in Stooq fallback): `docs/harness/market-data-free-plan-stooq-replacement-implementation-2026-06-07.md`

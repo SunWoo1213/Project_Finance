@@ -336,7 +336,7 @@ async def test_ndx_history_uses_stooq_without_global_optin(monkeypatch):
 
     payload = await price_providers.fetch_market_history("^NDX", "1mo")
 
-    assert captured["params"]["s"] == "^ndx"
+    assert captured["params"]["s"] == "^ndq"
     assert captured["params"]["apikey"] == "test-key"
     assert payload["points"] == [
         {"date": "2026-06-01", "value": 19000.0},
@@ -364,7 +364,7 @@ async def test_ndx_snapshot_uses_stooq_without_global_optin(monkeypatch):
 
     assert payload["currentPrice"] == 19500.0
     assert payload["provider_meta"]["provider"] == "stooq"
-    assert payload["provider_meta"]["symbol"] == "^ndx"
+    assert payload["provider_meta"]["symbol"] == "^ndq"
 
 
 @pytest.mark.asyncio

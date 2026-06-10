@@ -55,7 +55,7 @@ COINGECKO_TICKER_MAP = {
 
 STOOQ_SYMBOLS = {
     "^GSPC": "^spx",
-    "^NDX": "^ndx",
+    "^NDX": "^ndq",
     "AAPL": "aapl.us",
     "MSFT": "msft.us",
     "NVDA": "nvda.us",
