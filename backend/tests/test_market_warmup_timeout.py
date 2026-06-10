@@ -117,7 +117,7 @@ async def test_collect_prices_group_times_out_slow_asset_without_blocking_others
 async def test_collect_prices_group_carries_forward_last_value_on_failure(monkeypatch):
     # 실패(예외) 시 직전 유효 캐시값을 이어 써서 라벨(=카드)이 사라지지 않는다.
     prior = {
-        "symbol": "^NDX",
+        "symbol": "^IXIC",
         "price": 100.0,
         "change_pct": 1.0,
         "history_prices": [100.0],
@@ -125,7 +125,7 @@ async def test_collect_prices_group_carries_forward_last_value_on_failure(monkey
         "currentPrice": 100.0,
         "changePercent": 1.0,
     }
-    market_service.market_cache.setdefault("prices", {})["test"] = {"Nasdaq 100": prior}
+    market_service.market_cache.setdefault("prices", {})["test"] = {"Nasdaq Composite": prior}
 
     async def failing_fetch(ticker, category):
         raise RuntimeError("provider down")
@@ -133,13 +133,13 @@ async def test_collect_prices_group_carries_forward_last_value_on_failure(monkey
     monkeypatch.setattr(market_service, "is_live_market_ticker", lambda ticker: True)
     monkeypatch.setattr(market_service, "fetch_asset_data", failing_fetch)
 
-    assets = {"Nasdaq 100": {"ticker": "^NDX", "category": "INDEX"}}
+    assets = {"Nasdaq Composite": {"ticker": "^IXIC", "category": "INDEX"}}
 
     _, results = await market_service._collect_prices_group("test", assets)
 
-    assert "Nasdaq 100" in results
-    assert results["Nasdaq 100"]["price"] == 100.0
-    assert results["Nasdaq 100"]["change_pct"] == 1.0
+    assert "Nasdaq Composite" in results
+    assert results["Nasdaq Composite"]["price"] == 100.0
+    assert results["Nasdaq Composite"]["change_pct"] == 1.0
 
     market_service.market_cache.get("prices", {}).pop("test", None)
 

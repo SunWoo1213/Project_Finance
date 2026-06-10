@@ -46,7 +46,7 @@ def _infer_currency(ticker: str, group: str | None) -> str | None:
         return "%"
     if upper.endswith("-USD") or group in {"us_top10", "commodities", "cryptos"}:
         return "USD"
-    if upper in {"^GSPC", "^NDX"}:
+    if upper in {"^GSPC", "^IXIC"}:
         return "USD"
     return None
 

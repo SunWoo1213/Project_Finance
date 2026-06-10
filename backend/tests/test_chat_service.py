@@ -69,7 +69,7 @@ async def test_chat_service_routes_nasdaq_market_snapshot():
     )
 
     assert response.intent == "market_snapshot_navigation"
-    assert response.actions[0].url == "/market/%5ENDX"
+    assert response.actions[0].url == "/market/%5EIXIC"
 
 
 @pytest.mark.asyncio

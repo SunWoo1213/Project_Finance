@@ -13,10 +13,10 @@ const SNAPSHOT_META = {
     dashboardDescription: "S&P 500과 함께 미국 대형주 흐름을 확인합니다.",
     category: "US_STOCK",
   },
-  "^NDX": {
+  "^IXIC": {
     dashboardTitle: "미국 주식 대쉬보드",
     dashboardPath: "/category/us_top10",
-    dashboardDescription: "Nasdaq 100과 함께 미국 성장주 흐름을 확인합니다.",
+    dashboardDescription: "Nasdaq Composite와 함께 미국 성장주 흐름을 확인합니다.",
     category: "US_STOCK",
   },
   "KRW=X": {
@@ -88,6 +88,8 @@ export default function MarketSnapshot() {
   const changeValue = marketInfo?.changePercent ?? marketInfo?.change_pct ?? 0;
   const badge = formatChangeBadge(changeValue);
   const displayName = resolveAssetName(assetTicker, marketInfo?.symbol, assetTicker);
+  // USD/KRW(환율)은 전일 대비 등락을 표시하지 않는다(2026-06-10).
+  const showChangeBadge = meta.category !== "FX" && assetTicker !== "KRW=X";
 
   if (isLoading) {
     return <div className="py-20 text-center text-slate-400">시세 데이터를 불러오는 중입니다...</div>;
@@ -107,7 +109,9 @@ export default function MarketSnapshot() {
         </h1>
         <div className="mt-3 flex flex-wrap items-end gap-4">
           <span className="text-4xl font-extrabold text-slate-100">{formatPrice(marketInfo.price, meta.category)}</span>
-          <span className={`pb-1 text-xl font-bold ${badge.className}`}>{badge.text}</span>
+          {showChangeBadge && (
+            <span className={`pb-1 text-xl font-bold ${badge.className}`}>{badge.text}</span>
+          )}
         </div>
       </section>
 

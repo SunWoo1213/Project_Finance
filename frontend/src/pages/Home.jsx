@@ -50,8 +50,8 @@ export default function Home() {
 
   const targetIndices = [
     { label: 'S&P 500', dataKey: 'S&P 500', ticker: '^GSPC', category: 'US_STOCK' },
-    { label: 'Nasdaq 100', dataKey: 'Nasdaq 100', ticker: '^NDX', category: 'US_STOCK' },
-    { label: '원/달러 환율', dataKey: 'USDKRW', ticker: 'KRW=X', category: 'FX' },
+    { label: 'Nasdaq Composite', dataKey: 'Nasdaq Composite', ticker: '^IXIC', category: 'US_STOCK' },
+    { label: '원/달러 환율', dataKey: 'USDKRW', ticker: 'KRW=X', category: 'FX', hideChange: true },
     { label: 'KOSPI', dataKey: 'KOSPI', ticker: '^KS11', category: 'KR_STOCK' }
   ];
 
@@ -63,7 +63,7 @@ export default function Home() {
     <div className="max-w-screen-xl mx-auto py-8">
       <h2 className="text-2xl font-bold mb-6 px-2">주요 지수·환율</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-2">
-        {targetIndices.map(({ label, dataKey, ticker, category }) => {
+        {targetIndices.map(({ label, dataKey, ticker, category, hideChange }) => {
           const data = marketData ? marketData[dataKey] : null;
           if (!data) return null;
 
@@ -82,9 +82,12 @@ export default function Home() {
                   {formatPrice(data.price, category)}
                 </div>
               </div>
-              <div className={`text-xl font-semibold ${colorClass}`}>
-                {formatPercent(data.change_pct)}
-              </div>
+              {/* USD/KRW(환율)은 전일 대비 등락을 표시하지 않는다(2026-06-10). */}
+              {!hideChange && (
+                <div className={`text-xl font-semibold ${colorClass}`}>
+                  {formatPercent(data.change_pct)}
+                </div>
+              )}
             </div>
           );
         })}

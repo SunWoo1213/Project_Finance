@@ -51,6 +51,8 @@ export default function CategoryView({ categoryKey, title }) {
             const uiCategory = getUiCategory(categoryKey, data.symbol);
             const changeValue = data.changePercent ?? data.change_pct ?? 0;
             const badge = formatChangeBadge(changeValue);
+            // USD/KRW(환율)은 전일 대비 등락을 표시하지 않는다(2026-06-10).
+            const showChange = data.symbol !== 'KRW=X';
             const marketCap = Number(data.marketCap ?? 0);
             const isMacro = marketCap <= 0 || uiCategory === 'US_BOND' || uiCategory === 'COMMODITY';
             const displayName = resolveAssetName(data.symbol, data.label);
@@ -73,9 +75,11 @@ export default function CategoryView({ categoryKey, title }) {
                   <div className="text-lg font-bold">
                     {formatPrice(data.price, uiCategory)}
                   </div>
-                  <div className={`text-sm font-semibold ${badge.className}`}>
-                    {badge.text}
-                  </div>
+                  {showChange && (
+                    <div className={`text-sm font-semibold ${badge.className}`}>
+                      {badge.text}
+                    </div>
+                  )}
                   {isMacro ? (
                     <div className="mt-1 rounded-full bg-slate-700 px-2 py-0.5 text-[11px] text-slate-300">
                       거시 지표

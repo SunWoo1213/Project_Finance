@@ -73,15 +73,22 @@ STOOQ_SYMBOLS = {
     "KRW=X": "usdkrw",
 }
 
-# FMP free/stable 플랜이 정상 반환하지 못하는 지수는 Stooq를 1차 소스로 쓴다.
-# 이 집합의 ticker는 전역 opt-in(ENABLE_STOOQ_FALLBACK)이 꺼져 있어도 STOOQ_API_KEY만
-# 있으면 Stooq에서 가져온다. 다른 Stooq 폴백 경로(STOCK_US 종가 등)에는 영향이 없다.
-STOOQ_PRIMARY_SYMBOLS = {"^NDX"}
+# FMP free/stable 플랜이 정상 반환하지 못하는 지수의 Stooq 1차 집합.
+# 2026-06-10: 나스닥은 Stooq 무료 CSV 경로가 막혀(새 키로도 빈 응답) FRED로 이전했다.
+# 따라서 이 집합은 비어 있다(라이브 기본 경로에서 Stooq 지수 호출 없음). Stooq 폴백 코드는
+# ENABLE_STOOQ_FALLBACK 게이트로만 남겨 두며 기본값(false)에서는 휴면이다.
+STOOQ_PRIMARY_SYMBOLS: set[str] = set()
 
-# USD/KRW 등락은 stooq 일별 종가로만 계산할 수 있다(open.er-api는 전일 종가를 주지 않음).
-# ^NDX primary와 같은 취지로, STOOQ_API_KEY가 있으면 ENABLE_STOOQ_FALLBACK이 꺼져 있어도
-# 이 집합의 ticker는 stooq에서 일별 종가를 가져온다. 지수 primary 의미와 분리해 둔다.
-STOOQ_FX_SYMBOLS = {"KRW=X"}
+# USD/KRW 등락(changePercent) 표시는 2026-06-10에 삭제되었다. 현재가는 open.er-api에서
+# 가져오고 등락은 계산/표시하지 않으므로 Stooq 종가에 의존하지 않는다. 따라서 이 집합도
+# 비어 있다(라이브 경로에서 KRW Stooq 호출 없음). 상수는 호환을 위해 남겨 둔다.
+STOOQ_FX_SYMBOLS: set[str] = set()
+
+# FRED(미국 세인트루이스 연준)는 무료·키 기반으로 지수 일별 관측치를 제공한다.
+# 나스닥 카드는 위 사유로 Stooq 대신 FRED를 1차로 사용한다. 키는 settings.FRED_API_KEY.
+FRED_OBSERVATIONS_URL = "https://api.stlouisfed.org/fred/series/observations"
+# 캐노니컬 티커 -> FRED series_id. ^IXIC = NASDAQ Composite(나스닥 종합지수).
+FRED_INDEX_SYMBOLS = {"^IXIC": "NASDAQCOM"}
 
 FMP_SYMBOL_CANDIDATES = {
     "^GSPC": ["^GSPC"],
@@ -291,6 +298,10 @@ def _data_go_key() -> str:
 
 def _stooq_key() -> str:
     return settings.STOOQ_API_KEY or ""
+
+
+def _fred_key() -> str:
+    return settings.FRED_API_KEY or ""
 
 
 def _fmp_key() -> str:
@@ -759,49 +770,15 @@ async def _fetch_fx_snapshot(ticker: str) -> dict[str, Any]:
     rates = (payload or {}).get("rates", {})
     live_rate = _safe_float(rates.get("KRW"))
 
-    # USD/KRW 등락은 stooq 일별 종가로만 계산할 수 있다(open.er-api는 전일 종가 미제공).
-    # STOOQ_API_KEY가 있으면 ENABLE_STOOQ_FALLBACK과 무관하게 stooq를 호출한다(A안).
-    history = _history_payload("KRW=X", [], unit="KRW")
-    if settings.ENABLE_STOOQ_FALLBACK or _stooq_key():
-        try:
-            history = await fetch_stooq_history("KRW=X", "1mo")
-        except Exception as exc:
-            logger.warning(
-                "Stooq FX change fallback used (ticker=%s): %s",
-                ticker,
-                redact_secrets(repr(exc)),
-            )
-            history = _history_payload("KRW=X", [], unit="KRW")
-    history_prices = [point["value"] for point in history.get("points", [])]
-
-    # 현재가는 open.er-api live rate를 우선하고, 없으면 stooq 최신 종가로 채운다.
+    # USD/KRW 전일 대비 등락 표시는 2026-06-10에 삭제되었다.
+    # 현재가(open.er-api)만 제공하고 등락(changePercent)은 항상 0으로 둔다. open.er-api는
+    # 전일 종가를 주지 않고, 등락 계산용으로 쓰던 Stooq 일별 종가 경로는 제거했다.
     current_price = live_rate
-    current_from_stooq = False
-    if not current_price and history_prices:
-        current_price = history_prices[-1]
-        current_from_stooq = True
-
-    # 전일 종가:
-    #  - live rate가 있으면 stooq 최신 종가([-1]) 대비(live vs last close).
-    #  - live rate가 없어 현재가를 stooq[-1]로 채웠다면 직전 종가([-2]) 대비로 day-over-day를
-    #    계산해, 같은 값과 비교해 등락이 0으로 고착되는 자기 비교 경로를 막는다.
-    if current_from_stooq:
-        prev_close = history_prices[-2] if len(history_prices) >= 2 else 0.0
-    else:
-        prev_close = history_prices[-1] if history_prices else 0.0
-
-    change_percent = (
-        ((current_price - prev_close) / prev_close) * 100
-        if prev_close and current_price
-        else 0.0
-    )
-
-    if not history_prices and current_price:
-        history_prices = [current_price]
+    history_prices = [current_price] if current_price else []
 
     result = {
         "currentPrice": round(current_price, 6),
-        "changePercent": round(change_percent, 6),
+        "changePercent": 0.0,
         "history_prices": [round(float(v), 6) for v in history_prices],
         "marketCap": 0.0,
         "provider_meta": {
@@ -810,7 +787,7 @@ async def _fetch_fx_snapshot(ticker: str) -> dict[str, Any]:
             "as_of": (payload or {}).get("time_last_update_utc"),
             "freshness": "daily_reference",
             "license_scope": "open_public_reference",
-            "change_source": "stooq_fallback" if prev_close else "none",
+            "change_source": "none",
         },
     }
     return _cache_set(_snapshot_cache, f"fx:{ticker}", result)
@@ -971,6 +948,121 @@ async def _fetch_stooq_snapshot(ticker: str) -> dict[str, Any]:
     history = await fetch_stooq_history(ticker, "1mo")
     points = history.get("points", [])
     return _normalize_history_values([point["value"] for point in points])
+
+
+async def fetch_fred_history(ticker: str, period: str = "1y") -> dict[str, Any]:
+    """FRED 일별 관측치를 history payload로 반환한다(나스닥 Composite 등 지수용).
+
+    Stooq 무료 CSV가 막혀 나스닥을 FRED로 이전한 경로. 결측치('.')는 직전 유효값을
+    carry-forward하고, desc로 받아 오래된→최신 순으로 정렬한다. 12h 캐시와 실패 쿨다운,
+    stale 유지(직전 유효값)는 다른 provider와 동일하게 적용한다. 키는 응답에 노출하지 않는다.
+    """
+    normalized = (ticker or "").strip().upper()
+    series_id = FRED_INDEX_SYMBOLS.get(normalized)
+    key = _fred_key()
+    cache_key = f"fred:{normalized}:{period}"
+
+    cached = _cache_get(_history_cache, cache_key, HISTORY_CACHE_TTL_SECONDS)
+    if cached is not None:
+        return cached
+
+    if not series_id or not key:
+        return _history_payload(normalized, [])
+
+    if _should_skip_failed_call(cache_key):
+        stale = _cache_get_stale(_history_cache, cache_key)
+        if stale is not None and stale.get("points"):
+            return stale
+        return _history_payload(normalized, [])
+
+    params = {
+        "series_id": series_id,
+        "api_key": key,
+        "file_type": "json",
+        "sort_order": "desc",
+        "limit": max(2, _period_to_days(period)),
+    }
+    provider_meta = {
+        "provider": "fred",
+        "series_id": series_id,
+        "freshness": "provider_observation",
+        "license_scope": "fred_public",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(FRED_OBSERVATIONS_URL, params=params)
+            response.raise_for_status()
+            payload_json = response.json()
+    except Exception as exc:
+        _mark_failed_call(cache_key)
+        stale = _cache_get_stale(_history_cache, cache_key)
+        if stale is not None and stale.get("points"):
+            logger.warning(
+                "FRED stale history fallback used (ticker=%s, period=%s): %s",
+                normalized,
+                period,
+                redact_secrets(repr(exc)),
+            )
+            return stale
+        logger.warning(
+            "FRED history unavailable (ticker=%s, period=%s): %s",
+            normalized,
+            period,
+            redact_secrets(repr(exc)),
+        )
+        return _history_payload(normalized, [], provider_meta=provider_meta)
+
+    observations = payload_json.get("observations", [])
+    points_desc: list[dict[str, Any]] = []
+    last_valid: float | None = None
+    for item in observations:
+        raw_date = str(item.get("date") or "").strip()
+        raw_val = item.get("value")
+        if not raw_date:
+            continue
+        if raw_val in (None, "."):
+            if last_valid is not None:
+                points_desc.append({"date": raw_date, "value": last_valid})
+            continue
+        try:
+            value = float(raw_val)
+        except (TypeError, ValueError):
+            continue
+        last_valid = value
+        points_desc.append({"date": raw_date, "value": value})
+
+    points = list(reversed(points_desc))
+    if not points:
+        _mark_failed_call(cache_key)
+        stale = _cache_get_stale(_history_cache, cache_key)
+        if stale is not None and stale.get("points"):
+            logger.warning(
+                "FRED empty observations; reusing last good history (ticker=%s, period=%s)",
+                normalized,
+                period,
+            )
+            return stale
+        logger.warning("Empty FRED observations (ticker=%s, series=%s)", normalized, series_id)
+        return _history_payload(normalized, [], provider_meta=provider_meta)
+
+    # FRED가 제공한 가장 최신 관측일을 기준일로 노출한다(EOD·지연 반영).
+    provider_meta["as_of"] = points[-1]["date"]
+    payload = _history_payload(normalized, points, provider_meta=provider_meta)
+    return _cache_set(_history_cache, cache_key, payload)
+
+
+async def _fetch_fred_snapshot(ticker: str) -> dict[str, Any]:
+    # 등락은 FRED 최신 관측일(points[-1]) vs 직전 관측일(points[-2]) day-over-day.
+    history = await fetch_fred_history(ticker, "1mo")
+    points = history.get("points", [])
+    payload = _normalize_history_values([point["value"] for point in points])
+    if payload.get("currentPrice"):
+        provider_meta = dict(history.get("provider_meta") or {})
+        provider_meta.setdefault("provider", "fred")
+        provider_meta.setdefault("change_source", "fred_observation")
+        payload["provider_meta"] = provider_meta
+    return payload
 
 
 def _extract_data_go_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1210,6 +1302,9 @@ async def fetch_market_snapshot(ticker: str, category: str | None = None) -> dic
             payload = await _fetch_data_go_snapshot(normalized)
         elif category == "INDEX" and normalized in KR_INDEX_NAMES:
             payload = await _fetch_data_go_snapshot(normalized)
+        elif category == "INDEX" and normalized in FRED_INDEX_SYMBOLS:
+            # 나스닥 Composite(^IXIC)는 FRED NASDAQCOM에서 가져온다(Stooq 대체).
+            payload = await _fetch_fred_snapshot(normalized)
         elif category == "INDEX" and normalized in STOOQ_PRIMARY_SYMBOLS:
             payload = await _fetch_stooq_snapshot(normalized)
             if payload.get("currentPrice"):
@@ -1256,8 +1351,10 @@ async def fetch_market_history(ticker: str, period: str = "1y") -> dict[str, Any
         return cached
 
     try:
-        if normalized in STOOQ_PRIMARY_SYMBOLS:
-            # ^NDX는 FMP가 지수를 못 주므로 Stooq를 1차로 사용한다(전역 opt-in 불필요).
+        if normalized in FRED_INDEX_SYMBOLS:
+            # 나스닥 Composite(^IXIC)는 FRED NASDAQCOM에서 가져온다(Stooq 대체).
+            payload = await fetch_fred_history(normalized, period)
+        elif normalized in STOOQ_PRIMARY_SYMBOLS:
             payload = await fetch_stooq_history(normalized, period)
         elif normalized in US_STOCK_SYMBOLS or normalized in {"^GSPC", "^NDX"} or _is_commodity(normalized):
             payload = await fetch_fmp_history(normalized, period)
@@ -1266,22 +1363,19 @@ async def fetch_market_history(ticker: str, period: str = "1y") -> dict[str, Any
         elif _is_crypto(normalized):
             payload = await fetch_coingecko_history(normalized, period)
         elif normalized == "KRW=X":
+            # USD/KRW 등락 표시는 삭제되었다(2026-06-10). history는 현재가 1점만 둔다.
+            # Stooq 종가 의존을 제거했으므로 등락 계산용 시계열을 만들지 않는다.
             points: list[dict[str, Any]] = []
             provider_meta: dict[str, Any] | None = None
-            if settings.ENABLE_STOOQ_FALLBACK or _stooq_key():
-                stooq_history = await fetch_stooq_history(normalized, period)
-                points = list(stooq_history.get("points", []))
-                provider_meta = stooq_history.get("provider_meta")
-            if not points:
-                snapshot = await _fetch_fx_snapshot(normalized)
-                if snapshot.get("currentPrice"):
-                    provider_meta = dict(snapshot.get("provider_meta") or {})
-                    as_of = (
-                        provider_meta.get("as_of")
-                        or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    )
-                    date = _normalize_provider_date(as_of)
-                    points.append({"date": date, "value": snapshot["currentPrice"]})
+            snapshot = await _fetch_fx_snapshot(normalized)
+            if snapshot.get("currentPrice"):
+                provider_meta = dict(snapshot.get("provider_meta") or {})
+                as_of = (
+                    provider_meta.get("as_of")
+                    or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                )
+                date = _normalize_provider_date(as_of)
+                points.append({"date": date, "value": snapshot["currentPrice"]})
             payload = _history_payload(
                 normalized,
                 points,

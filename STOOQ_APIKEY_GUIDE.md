@@ -1,6 +1,13 @@
 # Stooq apikey 발급 및 연결 가이드
 
-이 문서는 `Project_Finance` 백엔드의 시세 폴백 소스인 **Stooq**를 연결하기 위한 절차를 정리한다.
+> **2026-06-10 업데이트 — Stooq는 라이브 기본 경로에서 더 이상 사용하지 않는다.**
+> Stooq 무료 apikey CSV 경로가 막혀(새 키로도 모든 심볼이 빈 200 응답, PoW는 성공) 신뢰할 수 없게 되었다.
+> - **나스닥 지수**는 FRED NASDAQ Composite(`NASDAQCOM`, 티커 `^IXIC`)로 이전했다(`FRED_API_KEY` 사용).
+> - **USD/KRW 등락 표시**는 삭제했다(현재가만 open.er-api에서 제공, 등락 미표시).
+> 따라서 `STOOQ_API_KEY` 수동 교체는 더 이상 필요하지 않다. Stooq 코드는 `ENABLE_STOOQ_FALLBACK`(기본 false) 게이트의 휴면 fallback으로만 남아 있다.
+> 구현 기록: [docs/harness/nasdaq-composite-fred-source-implementation-2026-06-10.md](docs/harness/nasdaq-composite-fred-source-implementation-2026-06-10.md)
+
+이 문서는 `Project_Finance` 백엔드의 (현재는 휴면) 시세 폴백 소스인 **Stooq**를 연결하기 위한 절차를 정리한다.
 관련 코드: [backend/app/services/price_providers.py](backend/app/services/price_providers.py)
 
 ## 1. 핵심 요약

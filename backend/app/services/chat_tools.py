@@ -303,7 +303,7 @@ def _static_assets() -> list[AssetCandidate]:
 def _asset_aliases() -> list[tuple[AssetCandidate, list[str]]]:
     aliases = {
         "^GSPC": ["s&p", "s&p500", "sp500", "에스앤피", "에스앤피500"],
-        "^NDX": ["nasdaq", "nasdaq100", "나스닥", "나스닥100"],
+        "^IXIC": ["nasdaq", "nasdaq composite", "나스닥", "나스닥종합", "나스닥 종합", "컴포지트", "나스닥100", "nasdaq100"],
         "^KS11": ["kospi", "코스피"],
         "^KQ11": ["kosdaq", "코스닥"],
         "KRW=X": ["환율", "달러", "원달러", "원/달러", "usdk rw", "usdkrw"],

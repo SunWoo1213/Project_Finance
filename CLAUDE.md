@@ -38,6 +38,7 @@ Codex의 plan → implement → verify → 문서화 흐름을 Claude Code에서
 2. 해당 `docs/harness/features/*.md`를 갱신하고 그 변경 기록 링크를 `Change Records`에 추가한다.
 3. `docs/harness/feature-index.md`의 항목을 갱신한다.
 4. 폴더 소유권이 바뀌면 가장 가까운 `DEVELOPMENT_DIRECTION.md`를 갱신한다.
+5. 라우트·서비스·데이터 모델·스케줄러·핵심 흐름 등 저장소 구조가 바뀌면 루트의 `CODE_UNDERSTANDING.md`(코드 이해 문서)의 해당 절도 함께 최신화한다. 갱신 기준과 절차는 그 문서의 "8. 이 문서의 유지보수 규칙" 절을 따른다.
 
 ### 절대 규칙 (요약, 상세는 AGENTS.md)
 - `.env` 및 모든 시크릿(API 키, DB 비밀번호, JWT secret)을 출력·복사·커밋하지 않는다. `.claude/settings.json`에서 `.env` 읽기는 차단되어 있다.

@@ -33,7 +33,7 @@ def test_demo_default_live_tickers_include_dashboard_only_not_all(monkeypatch):
 
     monkeypatch.setattr(demo_market_data.settings, "MARKET_LIVE_TICKERS", configured_default)
 
-    for ticker in ("^GSPC", "^NDX", "KRW=X", "^KS11"):
+    for ticker in ("^GSPC", "^IXIC", "KRW=X", "^KS11"):
         assert demo_market_data.is_live_market_ticker(ticker)
 
     assert demo_market_data.is_live_market_ticker("NVDA")
@@ -316,71 +316,136 @@ async def test_fmp_history_success_normalization(monkeypatch):
     assert payload["provider_meta"]["freshness"] == "eod_or_delayed"
 
 
+def _fake_fred_client(observations, captured=None):
+    # FRED observations(JSON)를 돌려주는 httpx.AsyncClient 대역.
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"observations": observations}
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, params=None):
+            if captured is not None:
+                captured["url"] = url
+                captured["params"] = params
+            return _Resp()
+
+    return _Client
+
+
 @pytest.mark.asyncio
-async def test_ndx_history_uses_stooq_without_global_optin(monkeypatch):
-    # ^NDX는 FMP가 지수를 못 주므로 ENABLE_STOOQ_FALLBACK이 꺼져 있어도 Stooq를 1차로 쓴다.
-    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
-    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
-    monkeypatch.setattr(price_providers.settings, "STOOQ_FETCH_TIMEOUT_SECONDS", 12)
+async def test_ixic_history_uses_fred(monkeypatch):
+    # 나스닥 Composite(^IXIC)는 Stooq가 아니라 FRED NASDAQCOM에서 가져온다.
+    monkeypatch.setattr(price_providers.settings, "FRED_API_KEY", "test-fred-key")
     captured = {}
-
-    async def fail_fmp(*args, **kwargs):
-        raise AssertionError("FMP should not be called for ^NDX primary path")
-
-    async def fake_get_stooq_text(params, *, timeout=10.0):
-        captured["params"] = params
-        return "Date,Open,High,Low,Close,Volume\n2026-06-01,1,2,1,19000,100\n2026-06-02,1,2,1,19500,100\n"
-
-    monkeypatch.setattr(price_providers, "fetch_fmp_history", fail_fmp)
-    monkeypatch.setattr(price_providers, "_get_stooq_text", fake_get_stooq_text)
-
-    payload = await price_providers.fetch_market_history("^NDX", "1mo")
-
-    assert captured["params"]["s"] == "^ndq"
-    assert captured["params"]["apikey"] == "test-key"
-    assert payload["points"] == [
-        {"date": "2026-06-01", "value": 19000.0},
-        {"date": "2026-06-02", "value": 19500.0},
+    # FRED는 sort_order=desc(최신 먼저)로 응답한다.
+    observations = [
+        {"date": "2026-06-08", "value": "25500"},
+        {"date": "2026-06-05", "value": "25000"},
     ]
-    assert payload["provider_meta"]["provider"] == "stooq"
+    monkeypatch.setattr(price_providers.httpx, "AsyncClient", _fake_fred_client(observations, captured))
+
+    payload = await price_providers.fetch_market_history("^IXIC", "1mo")
+
+    assert captured["params"]["series_id"] == "NASDAQCOM"
+    assert captured["params"]["api_key"] == "test-fred-key"
+    # 오래된→최신 순으로 정렬되어야 한다.
+    assert payload["points"] == [
+        {"date": "2026-06-05", "value": 25000.0},
+        {"date": "2026-06-08", "value": 25500.0},
+    ]
+    assert payload["provider_meta"]["provider"] == "fred"
+    assert payload["provider_meta"]["series_id"] == "NASDAQCOM"
+    assert payload["provider_meta"]["as_of"] == "2026-06-08"
 
 
 @pytest.mark.asyncio
-async def test_ndx_snapshot_uses_stooq_without_global_optin(monkeypatch):
-    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
-    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
-    monkeypatch.setattr(price_providers.settings, "STOOQ_FETCH_TIMEOUT_SECONDS", 12)
+async def test_ixic_snapshot_change_is_latest_vs_prev(monkeypatch):
+    # 등락은 FRED 최신 관측일 vs 직전 관측일 day-over-day.
+    monkeypatch.setattr(price_providers.settings, "FRED_API_KEY", "test-fred-key")
+    observations = [
+        {"date": "2026-06-08", "value": "25500"},
+        {"date": "2026-06-05", "value": "25000"},
+    ]
+    monkeypatch.setattr(price_providers.httpx, "AsyncClient", _fake_fred_client(observations))
 
-    async def fail_fmp_snapshot(*args, **kwargs):
-        raise AssertionError("FMP snapshot should not be called for ^NDX primary path")
+    payload = await price_providers.fetch_market_snapshot("^IXIC", "INDEX")
 
-    async def fake_get_stooq_text(params, *, timeout=10.0):
-        return "Date,Open,High,Low,Close,Volume\n2026-06-01,1,2,1,19000,100\n2026-06-02,1,2,1,19500,100\n"
-
-    monkeypatch.setattr(price_providers, "_fetch_fmp_snapshot", fail_fmp_snapshot)
-    monkeypatch.setattr(price_providers, "_get_stooq_text", fake_get_stooq_text)
-
-    payload = await price_providers.fetch_market_snapshot("^NDX", "INDEX")
-
-    assert payload["currentPrice"] == 19500.0
-    assert payload["provider_meta"]["provider"] == "stooq"
-    assert payload["provider_meta"]["symbol"] == "^ndq"
+    assert payload["currentPrice"] == 25500.0
+    assert round(payload["changePercent"], 2) == 2.0  # (25500-25000)/25000*100
+    assert payload["provider_meta"]["provider"] == "fred"
 
 
 @pytest.mark.asyncio
-async def test_ndx_stooq_requires_key(monkeypatch):
-    # 키가 없으면 ^NDX도 Stooq를 호출하지 않고 빈 history로 degrade한다.
-    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
-    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", None)
+async def test_ixic_carries_forward_missing_value(monkeypatch):
+    # FRED 결측치('.')는 더 최신의 유효값을 carry-forward한다(desc 응답 기준).
+    monkeypatch.setattr(price_providers.settings, "FRED_API_KEY", "test-fred-key")
+    observations = [
+        {"date": "2026-06-08", "value": "25500"},
+        {"date": "2026-06-05", "value": "."},
+        {"date": "2026-06-04", "value": "25000"},
+    ]
+    monkeypatch.setattr(price_providers.httpx, "AsyncClient", _fake_fred_client(observations))
 
-    async def fail_get_stooq_text(*args, **kwargs):
-        raise AssertionError("Stooq should not be called without a key")
+    payload = await price_providers.fetch_market_history("^IXIC", "1mo")
 
-    monkeypatch.setattr(price_providers, "_get_stooq_text", fail_get_stooq_text)
+    assert payload["points"] == [
+        {"date": "2026-06-04", "value": 25000.0},
+        {"date": "2026-06-05", "value": 25500.0},
+        {"date": "2026-06-08", "value": 25500.0},
+    ]
 
-    payload = await price_providers.fetch_stooq_history("^NDX", "1mo")
+
+@pytest.mark.asyncio
+async def test_ixic_history_requires_fred_key(monkeypatch):
+    # 키가 없으면 FRED를 호출하지 않고 빈 history로 degrade한다.
+    monkeypatch.setattr(price_providers.settings, "FRED_API_KEY", None)
+
+    def fail_client(*args, **kwargs):
+        raise AssertionError("FRED should not be called without a key")
+
+    monkeypatch.setattr(price_providers.httpx, "AsyncClient", fail_client)
+
+    payload = await price_providers.fetch_fred_history("^IXIC", "1mo")
 
     assert payload["points"] == []
+
+
+@pytest.mark.asyncio
+async def test_krw_fx_snapshot_has_no_change(monkeypatch):
+    # USD/KRW 등락 표시는 삭제됨: Stooq를 호출하지 않고 changePercent=0.
+    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", True)
+
+    async def fail_stooq(*args, **kwargs):
+        raise AssertionError("Stooq must not be called for USD/KRW after change removal")
+
+    async def fake_get_json(provider, url, **kwargs):
+        return {
+            "rates": {"KRW": 1500.0},
+            "provider": "open.er-api.com",
+            "time_last_update_utc": "2026-06-10",
+        }
+
+    monkeypatch.setattr(price_providers, "fetch_stooq_history", fail_stooq)
+    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
+
+    payload = await price_providers.fetch_market_snapshot("KRW=X", "FX")
+
+    assert payload["currentPrice"] == 1500.0
+    assert payload["changePercent"] == 0.0
+    assert payload["provider_meta"]["change_source"] == "none"
 
 
 @pytest.mark.asyncio
@@ -445,36 +510,6 @@ async def test_market_history_uses_ticker_period_cache(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fx_snapshot_change_percent_from_stooq_close(monkeypatch):
-    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", True)
-
-    async def fake_get_json(provider, url, **kwargs):
-        return {"rates": {"KRW": 1386.0}, "provider": "open.er-api.com"}
-
-    async def fake_stooq_history(ticker, period):
-        assert ticker == "KRW=X"
-        return price_providers._history_payload(
-            "KRW=X",
-            [
-                {"date": "2026-06-02", "value": 1370.0},
-                {"date": "2026-06-03", "value": 1380.0},
-            ],
-            unit="KRW",
-        )
-
-    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
-    monkeypatch.setattr(price_providers, "fetch_stooq_history", fake_stooq_history)
-
-    snapshot = await price_providers._fetch_fx_snapshot("KRW=X")
-
-    # 현재 환율(1386) vs stooq 최신 종가(1380) → 약 +0.4348%, 더 이상 0이 아니다.
-    assert snapshot["currentPrice"] == 1386.0
-    assert snapshot["changePercent"] != 0.0
-    assert snapshot["changePercent"] == round(((1386.0 - 1380.0) / 1380.0) * 100, 6)
-    assert snapshot["provider_meta"]["change_source"] == "stooq_fallback"
-
-
-@pytest.mark.asyncio
 async def test_fx_snapshot_falls_back_when_stooq_empty(monkeypatch):
     monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", True)
 
@@ -514,64 +549,6 @@ async def test_fx_snapshot_keeps_open_rate_without_stooq_fallback(monkeypatch):
     assert snapshot["changePercent"] == 0.0
     assert snapshot["history_prices"] == [1386.0]
     assert snapshot["provider_meta"]["change_source"] == "none"
-
-
-@pytest.mark.asyncio
-async def test_fx_snapshot_uses_stooq_when_key_present_without_global_optin(monkeypatch):
-    # A안: STOOQ_API_KEY만 있으면 ENABLE_STOOQ_FALLBACK이 꺼져 있어도 USD/KRW 등락을 계산한다.
-    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
-    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
-    monkeypatch.setattr(price_providers.settings, "STOOQ_FETCH_TIMEOUT_SECONDS", 12)
-
-    async def fake_get_json(provider, url, **kwargs):
-        return {"rates": {"KRW": 1390.0}, "provider": "open.er-api.com"}
-
-    async def fake_get_stooq_text(params, *, timeout=10.0):
-        assert params["s"] == "usdkrw"
-        assert params["apikey"] == "test-key"
-        return "Date,Open,High,Low,Close,Volume\n2026-06-02,1,2,1,1370,100\n2026-06-03,1,2,1,1380,100\n"
-
-    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
-    monkeypatch.setattr(price_providers, "_get_stooq_text", fake_get_stooq_text)
-
-    snapshot = await price_providers._fetch_fx_snapshot("KRW=X")
-
-    # live rate(1390) vs stooq 최신 종가(1380) → 약 +0.7246%, 0이 아니다.
-    assert snapshot["currentPrice"] == 1390.0
-    assert snapshot["changePercent"] == round(((1390.0 - 1380.0) / 1380.0) * 100, 6)
-    assert snapshot["changePercent"] != 0.0
-    assert snapshot["provider_meta"]["change_source"] == "stooq_fallback"
-
-
-@pytest.mark.asyncio
-async def test_fx_snapshot_avoids_self_comparison_when_open_rate_missing(monkeypatch):
-    # open.er-api가 비면 현재가를 stooq 최신 종가([-1])로 채우되, 전일 종가는 직전 종가([-2])로
-    # 잡아 같은 값과 비교해 등락이 0으로 고착되는 경로를 막는다.
-    monkeypatch.setattr(price_providers.settings, "ENABLE_STOOQ_FALLBACK", False)
-    monkeypatch.setattr(price_providers.settings, "STOOQ_API_KEY", "test-key")
-
-    async def fake_get_json(provider, url, **kwargs):
-        return {"rates": {}, "provider": "open.er-api.com"}
-
-    async def fake_stooq_history(ticker, period):
-        return price_providers._history_payload(
-            "KRW=X",
-            [
-                {"date": "2026-06-02", "value": 1370.0},
-                {"date": "2026-06-03", "value": 1380.0},
-            ],
-            unit="KRW",
-        )
-
-    monkeypatch.setattr(price_providers, "_get_json", fake_get_json)
-    monkeypatch.setattr(price_providers, "fetch_stooq_history", fake_stooq_history)
-
-    snapshot = await price_providers._fetch_fx_snapshot("KRW=X")
-
-    assert snapshot["currentPrice"] == 1380.0
-    assert snapshot["changePercent"] == round(((1380.0 - 1370.0) / 1370.0) * 100, 6)
-    assert snapshot["changePercent"] != 0.0
-    assert snapshot["provider_meta"]["change_source"] == "stooq_fallback"
 
 
 @pytest.mark.asyncio

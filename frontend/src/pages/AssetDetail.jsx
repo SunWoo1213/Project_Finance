@@ -285,6 +285,8 @@ export default function AssetDetail() {
 
   const changeValue = marketInfo.changePercent ?? marketInfo.change_pct ?? 0;
   const badge = formatChangeBadge(changeValue);
+  // USD/KRW(환율)은 전일 대비 등락을 표시하지 않는다(2026-06-10).
+  const showChangeBadge = assetTicker !== "KRW=X";
   const formattedTicker = formatTicker(assetTicker);
   const displayName = resolveAssetName(assetTicker, formattedTicker);
   const favorited = isFavorite(assetTicker);
@@ -333,7 +335,9 @@ export default function AssetDetail() {
             </h1>
             <div className="flex flex-wrap items-end gap-4">
               <span className="text-5xl font-extrabold text-slate-100">{formatPrice(marketInfo.price, uiCategory)}</span>
-              <span className={`pb-1 text-2xl font-bold ${badge.className}`}>{badge.text}</span>
+              {showChangeBadge && (
+                <span className={`pb-1 text-2xl font-bold ${badge.className}`}>{badge.text}</span>
+              )}
             </div>
 
             {isMacro ? (
