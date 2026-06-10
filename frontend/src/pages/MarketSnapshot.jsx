@@ -16,7 +16,7 @@ const SNAPSHOT_META = {
   "^IXIC": {
     dashboardTitle: "미국 주식 대쉬보드",
     dashboardPath: "/category/us_top10",
-    dashboardDescription: "Nasdaq Composite와 함께 미국 성장주 흐름을 확인합니다.",
+    dashboardDescription: "Nasdaq100과 함께 미국 성장주 흐름을 확인합니다.",
     category: "US_STOCK",
   },
   "KRW=X": {

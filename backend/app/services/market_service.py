@@ -26,7 +26,7 @@ except ModuleNotFoundError:
 
 INDICES = {
     "S&P 500": "^GSPC",
-    "Nasdaq Composite": "^IXIC",
+    "Nasdaq100": "^IXIC",
     "KOSPI": "^KS11",
     "KOSDAQ": "^KQ11",
 }

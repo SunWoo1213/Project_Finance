@@ -125,7 +125,7 @@ async def test_collect_prices_group_carries_forward_last_value_on_failure(monkey
         "currentPrice": 100.0,
         "changePercent": 1.0,
     }
-    market_service.market_cache.setdefault("prices", {})["test"] = {"Nasdaq Composite": prior}
+    market_service.market_cache.setdefault("prices", {})["test"] = {"Nasdaq100": prior}
 
     async def failing_fetch(ticker, category):
         raise RuntimeError("provider down")
@@ -133,13 +133,13 @@ async def test_collect_prices_group_carries_forward_last_value_on_failure(monkey
     monkeypatch.setattr(market_service, "is_live_market_ticker", lambda ticker: True)
     monkeypatch.setattr(market_service, "fetch_asset_data", failing_fetch)
 
-    assets = {"Nasdaq Composite": {"ticker": "^IXIC", "category": "INDEX"}}
+    assets = {"Nasdaq100": {"ticker": "^IXIC", "category": "INDEX"}}
 
     _, results = await market_service._collect_prices_group("test", assets)
 
-    assert "Nasdaq Composite" in results
-    assert results["Nasdaq Composite"]["price"] == 100.0
-    assert results["Nasdaq Composite"]["change_pct"] == 1.0
+    assert "Nasdaq100" in results
+    assert results["Nasdaq100"]["price"] == 100.0
+    assert results["Nasdaq100"]["change_pct"] == 1.0
 
     market_service.market_cache.get("prices", {}).pop("test", None)
 

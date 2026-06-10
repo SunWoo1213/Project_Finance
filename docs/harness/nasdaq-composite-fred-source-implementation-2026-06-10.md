@@ -60,6 +60,10 @@ Stooq 무료 apikey CSV 경로가 막혀(새 키로도 `^ndq`·`aapl.us`·`^spx`
 - 라이브 smoke(`GET /api/market/prices` 실 FRED 키로 `^IXIC` 값 확인)는 배포 후 단계로 남김. 로컬 실측으로 `NASDAQCOM` 정상 수신은 이미 확인.
 - 전체 `pytest`의 4개 실패는 위 사유로 미수정(시크릿/결제 키 환경 의존, 본 작업 범위 밖).
 
+## 후속 보정 (2026-06-10, 동일 작업 내)
+
+사용자 요청으로 **화면 라벨을 "Nasdaq100"** 으로 표기한다(데이터 소스는 FRED `NASDAQCOM`=Composite 그대로 유지, 표시 텍스트만 변경). 변경: `market_service.INDICES` 키 `"Nasdaq Composite"`→`"Nasdaq100"`(macro 응답 키/Home dataKey 겸용), `constants.js` `ASSET_NAMES["^IXIC"]`→`"Nasdaq100"`, `Home.jsx` label/dataKey, `MarketSnapshot.jsx` 설명 문구, 관련 테스트 픽스처. 라벨과 실제 지수(Composite)가 다르다는 점은 의도된 표기 선택이다.
+
 ## 후속 위험
 
 - FRED는 EOD·1~2영업일 지연. "현재가"는 최신 거래일 종가이며 실시간이 아니다. 등락도 최신 관측일 기준.

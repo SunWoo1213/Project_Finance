@@ -1,6 +1,6 @@
 export const ASSET_NAMES = {
   "^GSPC": "S&P 500",
-  "^IXIC": "Nasdaq Composite",
+  "^IXIC": "Nasdaq100",
   "^KS11": "KOSPI",
   "^KQ11": "KOSDAQ",
   "KRW=X": "USD/KRW",

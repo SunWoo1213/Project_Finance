@@ -50,7 +50,7 @@ export default function Home() {
 
   const targetIndices = [
     { label: 'S&P 500', dataKey: 'S&P 500', ticker: '^GSPC', category: 'US_STOCK' },
-    { label: 'Nasdaq Composite', dataKey: 'Nasdaq Composite', ticker: '^IXIC', category: 'US_STOCK' },
+    { label: 'Nasdaq100', dataKey: 'Nasdaq100', ticker: '^IXIC', category: 'US_STOCK' },
     { label: '원/달러 환율', dataKey: 'USDKRW', ticker: 'KRW=X', category: 'FX', hideChange: true },
     { label: 'KOSPI', dataKey: 'KOSPI', ticker: '^KS11', category: 'KR_STOCK' }
   ];
