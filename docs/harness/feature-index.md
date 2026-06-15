@@ -101,6 +101,8 @@ This index tells future harness agents which feature document to read before cha
 - Docker database compatibility implementation: `docs/harness/docker-database-compatibility-implementation-2026-06-02.md`
 - Deployment/runtime plans: `docs/harness/vercel-supabase-deployment-plan-2026-06-01.md`, `docs/harness/vercel-supabase-db-diagnostics-2026-06-03.md`, `docs/harness/supabase-console-tasks-2026-06-03.md`, `docs/harness/supabase-asyncpg-url-normalization-2026-06-03.md`, `docs/harness/render-database-url-quote-normalization-2026-06-03.md`
 - Existing detailed product spec: `PROJECT_FUNCTION_DETAIL_SPEC.md`
+- 최종 산출물 작성 계획(필수 산출물 7종 → 루트 `최종산출물/`): `docs/harness/final-deliverables-plan-2026-06-15.md`
+- 최종 산출물 작성 구현(흐름도/스토리보드/기능명세/ERD/API명세/개발환경/방학목표): `docs/harness/final-deliverables-implementation-2026-06-15.md`
 
 Read the feature doc first, then inspect the current code paths listed in its ownership map.
 
